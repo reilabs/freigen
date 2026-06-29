@@ -33,6 +33,10 @@ inductive Tp : Type
   | prod : Tp → Tp → Tp
   /-- Function types. -/
   | fn : Tp → Tp → Tp
+  /-- Fixed-length vectors `Vector α n`. -/
+  | vec : Tp → Nat → Tp
+  /-- Dynamic-length arrays `Array α`. -/
+  | array : Tp → Tp
 
 /-- Denote an object type back into Lean.  Reducible so that type-class search (e.g.
     `ToString`) and unification see through it to the underlying Lean type. -/
@@ -43,6 +47,8 @@ inductive Tp : Type
   | .unit     => Unit
   | .prod a b => a.denote × b.denote
   | .fn a b   => a.denote → b.denote
+  | .vec a n  => Vector a.denote n
+  | .array a  => Array a.denote
 
 /-! ## Heterogeneous lists (function argument tuples) -/
 
@@ -169,6 +175,8 @@ instance instInhabitedDenote : {α : Tp} → Inhabited α.denote
   | .unit     => ⟨()⟩
   | .prod a b => ⟨(@default _ (instInhabitedDenote (α := a)), @default _ (instInhabitedDenote (α := b)))⟩
   | .fn _ b   => ⟨fun _ => @default _ (instInhabitedDenote (α := b))⟩
+  | .vec a n  => ⟨Vector.replicate n (@default _ (instInhabitedDenote (α := a)))⟩
+  | .array _  => ⟨#[]⟩
 
 /-- Denote a **pure** expression directly to its value — used to denote a `lam`'s body to a
     Lean function.  Effectful/looping constructors don't occur in a pure body; they fall to
@@ -220,6 +228,8 @@ def Tp.toStr : (α : Tp) → α.denote → String
   | .unit,     _ => "()"
   | .prod a b, p => s!"({Tp.toStr a p.1}, {Tp.toStr b p.2})"
   | .fn _ _,   _ => "<fn>"
+  | .vec a _,  v => "#v[" ++ String.intercalate ", " (v.toList.map (Tp.toStr a)) ++ "]"
+  | .array a,  v => "#[" ++ String.intercalate ", " (v.toList.map (Tp.toStr a)) ++ "]"
 
 /-- Render an object *type* for the pretty-printer (`ZMod n` prints as `Field<n>`). -/
 def Tp.toTypeStr : Tp → String
@@ -229,6 +239,8 @@ def Tp.toTypeStr : Tp → String
   | .unit     => "Unit"
   | .prod a b => s!"({a.toTypeStr} × {b.toTypeStr})"
   | .fn a b   => s!"({a.toTypeStr} → {b.toTypeStr})"
+  | .vec a n  => s!"Vector<{a.toTypeStr}, {n}>"
+  | .array a  => s!"Array<{a.toTypeStr}>"
 
 /-- Symbol for a unary primitive, for the pretty-printer. -/
 def Un.sym : Un a b → String

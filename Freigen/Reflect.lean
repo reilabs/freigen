@@ -32,7 +32,8 @@ the soundness proof is just `rfl`.
 private def denoteV : Expr := .const ``Tp.denote []
 
 /-- Reify a Lean type into the object type universe `Tp`, or `none` if unsupported.
-    Supported: `Bool`, `Nat`, `ZMod n`, `Unit`, products, and (non-dependent) functions. -/
+    Supported: `Bool`, `Nat`, `ZMod n`, `Unit`, products, `Vector`/`Array`, and
+    (non-dependent) functions. -/
 private partial def reifyTp (T : Expr) : MetaM (Option Expr) := do
   -- Match the head *before* reducing — `whnf` would unfold e.g. `ZMod 5` to `Fin 5`.
   match_expr T with
@@ -44,6 +45,12 @@ private partial def reifyTp (T : Expr) : MetaM (Option Expr) := do
     let some a ← reifyTp A | return none
     let some b ← reifyTp B | return none
     return some (mkApp2 (.const ``Tp.prod []) a b)
+  | Vector A n =>
+    let some a ← reifyTp A | return none
+    return some (mkApp2 (.const ``Tp.vec []) a n)
+  | Array A =>
+    let some a ← reifyTp A | return none
+    return some (mkApp (.const ``Tp.array []) a)
   | _ =>
     -- a (non-dependent) function type `A → B`
     if let .forallE _ A B _ := T then
@@ -52,16 +59,20 @@ private partial def reifyTp (T : Expr) : MetaM (Option Expr) := do
       let some b ← reifyTp B | return none
       return some (mkApp2 (.const ``Tp.fn []) a b)
     else
-      -- unfold a transparent alias (e.g. `Unit` → `PUnit`) and retry once
-      let T' ← whnf T
-      if T' == T then return none else reifyTp T'
+      -- unfold a transparent alias one *delta* step and retry (e.g. `Unit` → `PUnit`, or a
+      -- user abbrev `Fr := ZMod p` → `ZMod p`).  We unfold a single definition rather than
+      -- `whnf`-ing, so we stop at a named head like `ZMod`/`Vector` instead of blasting through
+      -- to its implementation (`whnf` would reduce `ZMod p` all the way to `Fin p`).
+      match ← unfoldDefinition? T with
+      | some T' => reifyTp T'
+      | none    => return none
 
 /-- Reify a Lean type into a `Tp`, aborting elaboration if it is unsupported. -/
 private def reifyTpOrThrow (T : Expr) : MetaM Expr := do
   match ← reifyTp T with
   | some tp => return tp
   | none    => throwError "reflect%: type is not expressible as a `Tp` \
-                           (supported: `Bool`/`Nat`/`ZMod _`/`Unit`/`×`/`→`){indentExpr T}"
+                           (supported: `Bool`/`Nat`/`ZMod _`/`Unit`/`×`/`Vector`/`Array`/`→`){indentExpr T}"
 
 /-- One monomorphised function spill discovered during reflection: the source constant, its
     (object) argument-type list and result type, and the reflected body (a closed
