@@ -204,6 +204,45 @@ example : denoteProg (reflectedVec.1 (KleisliF CircOp) Tp.denote) .nil = vecCons
 --     v0
 #eval IO.println (pp CircOp.name (reflectedVec.1 PpF PpV))
 
+/-! ## Vector indexing and a *certified* (non-`rfl`) soundness proof
+
+`v[i]` reflects to the proof-erased `vecGet` primitive, whose denotation is the *total*
+`getElem!` — **not** definitionally the host's proof-carrying `v[i]`.  So the soundness proof is
+no longer a blanket `rfl`: `reflect%` builds it inductively with `bridgeErase`, inserting the
+`getElem!_pos` bridge at each indexed access and plain congruence elsewhere.
+
+The index is always a `Nat` in the AST: a `Fin n` index is reflected as `i.val` and its bound
+`i.isLt` is exactly what the bridge consumes — there is no `Fin` in the object-type universe. -/
+
+/-- A dot-product-ish program indexing its vector with `Nat` literals. -/
+def vdot (v : Vector Nat 3) : Free (Effect CircOp) Nat := pure (v[0] + v[1] + v[2])
+
+def reflectedVdot := reflect% vdot
+
+/-- Soundness still holds — but the proof is the structurally-built bridge, not a global `rfl`. -/
+example : ∀ v, denoteProg (reflectedVdot.1 (KleisliF CircOp) Tp.denote) (.cons v .nil) = vdot v :=
+  reflectedVdot.2
+
+-- The indexed accesses print with `v[i]` syntax (the index is its own `lit` atom):
+--   def main(x0 : Vector<Nat, 3>) =>
+--     let v1 := 0
+--     let v2 := x0[v1]
+--     …
+#eval IO.println (pp CircOp.name (reflectedVdot.1 PpF PpV))
+#eval IO.println s!"runCirc (vdot #v[10,20,30]) = {runCirc (vdot ⟨#[10, 20, 30], rfl⟩)}"
+
+/-- The same, but with **`Fin`-indexed** access: reflected as `i.val` (`Nat`), the `Fin` bound
+    handled by the bridge.  No `Fin` enters the AST. -/
+def vdotFin (v : Vector Nat 3) : Free (Effect CircOp) Nat :=
+  pure (v[(0 : Fin 3)] + v[(1 : Fin 3)] + v[(2 : Fin 3)])
+
+def reflectedVdotFin := reflect% vdotFin
+
+example : ∀ v, denoteProg (reflectedVdotFin.1 (KleisliF CircOp) Tp.denote) (.cons v .nil) = vdotFin v :=
+  reflectedVdotFin.2
+
+#eval IO.println s!"runCirc (vdotFin #v[10,20,30]) = {runCirc (vdotFin ⟨#[10, 20, 30], rfl⟩)}"
+
 end Examples
 
 end Freigen

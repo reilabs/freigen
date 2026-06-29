@@ -193,6 +193,18 @@ mutual
           (mkApp2 (.const ``Tp.prod []) aTp bTp) x y k
     | Prod.fst _ _ p        => env.reflectUn Op (← env.prodUn ``Un.fst p) (← reifyTpOrThrow (← inferType a)) p k
     | Prod.snd _ _ p        => env.reflectUn Op (← env.prodUn ``Un.snd p) (← reifyTpOrThrow (← inferType a)) p k
+    -- vector indexing `v[i]` → the proof-erased `vecGet` (denotes to `getElem!`).  The index is
+    -- kept as a `Nat`: a `Fin n` index is reflected as `i.val`, dropping its bound (and a `Nat`
+    -- index drops its in-bounds proof).  The denotation gap (host `v[i]` vs erased `v[i]!`) is
+    -- reconciled by `bridgeErase`, which is exactly where the dropped `Fin`/`Nat` proof reappears.
+    | getElem _ idxTy _ _ _ v idx _ =>
+        let natIdx ← match_expr idxTy with
+          | Nat   => pure idx
+          | Fin _ => mkAppM ``Fin.val #[idx]
+          | _     => throwError "reflect%: a vector index must be `Nat` or `Fin _`{indentExpr idxTy}"
+        match_expr ← reifyTpOrThrow (← inferType v) with
+        | Tp.vec aTp n => env.reflectBin Op (mkApp2 (.const ``Bin.vecGet []) aTp n) aTp v natIdx k
+        | _ => throwError "reflect%: `[]`-indexing is only supported on `Vector`{indentExpr a}"
     | _ => throwError "reflect%: cannot reflect this operation on a bound variable \
                        (no matching object primitive){indentExpr a}"
 
@@ -405,6 +417,77 @@ mutual
     mkAppOptM ``Exp.call #[Op, env.F, env.V, none, asList, retTp, cf, hl, contLam]
 end
 
+/-! ## Bridging the run-realm and the denote-realm
+
+`reflect%` denotes a *proof-erased* primitive like `vecGet` to a *total* host operation
+(`getElem!`), which is **not** definitionally the host's proof-carrying operation (`v[i]'h`) — so
+the soundness proof is no longer `rfl`.  `bridgeErase` rebuilds the host term, rewriting each such
+operation into the total form the AST denotes to, and returns the equality proof *inductively* as
+it goes: a per-operation **bridge** lemma at the erased node (here `getElem!_pos`), and plain
+congruence (`congr`/`congrFun`/`funext`) everywhere else.  It returns `none` when nothing is
+rewritten (then `denote g` is *definitionally* the host term and the proof is `rfl`).
+
+This is generic in the term, not the AST walk: each new proof-erased primitive adds one
+`match_expr` arm with its bridge lemma; the congruence machinery is shared. -/
+
+/-- `f a₁ … aₙ = f b₁ … bₙ` from the *last two* argument-equalities `hx : aₙ₋₁ = bₙ₋₁`,
+    `hy : aₙ = bₙ` (the earlier arguments held fixed). -/
+private def mkBinCongr (a hx hy : Expr) : MetaM Expr := do
+  let args := a.getAppArgs
+  let f := mkAppN a.getAppFn (args.extract 0 (args.size - 2))
+  mkCongr (← mkCongrArg f hx) hy
+
+/-- Rebuild `a`, rewriting each proof-erased primitive into the total operation its AST node
+    denotes to, returning `some (erased, proof : a = erased)`, or `none` if `a` is unchanged. -/
+private partial def bridgeErase (a : Expr) : MetaM (Option (Expr × Expr)) := do
+  let a := a.consumeMData
+  match_expr a with
+  | getElem _ idxTy _ _ _ v idx h =>
+    -- the bridge: `v[i]  =  v[i.val]!`, with the dropped bound supplied here — `h` for a `Nat`
+    -- index, `i.isLt` for a `Fin n` one — then erase inside the vector/index and re-congruence.
+    let (natIdx, boundPf) ← match_expr idxTy with
+      | Nat   => pure (idx, h)
+      | Fin _ => pure ((← mkAppM ``Fin.val #[idx]), (← mkAppM ``Fin.isLt #[idx]))
+      | _     => throwError "bridgeErase: a vector index must be `Nat` or `Fin _`{indentExpr idxTy}"
+    let bridge ← mkEqSymm (← mkAppM ``getElem!_pos #[v, natIdx, boundPf])
+    let ev? ← bridgeErase v
+    let ei? ← bridgeErase natIdx
+    match ev?, ei? with
+    | none, none => return some (← mkAppM ``getElem! #[v, natIdx], bridge)
+    | _, _ =>
+      let (ev, pv) := (ev?.getD (v, ← mkEqRefl v))
+      let (ei, pi) := (ei?.getD (natIdx, ← mkEqRefl natIdx))
+      let congr ← mkBinCongr (← mkAppM ``getElem! #[v, natIdx]) pv pi
+      return some (← mkAppM ``getElem! #[ev, ei], ← mkEqTrans bridge congr)
+  | _ =>
+    if let .lam n ty _ bi := a then
+      -- go under the binder; `funext` lifts the body equality to the lambda
+      withLocalDecl n bi ty fun x => do
+        match ← bridgeErase (a.beta #[x]) with
+        | none          => return none
+        | some (eb, pb) =>
+          return some (← mkLambdaFVars #[x] eb, ← mkAppM ``funext #[← mkLambdaFVars #[x] pb])
+    else if a.isApp then
+      -- congruence over the application's arguments (head held fixed)
+      let f := a.getAppFn
+      let args := a.getAppArgs
+      let mut erasedArgs : Array Expr := #[]
+      let mut proofs : Array (Option Expr) := #[]
+      let mut changed := false
+      for arg in args do
+        match ← bridgeErase arg with
+        | some (e, p) => changed := true; erasedArgs := erasedArgs.push e; proofs := proofs.push (some p)
+        | none        => erasedArgs := erasedArgs.push arg; proofs := proofs.push none
+      if !changed then return none
+      let mut acc ← mkEqRefl f
+      for i in [0:args.size] do
+        acc ← match proofs[i]! with
+              | some p => mkCongr acc p
+              | none   => mkCongrFun acc args[i]!
+      return some (mkAppN f erasedArgs, acc)
+    else
+      return none
+
 elab "reflect% " t:term : term => do
   let e ← elabTerm t none
   synthesizeSyntheticMVarsNoPostponing
@@ -478,9 +561,15 @@ elab "reflect% " t:term : term => do
         let lhs ← mkAppOptM ``denoteProg #[Op, none, none, mkAppN gv #[kf, denoteV], argHList]
         let eq ← mkEq lhs (e.beta args)
         mkLambdaFVars #[gv] (← mkForallFVars args eq)
-      -- proof  fun args => rfl   (denoteProg (g (KleisliF Op) Tp.denote) ⟨args…⟩ ≡ e args)
+      -- proof  fun args => …   The denotation `denoteProg (g KleisliF Tp.denote) ⟨args…⟩` is
+      -- *definitionally* the host term with every proof-erased primitive replaced by its total
+      -- form; `bridgeErase` reconstructs that replacement on the host side with a proof, so the
+      -- soundness proof is that bridge (or `rfl` when nothing is erased).
       let dp ← mkAppOptM ``denoteProg #[Op, none, none, mkAppN g #[kf, denoteV], argHList]
-      let prf ← mkLambdaFVars args (← mkEqRefl dp)
+      let prf ← mkLambdaFVars args (← do
+        match ← bridgeErase (e.beta args) with
+        | none        => mkEqRefl dp                        -- denote g ≡ e args : `rfl`
+        | some (_, p) => mkEqSymm p)                        -- p : e args = erased ≡ dp
       mkAppOptM ``Subtype.mk #[gTy, pred, g, prf]
 
 end Freigen

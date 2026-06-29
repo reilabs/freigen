@@ -50,6 +50,18 @@ inductive Tp : Type
   | .vec a n  => Vector a.denote n
   | .array a  => Array a.denote
 
+/-- Every object type is inhabited (so a *pure* expression always has a denotable value, and the
+    proof-erased `vecGet` has a `default` to fall back on for out-of-range indices). -/
+instance instInhabitedDenote : {α : Tp} → Inhabited α.denote
+  | .bool     => ⟨false⟩
+  | .nat      => ⟨0⟩
+  | .zmod _   => ⟨0⟩
+  | .unit     => ⟨()⟩
+  | .prod a b => ⟨(@default _ (instInhabitedDenote (α := a)), @default _ (instInhabitedDenote (α := b)))⟩
+  | .fn _ b   => ⟨fun _ => @default _ (instInhabitedDenote (α := b))⟩
+  | .vec a n  => ⟨Vector.replicate n (@default _ (instInhabitedDenote (α := a)))⟩
+  | .array _  => ⟨#[]⟩
+
 /-! ## Heterogeneous lists (function argument tuples) -/
 
 /-- A heterogeneous list: `HList β [i₀, i₁, …]` holds a `β i₀`, a `β i₁`, ….  Used for the
@@ -86,6 +98,11 @@ inductive Bin : Tp → Tp → Tp → Type
   | subZ {n : Nat} : Bin (.zmod n) (.zmod n) (.zmod n)
   | mulZ {n : Nat} : Bin (.zmod n) (.zmod n) (.zmod n)
   | pair {a b : Tp} : Bin a b (.prod a b)
+  /-- Index a vector at a (`Nat`) position.  **Proof-erased**: the index is a plain atom carrying
+      no in-bounds proof, so the denotation is *total* — `getElem!`, falling back to the element
+      type's `default` on an out-of-range index.  The reflector reconciles this erased access with
+      the host's proof-carrying `v[i]'h` by emitting a *bridge* proof (see `Reflect.lean`). -/
+  | vecGet {a : Tp} {n : Nat} : Bin (.vec a n) .nat a
 
 /-- Denote a unary primitive to its Lean operation. -/
 def Un.denote : Un a b → a.denote → b.denote
@@ -106,6 +123,7 @@ def Bin.denote : Bin a b c → a.denote → b.denote → c.denote
   | .subZ, x, y => x - y
   | .mulZ, x, y => x * y
   | .pair, x, y => (x, y)
+  | .vecGet, v, i => v[i]!
 
 /-! ## The AST -/
 
@@ -164,19 +182,6 @@ def Closed (Op : Type → Type → Type 1) (mainArgs : List Tp) (α : Tp) : Type
     arrow from the denoted argument tuple, `HList Tp.denote as → Free (Effect Op) b.denote`. -/
 abbrev KleisliF (Op : Type → Type → Type 1) : List Tp → Tp → Type 1 :=
   fun as b => HList Tp.denote as → Free (Effect Op) b.denote
-
-/-! ## Denotation (the identity interpreter, `V := Tp.denote`, `F := KleisliF Op`) -/
-
-/-- Every object type is inhabited (so a *pure* expression always has a denotable value). -/
-instance instInhabitedDenote : {α : Tp} → Inhabited α.denote
-  | .bool     => ⟨false⟩
-  | .nat      => ⟨0⟩
-  | .zmod _   => ⟨0⟩
-  | .unit     => ⟨()⟩
-  | .prod a b => ⟨(@default _ (instInhabitedDenote (α := a)), @default _ (instInhabitedDenote (α := b)))⟩
-  | .fn _ b   => ⟨fun _ => @default _ (instInhabitedDenote (α := b))⟩
-  | .vec a n  => ⟨Vector.replicate n (@default _ (instInhabitedDenote (α := a)))⟩
-  | .array _  => ⟨#[]⟩
 
 /-- Denote a **pure** expression directly to its value — used to denote a `lam`'s body to a
     Lean function.  Effectful/looping constructors don't occur in a pure body; they fall to
@@ -249,7 +254,7 @@ def Un.sym : Un a b → String
 /-- Symbol for a binary primitive, for the pretty-printer. -/
 def Bin.sym : Bin a b c → String
   | .add => "+" | .sub => "-" | .mul => "*" | .pow => "^" | .eq => "==" | .and => "&&" | .or => "||"
-  | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .pair => ","
+  | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .pair => "," | .vecGet => "[]"
 
 /-- Indentation (two spaces per nesting level) for the pretty-printer. -/
 private def ppIndent (d : Nat) : String := String.join (List.replicate d "  ")
@@ -323,7 +328,9 @@ private def ppAux {Op : Type → Type → Type 1} {α : Tp}
     let i := i + 1
     let (rest, i) := ppAux name d i (k v)
     -- `pair` reads better as a tuple than as an infix `,`
-    let rhs := if Bin.sym o == "," then s!"({a}, {b})" else s!"{a} {Bin.sym o} {b}"
+    let rhs := if Bin.sym o == "," then s!"({a}, {b})"
+               else if Bin.sym o == "[]" then s!"{a}[{b}]"
+               else s!"{a} {Bin.sym o} {b}"
     (s!"{ppIndent d}let {v} := {rhs}\n{rest}", i)
   | d, i, .forN n init body k =>
     let iv := s!"i{i}"
