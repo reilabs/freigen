@@ -37,6 +37,8 @@ inductive Tp : Type
   | vec : Tp → Nat → Tp
   /-- Dynamic-length arrays `Array α`. -/
   | array : Tp → Tp
+  /-- Sum (coproduct) types — used for loop steps `σ ⊕ ρ` (loop again / done). -/
+  | sum : Tp → Tp → Tp
 
 /-- Denote an object type back into Lean.  Reducible so that type-class search (e.g.
     `ToString`) and unification see through it to the underlying Lean type. -/
@@ -49,6 +51,7 @@ inductive Tp : Type
   | .fn a b   => a.denote → b.denote
   | .vec a n  => Vector a.denote n
   | .array a  => Array a.denote
+  | .sum a b  => a.denote ⊕ b.denote
 
 /-- Every object type is inhabited (so a *pure* expression always has a denotable value, and the
     proof-erased `vecGet` has a `default` to fall back on for out-of-range indices). -/
@@ -61,6 +64,7 @@ instance instInhabitedDenote : {α : Tp} → Inhabited α.denote
   | .fn _ b   => ⟨fun _ => @default _ (instInhabitedDenote (α := b))⟩
   | .vec a n  => ⟨Vector.replicate n (@default _ (instInhabitedDenote (α := a)))⟩
   | .array _  => ⟨#[]⟩
+  | .sum a _  => ⟨Sum.inl (@default _ (instInhabitedDenote (α := a)))⟩
 
 /-! ## Heterogeneous lists (function argument tuples) -/
 
@@ -84,6 +88,8 @@ inductive Un : Tp → Tp → Type
   | not : Un .bool .bool
   | fst {a b : Tp} : Un (.prod a b) a
   | snd {a b : Tp} : Un (.prod a b) b
+  | inl {a b : Tp} : Un a (.sum a b)
+  | inr {a b : Tp} : Un b (.sum a b)
 
 /-- Binary primitive operations, indexed by (left, right, result) object type. -/
 inductive Bin : Tp → Tp → Tp → Type
@@ -109,6 +115,8 @@ def Un.denote : Un a b → a.denote → b.denote
   | .not, x => !x
   | .fst, p => p.1
   | .snd, p => p.2
+  | .inl, x => Sum.inl x
+  | .inr, x => Sum.inr x
 
 /-- Denote a binary primitive to its Lean operation. -/
 def Bin.denote : Bin a b c → a.denote → b.denote → c.denote
@@ -158,6 +166,10 @@ inductive Exp (Op : Type → Type → Type 1) (F : List Tp → Tp → Type 1) (V
   | lam {α β : Tp} : (V α → Exp Op F V β) → Exp Op F V (.fn α β)
   /-- `let`: name the result of a (sub)expression as an atom, then continue. -/
   | letE {α β : Tp} : Exp Op F V α → (V α → Exp Op F V β) → Exp Op F V β
+  /-- Branch on a boolean atom into one of two sub-computations producing the *same* (final)
+      result (the program's continuation is pushed into both branches, so there is no trailing
+      bind — `denote` is exactly `cond`).  Only the taken branch's effects occur. -/
+  | ite {α : Tp} : V .bool → Exp Op F V α → Exp Op F V α → Exp Op F V α
 
 /-- A whole program: a telescope of (monomorphic) function **definitions** pulled out in front
     of the `main` body.  Each `def_` binds a function-name `F as b` that the rest of the
@@ -193,6 +205,7 @@ def denoteVal {Op : Type → Type → Type 1} {α : Tp} : Exp Op (KleisliF Op) T
   | .bin o a b k => denoteVal (k (Bin.denote o a b))
   | .lam body    => fun x => denoteVal (body x)
   | .letE e k    => denoteVal (k (denoteVal e))
+  | .ite c t e   => cond c (denoteVal t) (denoteVal e)
   | _            => default
 
 /-- Denote an expression to a real `Free (Effect Op)` computation; a `call` applies the
@@ -213,6 +226,7 @@ def denote {Op : Type → Type → Type 1} {α : Tp} :
   | .call cf args k => freeBind (cf args) (fun r => denote (k r))
   | .lam body       => Free.Pure (fun x => denoteVal (body x))
   | .letE e k       => freeBind (denote e) (fun v => denote (k v))
+  | .ite c t e      => cond c (denote t) (denote e)
 
 /-- Denote a whole program to a function from its inputs: each `def_` denotes its body to a
     Lean (Kleisli) function and binds it for the rest; `main` denotes to a function of the
@@ -235,6 +249,9 @@ def Tp.toStr : (α : Tp) → α.denote → String
   | .fn _ _,   _ => "<fn>"
   | .vec a _,  v => "#v[" ++ String.intercalate ", " (v.toList.map (Tp.toStr a)) ++ "]"
   | .array a,  v => "#[" ++ String.intercalate ", " (v.toList.map (Tp.toStr a)) ++ "]"
+  | .sum a b,  x => match x with
+                    | .inl y => s!"inl {Tp.toStr a y}"
+                    | .inr y => s!"inr {Tp.toStr b y}"
 
 /-- Render an object *type* for the pretty-printer (`ZMod n` prints as `Field<n>`). -/
 def Tp.toTypeStr : Tp → String
@@ -246,10 +263,11 @@ def Tp.toTypeStr : Tp → String
   | .fn a b   => s!"({a.toTypeStr} → {b.toTypeStr})"
   | .vec a n  => s!"Vector<{a.toTypeStr}, {n}>"
   | .array a  => s!"Array<{a.toTypeStr}>"
+  | .sum a b  => s!"({a.toTypeStr} ⊕ {b.toTypeStr})"
 
 /-- Symbol for a unary primitive, for the pretty-printer. -/
 def Un.sym : Un a b → String
-  | .not => "!" | .fst => ".1 " | .snd => ".2 "
+  | .not => "!" | .fst => ".1 " | .snd => ".2 " | .inl => "inl " | .inr => "inr "
 
 /-- Symbol for a binary primitive, for the pretty-printer. -/
 def Bin.sym : Bin a b c → String
@@ -308,6 +326,10 @@ private def ppAux {Op : Type → Type → Type 1} {α : Tp}
     let i := i + 1
     let (rest, i) := ppAux name d i (k v)
     (s!"{ppIndent d}let {v} :=\n{eStr}\n{rest}", i)
+  | d, i, .ite c t e =>
+    let (tStr, i) := ppAux name (d + 1) i t
+    let (eStr, i) := ppAux name (d + 1) i e
+    (s!"{ppIndent d}if {c} then\n{tStr}\n{ppIndent d}else\n{eStr}", i)
   | d, i, .lam body =>
     let arg := s!"x{i}"
     let i := i + 1

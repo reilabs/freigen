@@ -51,6 +51,10 @@ private partial def reifyTp (T : Expr) : MetaM (Option Expr) := do
   | Array A =>
     let some a ← reifyTp A | return none
     return some (mkApp (.const ``Tp.array []) a)
+  | Sum A B =>
+    let some a ← reifyTp A | return none
+    let some b ← reifyTp B | return none
+    return some (mkApp2 (.const ``Tp.sum []) a b)
   | _ =>
     -- a (non-dependent) function type `A → B`
     if let .forallE _ A B _ := T then
@@ -193,6 +197,12 @@ mutual
           (mkApp2 (.const ``Tp.prod []) aTp bTp) x y k
     | Prod.fst _ _ p        => env.reflectUn Op (← env.prodUn ``Un.fst p) (← reifyTpOrThrow (← inferType a)) p k
     | Prod.snd _ _ p        => env.reflectUn Op (← env.prodUn ``Un.snd p) (← reifyTpOrThrow (← inferType a)) p k
+    | Sum.inl A B x         => do
+        let aTp ← reifyTpOrThrow A; let bTp ← reifyTpOrThrow B
+        env.reflectUn Op (mkApp2 (.const ``Un.inl []) aTp bTp) (mkApp2 (.const ``Tp.sum []) aTp bTp) x k
+    | Sum.inr A B x         => do
+        let aTp ← reifyTpOrThrow A; let bTp ← reifyTpOrThrow B
+        env.reflectUn Op (mkApp2 (.const ``Un.inr []) aTp bTp) (mkApp2 (.const ``Tp.sum []) aTp bTp) x k
     -- vector indexing `v[i]` → the proof-erased `vecGet` (denotes to `getElem!`).  The index is
     -- kept as a `Nat`: a `Fin n` index is reflected as `i.val`, dropping its bound (and a `Nat`
     -- index drops its in-bounds proof).  The denotation gap (host `v[i]` vs erased `v[i]!`) is
@@ -249,6 +259,7 @@ mutual
     | Bind.bind _ _ _ _ x f   => walkBind env Op x f k
     | freeBind _ _ _ x f      => walkBind env Op x f k
     | ForIn.forIn _ _ _ _ beta range init body => walkForN env Op range init body beta k
+    | cond _ c t e => walkIte env Op c t e k
     | Free.Impure _ _ _ eff cont =>
       -- `eff : Effect Op O` is `Effect.mk (o : Op I O) (inp : I)`; reify the (Lean) input and
       -- result types back to object types, then reflect the input atom
@@ -335,6 +346,16 @@ mutual
       let contLam ← withLocalDeclD `r (mkApp env.V sTp) fun vr => do
                       mkLambdaFVars #[vr] (← k vr)
       mkAppOptM ``Exp.forN #[Op, env.F, env.V, none, sTp, nExpr, initAtom, bodyLam, contLam]
+
+  /-- Reflect a boolean branch `bif c then t else e` (`cond c t e`) into an `Exp.ite`: reflect the
+      condition to a `.bool` atom, walk each branch as a sub-computation, then thread the result. -/
+  private partial def walkIte (env : Env) (Op c t e : Expr) (k : Expr → MetaM Expr) : MetaM Expr := do
+    -- the program's continuation `k` is pushed into *both* branches, so `ite` has no trailing
+    -- continuation and `denote (ite …) = cond …` definitionally (keeps the `rfl` soundness).
+    env.reflectExpr Op c fun ca => do
+      let tExp ← walkProg env Op t k
+      let eExp ← walkProg env Op e k
+      mkAppOptM ``Exp.ite #[Op, env.F, env.V, none, ca, tExp, eExp]
 
   /-- Try to reflect `e` as a *call* to a user definition (returning `some prog`), or decline
       (`none`) so the caller inlines it instead.  A call is recognised purely by reflection:
