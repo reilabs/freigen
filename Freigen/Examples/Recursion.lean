@@ -1,67 +1,71 @@
+import Freigen.Adequacy
 import Freigen.Reflect
-import Freigen.DenoteITree
 import Freigen.Examples.Circuit.Basic
 
 /-!
-# Recursion through the elaborator: a reflected loop
+# `reflect%` reflects plain recursive `def`s — **one path**, with the proof bundled
 
-With sum types (`Tp.sum`, `Sum.inl`/`Sum.inr`) and the boolean branch (`Exp.ite`/`bif`) now
-reflectable, a **loop step** `σ → Free (Effect Op) (σ ⊕ ρ)` reflects, and `ITree.iter` ties the
-unbounded recursive knot in the coinductive domain.  This is the recursion the `Free`/`Prog`
-fragment could never express — and its soundness is `ITree.iter_converges`.
+Both functions below are ordinary structural-recursive `Free` functions (Lean compiles them to
+`Nat.brecOn`).  `reflect%` recognises them, re-expresses the body over the `CallOp` signature, and
+emits the `ITree.mrec` knot in the same `Comp CircOp` domain as every other reflected program — and,
+exactly like the non-recursive path, it returns a **`{ f // soundness }` subtype**: `.1` is the
+reflected function, `.2` is the proof that it is sound against the source.
 
-Here: a countdown.  The step is *reflected* from a host `bif … then … else …`; the loop is `iter`;
-and we prove it **converges to `0`** from every input by unfolding the reflected step and applying
-the general adequacy theorem's reasoning.
+The recursion's soundness is the *uniform* `ITree.Eutt` (`≈`): `∀ N, f N ≈ ofFree (e N)` — the
+`tau`-guarded knot is weakly bisimilar to the finite source, the recursion guard's `tau`s absorbed.
+It is discharged generically by `ITree.mrec_adequacy` / `adeqBody'` (see `Freigen/Adequacy.lean`), so
+the elaborator emits it with no per-function input — there is no longer a separate bare-function path.
+
+* `countdown` is **tail**-recursive.
+* `sm` is **non-tail**-recursive (`sm n + 1`): the self-call sits under a `bind`.  This is the case
+  the old `iter`-based reflection could not even express; `mrec` keeps the post-call continuation in
+  the tree and `interp_bind` pushes it through — and the *same* emitted proof discharges its soundness.
 -/
 
 namespace Freigen
 
 open ITree
 
-/-- The loop step (a host program): stop at `0`, else loop on the predecessor.  Reflectable now
-    that `bif` (→ `Exp.ite`) and `Sum.inl`/`Sum.inr` (→ `Un.inl`/`Un.inr`) are handled. -/
-def cdStep (n : Nat) : Free (Effect CircOp) (Nat ⊕ Nat) :=
-  bif n == 0 then pure (Sum.inr 0) else pure (Sum.inl (n - 1))
+/-! ## Tail recursion -/
 
-/-- Reflect the step to a closed AST. -/
-def rStep := reflect% cdStep
+def countdown : Nat → Free (Effect CircOp) Nat
+  | 0     => pure 0
+  | n + 1 => countdown n
 
-/-- The step, denoted into the interaction-tree domain. -/
-noncomputable def cdStepD (n : Nat) : Comp CircOp (Nat ⊕ Nat) :=
-  denoteProgI (rStep.1 (KleisliFI CircOp) Tp.denote) (.cons n .nil)
+/-- `reflect%` returns the `{ f // ∀ N, f N ≈ ofFree (countdown N) }` subtype — function **and** proof. -/
+def countdownC := reflect% countdown
 
-/-- The denoted step computes the pure decision (concrete `n`). -/
-theorem cdStepD_zero : cdStepD 0 = ret (Sum.inr 0) := by
-  unfold cdStepD rStep
-  simp only [denoteProgI, denoteI, cdStep, bind_ret, denoteValI, Bin.denote, Un.denote,
-             HList.head, cond]
-  rfl
+/-- `.1` is the reflected `Comp CircOp` function. -/
+example (N : Nat) : Comp CircOp Nat := countdownC.1 N
 
-theorem cdStepD_succ (m : Nat) : cdStepD (m + 1) = ret (Sum.inl m) := by
-  unfold cdStepD rStep
-  simp only [denoteProgI, denoteI, cdStep, bind_ret, denoteValI, Bin.denote, Un.denote,
-             HList.head, cond]
-  rfl
+/-- `.2` is the bundled soundness, for free — no hand-written bisimulation. -/
+example : ∀ N, countdownC.1 N ≈ ofFree (countdown N) := countdownC.2
 
-/-- The countdown loop: `iter` over the reflected step. -/
-noncomputable def countdown (N : Nat) : Comp CircOp Nat := iter cdStepD N
+/-- And it composes with the source's own facts, e.g. `countdown N = 0`, to read off a closed form. -/
+theorem countdownC_eutt (N : Nat) : countdownC.1 N ≈ ret 0 := by
+  have h : countdown N = Free.Pure 0 := by induction N with
+    | zero => rfl
+    | succ m ih => rw [countdown]; exact ih
+  have := countdownC.2 N
+  rwa [h] at this
 
-theorem countdown_zero : countdown 0 = ret 0 := by
-  rw [countdown, iter_unfold, cdStepD_zero]
-  simp only [bind_ret, iterK]
+/-! ## Non-tail recursion -/
 
-theorem countdown_succ (m : Nat) : countdown (m + 1) = tau (countdown m) := by
-  rw [countdown, iter_unfold, cdStepD_succ]
-  simp only [bind_ret, iterK]
-  rfl
+def sm : Nat → Free (Effect CircOp) Nat
+  | 0     => pure 0
+  | n + 1 => do let r ← sm n; pure (r + 1)
 
-/-- **The reflected recursive loop converges to `0` from every input.** -/
-theorem countdown_converges (N : Nat) : Converges (countdown N) 0 := by
-  induction N with
-  | zero => exact ⟨1, by rw [countdown_zero, stepN_ret]⟩
-  | succ m ih =>
-    obtain ⟨k, hk⟩ := ih
-    exact ⟨k + 1, by rw [countdown_succ, stepN_tau]; exact hk⟩
+/-- The *same* `reflect%` handles the non-tail case — same subtype, same bundled soundness. -/
+def smC := reflect% sm
+
+example : ∀ N, smC.1 N ≈ ofFree (sm N) := smC.2
+
+/-- `sm n = n`, so the reflected non-tail recursion is `≈ ret N`. -/
+theorem smC_eutt (N : Nat) : smC.1 N ≈ ret N := by
+  have h : sm N = Free.Pure N := by induction N with
+    | zero => rfl
+    | succ m ih => rw [sm]; simp [ih, freeBind]
+  have := smC.2 N
+  rwa [h] at this
 
 end Freigen

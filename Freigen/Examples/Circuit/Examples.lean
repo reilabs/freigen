@@ -30,12 +30,12 @@ def reflectedExample := reflect% hostExample
 
 /-- Soundness: `denoteProg` applied to the argument tuple matches the host (at `F := KleisliF`,
     `V := Tp.denote`). -/
-example : ∀ k, denoteProg (reflectedExample.1 (KleisliF CircOp) Tp.denote) (.cons k .nil) =
-    hostExample k := reflectedExample.2
+example : ∀ k, ITree.Eutt (ITree.ofFree (denoteProg (reflectedExample.1 (KleisliF CircOp) Tp.denote) (.cons k .nil)))
+    (ITree.ofFree (hostExample k)) := reflectedExample.2
 
 /-- Closed case (`main` takes no arguments): `reflect%`'s program is literally a `Closed`. -/
-example : denoteProg ((reflect% (hostExample 7)).1 (KleisliF CircOp) Tp.denote) .nil = hostExample 7 :=
-  (reflect% (hostExample 7)).2
+example : ITree.Eutt (ITree.ofFree (denoteProg ((reflect% (hostExample 7)).1 (KleisliF CircOp) Tp.denote) .nil))
+    (ITree.ofFree (hostExample 7)) := (reflect% (hostExample 7)).2
 
 -- `main` takes its argument as a parameter (`x0`); `hint`'s `(seed, fn)` input pairs the seed
 -- with the evaluator, now a real AST `λ` (here the identity):
@@ -78,8 +78,8 @@ def reflectedPow := reflect% powExample
 
 /-- Soundness still holds by `rfl`: `denote`'s `forN` case is defined via the very same
     `forIn`, so the round-trip is definitional even with the loop. -/
-example : ∀ x, denoteProg (reflectedPow.1 (KleisliF CircOp) Tp.denote) (.cons x .nil) =
-    powExample x := reflectedPow.2
+example : ∀ x, ITree.Eutt (ITree.ofFree (denoteProg (reflectedPow.1 (KleisliF CircOp) Tp.denote) (.cons x .nil)))
+    (ITree.ofFree (powExample x)) := reflectedPow.2
 
 -- `x` is `main`'s argument atom; the reference value is a `hint` whose evaluator is a real
 -- AST `λ` computing `· ^ powN`:
@@ -131,8 +131,8 @@ def reflectedMono := reflect% monoExample
 
 /-- Soundness by `rfl`: each `call` denotes to applying the (denoted) spilled body, which is
     definitionally the original `dbl` instance. -/
-example : ∀ a b c, denoteProg (reflectedMono.1 (KleisliF CircOp) Tp.denote) (.cons a (.cons b (.cons c .nil))) =
-    monoExample a b c := reflectedMono.2
+example : ∀ a b c, ITree.Eutt (ITree.ofFree (denoteProg (reflectedMono.1 (KleisliF CircOp) Tp.denote) (.cons a (.cons b (.cons c .nil)))))
+    (ITree.ofFree (monoExample a b c)) := reflectedMono.2
 
 -- Two definitions pulled out in front of `main` (`f0 = dbl@5`, `f3 = dbl@7`); `main` takes
 -- its three arguments, and the third call (N=5) re-uses `f0`:
@@ -166,8 +166,8 @@ def multiExample (a b : ZMod 5) : Free (Effect CircOp) (ZMod 5) := do
 def reflectedMulti := reflect% multiExample
 
 /-- Soundness by `rfl`, with arguments delivered through the `HList`. -/
-example : ∀ a b, denoteProg (reflectedMulti.1 (KleisliF CircOp) Tp.denote) (.cons a (.cons b .nil)) =
-    multiExample a b := reflectedMulti.2
+example : ∀ a b, ITree.Eutt (ITree.ofFree (denoteProg (reflectedMulti.1 (KleisliF CircOp) Tp.denote) (.cons a (.cons b .nil))))
+    (ITree.ofFree (multiExample a b)) := reflectedMulti.2
 
 -- One two-argument function (`f0 = muladd@5`) pulled out in front of `main`, called twice:
 --   def f0(x1 : Field<5>, x2 : Field<5>) =>
@@ -196,7 +196,8 @@ def reflectedVec := reflect% vecConst
   (F : List Tp → Tp → Type 1) → (V : Tp → Type) → Prog CircOp F V [] (Tp.vec Tp.nat 3))
 
 /-- Soundness by `rfl`, with the vector carried as a single `lit` atom. -/
-example : denoteProg (reflectedVec.1 (KleisliF CircOp) Tp.denote) .nil = vecConst := reflectedVec.2
+example : ITree.Eutt (ITree.ofFree (denoteProg (reflectedVec.1 (KleisliF CircOp) Tp.denote) .nil)) (ITree.ofFree vecConst) :=
+  reflectedVec.2
 
 -- The pretty-printer renders the vector literal (`#v[…]`) and its type (`Vector<Nat, 3>`):
 --   def main() =>
@@ -220,8 +221,8 @@ def vdot (v : Vector Nat 3) : Free (Effect CircOp) Nat := pure (v[0] + v[1] + v[
 def reflectedVdot := reflect% vdot
 
 /-- Soundness still holds — but the proof is the structurally-built bridge, not a global `rfl`. -/
-example : ∀ v, denoteProg (reflectedVdot.1 (KleisliF CircOp) Tp.denote) (.cons v .nil) = vdot v :=
-  reflectedVdot.2
+example : ∀ v, ITree.Eutt (ITree.ofFree (denoteProg (reflectedVdot.1 (KleisliF CircOp) Tp.denote) (.cons v .nil)))
+    (ITree.ofFree (vdot v)) := reflectedVdot.2
 
 -- The indexed accesses print with `v[i]` syntax (the index is its own `lit` atom):
 --   def main(x0 : Vector<Nat, 3>) =>
@@ -238,8 +239,8 @@ def vdotFin (v : Vector Nat 3) : Free (Effect CircOp) Nat :=
 
 def reflectedVdotFin := reflect% vdotFin
 
-example : ∀ v, denoteProg (reflectedVdotFin.1 (KleisliF CircOp) Tp.denote) (.cons v .nil) = vdotFin v :=
-  reflectedVdotFin.2
+example : ∀ v, ITree.Eutt (ITree.ofFree (denoteProg (reflectedVdotFin.1 (KleisliF CircOp) Tp.denote) (.cons v .nil)))
+    (ITree.ofFree (vdotFin v)) := reflectedVdotFin.2
 
 #eval IO.println s!"runCirc (vdotFin #v[10,20,30]) = {runCirc (vdotFin ⟨#[10, 20, 30], rfl⟩)}"
 

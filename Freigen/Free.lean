@@ -15,9 +15,22 @@ def freeBind {F : Type u → Type v} {α β : Type u} (a : Free F α) (f : α �
   | Free.Pure x => f x
   | Free.Impure a f' => Free.Impure a (fun x => freeBind (f' x) f)
 
+/-- Right identity for the free monad. -/
+theorem freeBind_pure {F : Type u → Type v} {α : Type u} (m : Free F α) :
+    freeBind m Free.Pure = m := by
+  induction m with
+  | Pure a => rfl
+  | Impure e c ih => simp only [freeBind]; congr 1; funext x; exact ih x
+
 instance {F : Type u → Type v} : Monad (Free F) where
   pure := Free.Pure
   bind := freeBind
+
+@[simp] theorem free_pure_eq {F : Type u → Type v} {α : Type u} (a : α) :
+    (pure a : Free F α) = Free.Pure a := rfl
+
+@[simp] theorem free_bind_eq {F : Type u → Type v} {α β : Type u}
+    (m : Free F α) (f : α → Free F β) : m >>= f = freeBind m f := rfl
 
 def foldFree [Monad M] (x : Free F α) (f : ∀{x}, F x → M x): M α := match x with
   | Free.Pure x => pure x

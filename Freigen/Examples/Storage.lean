@@ -97,8 +97,9 @@ def reflectedTransfer := reflect% transfer
 
 /-- Soundness: `denoteProg` of the lowered program matches the host computation. -/
 example : ∀ amount,
-    denoteProg (reflectedTransfer.1 (KleisliF StoreOp) Tp.denote) (.cons amount .nil)
-    = transfer amount := reflectedTransfer.2
+    Freigen.ITree.Eutt
+      (Freigen.ITree.ofFree (denoteProg (reflectedTransfer.1 (KleisliF StoreOp) Tp.denote) (.cons amount .nil)))
+      (Freigen.ITree.ofFree (transfer amount)) := reflectedTransfer.2
 
 -- …and it **prints back** — `amount` is `main`'s argument atom `x0`, and each `set`'s pair
 -- input is built from a `lit` address and a `-`/`+`:
@@ -149,8 +150,9 @@ def storedTriangle (seed : Nat) : Free (Effect StoreOp) Nat := do
 def reflectedStoredTriangle := reflect% storedTriangle
 
 example : ∀ seed,
-    denoteProg (reflectedStoredTriangle.1 (KleisliF StoreOp) Tp.denote) (.cons seed .nil)
-    = storedTriangle seed := reflectedStoredTriangle.2
+    Freigen.ITree.Eutt
+      (Freigen.ITree.ofFree (denoteProg (reflectedStoredTriangle.1 (KleisliF StoreOp) Tp.denote) (.cons seed .nil)))
+      (Freigen.ITree.ofFree (storedTriangle seed)) := reflectedStoredTriangle.2
 
 -- …and prints back: a `forN` (count `5`) accumulating `a + i`, then a `set` at address `x0`
 -- (the seed) and a `get`:

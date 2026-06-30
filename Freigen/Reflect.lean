@@ -1,4 +1,7 @@
 import Freigen.Ast
+import Freigen.ITree
+import Freigen.Eutt
+import Freigen.Adequacy
 
 /-!
 # The `reflect%` elaborator
@@ -509,10 +512,150 @@ private partial def bridgeErase (a : Expr) : MetaM (Option (Expr × Expr)) := do
     else
       return none
 
+/-! ## Reflecting recursion
+
+`reflect%` also accepts a **recursion functional** `F : (σ → Free (Effect Op) ρ) → σ → Free
+(Effect Op) ρ` whose body calls its first argument `rec` (the self-call).  `toCallBody` re-expresses
+the body as a `Free (Effect (CallOp Op σ ρ)) ρ` — the *same* program over the signature extended
+with one `call : σ → ρ` operation: external effects are relabelled `base`, and each self-call `rec
+a` becomes the `call` effect on `a`.  Crucially the self-call may appear in **any** position (tail
+or not): under a `bind` it just becomes a `call` node whose continuation is whatever follows.
+`reflect%` then ties the knot with `ITree.mrec` (which interprets every `call` back into the body,
+guarded by a `tau`), landing in the **same `Comp Op` domain** as the non-recursive case.  Its
+soundness is the uniform `ITree.Eutt` (`≈`): the `tau`-guarded recursion is weakly bisimilar to its
+result. -/
+
+/-- Re-express a recursive body (self-call abstracted as `recId`) as a computation over the
+    `CallOp Op σ ρ` signature: self-calls become the `call` effect; external effects are relabelled
+    `base`; `pure`/`bind`/`bif` are rebuilt structurally.  Handles non-tail recursion (a self-call
+    under a `bind` becomes a `call` node whose continuation is the rest of the `bind`). -/
+private partial def toCallBody (recId : FVarId) (Op σT ρT : Expr) (t : Expr) : MetaM Expr := do
+  let t := t.consumeMData.headBeta
+  if let .letE _ _ v b _ := t then
+    return ← toCallBody recId Op σT ρT (b.instantiate1 v)
+  let callOpE := mkAppN (.const ``ITree.CallOp []) #[Op, σT, ρT]
+  let effCall := mkApp (.const ``Effect []) callOpE
+  -- a self-call `rec arg` → the `call` effect on `arg` (continuation = `Pure`, i.e. return it)
+  if t.getAppFn.isFVar && t.getAppFn.fvarId! == recId then
+    let some arg := t.getAppArgs.back? | throwError "reflect%: self-call has no argument"
+    let callExpr := mkAppN (.const ``ITree.CallOp.call []) #[Op, σT, ρT]
+    let callEff ← mkAppM ``Effect.mk #[callExpr, arg]
+    let purecont ← mkAppOptM ``Free.Pure #[effCall, ρT]
+    return ← mkAppM ``Free.Impure #[callEff, purecont]
+  -- a `bind x f` (either spelling) → `freeBind (toCallBody x) (fun a => toCallBody (f a))`
+  let doBind (x f : Expr) : MetaM Expr := do
+    let .forallE _ X _ _ := (← whnf (← inferType f))
+      | throwError "reflect%: bind continuation is not a function{indentExpr f}"
+    let xC ← toCallBody recId Op σT ρT x
+    let fC ← withLocalDeclD `a X fun ha => do
+      mkLambdaFVars #[ha] (← toCallBody recId Op σT ρT (f.beta #[ha]))
+    mkAppM ``freeBind #[xC, fC]
+  match_expr t with
+  | Free.Pure _ _ r       => mkAppOptM ``Free.Pure #[effCall, ← inferType r, r]
+  | Pure.pure _ _ _ r     => mkAppOptM ``Free.Pure #[effCall, ← inferType r, r]
+  | Bind.bind _ _ _ _ x f => doBind x f
+  | freeBind _ _ _ x f    => doBind x f
+  | cond _ c m1 m2 =>
+      mkAppM ``cond #[c, ← toCallBody recId Op σT ρT m1, ← toCallBody recId Op σT ρT m2]
+  | Free.Impure _ _ _ eff cont =>
+    match_expr eff with
+    | Effect.mk _ I O o inp =>
+        let baseOp := mkAppN (.const ``ITree.CallOp.base []) #[Op, σT, ρT, I, O, o]
+        let baseEff ← mkAppM ``Effect.mk #[baseOp, inp]
+        let contC ← withLocalDeclD `x O fun hx => do
+          mkLambdaFVars #[hx] (← toCallBody recId Op σT ρT (cont.beta #[hx]))
+        mkAppM ``Free.Impure #[baseEff, contC]
+    | _ => throwError "reflect%: effect is not an `Effect.mk`{indentExpr eff}"
+  | _ =>
+    match ← unfoldDefinition? t with
+    | some t' => toCallBody recId Op σT ρT t'
+    | none    => throwError "reflect%: cannot reflect recursive body{indentExpr t}"
+
+/-- Reflect a recursion functional into the `ITree.mrec` knot `σ → Comp Op ρ`. -/
+private def reflectLoopCore (F recTy : Expr) : MetaM Expr := do
+  let .forallE _ σT codom _ := (← whnf recTy)
+    | throwError "reflect%: recursive function must be `σ → Free … ρ`"
+  let_expr Free Eff ρT := (← whnf codom)
+    | throwError "reflect%: result must be a `Free _ _`"
+  let_expr Effect Op := Eff
+    | throwError "reflect%: the functor must be `Effect Op`"
+  withLocalDeclD `rec recTy fun recv =>
+  withLocalDeclD `s σT fun s => do
+    let bodyFree ← toCallBody recv.fvarId! Op σT ρT ((F.beta #[recv]).beta #[s])
+    let bodyComp ← mkLambdaFVars #[s] (← mkAppM ``ITree.ofFree #[bodyFree])
+    withLocalDeclD `init σT fun initv => do
+      mkLambdaFVars #[initv] (← mkAppM ``ITree.mrec #[bodyComp, initv])
+
+/-- Reflect a **structural-recursive `def` on `Nat`** (compiled to `Nat.brecOn`) by reading its two
+    equational lemmas `f 0 = base` and `f (n+1) = step[f, n]`, rebuilding the recursion functional
+    `fun rec k => bif k == 0 then base else step[f := rec, n := k-1]`, and reflecting that with
+    `reflectLoopCore`.  So a plain `def f | 0 => … | n+1 => … f n …` reflects directly. -/
+private def reflectStructuralNatRec (fn : Expr) : MetaM (Option Expr) := do
+  let some cName := fn.constName? | return none
+  let some eqns ← Lean.Meta.getEqnsFor? cName | return none
+  if eqns.size != 2 then return none
+  let recTy ← inferType fn
+  let .forallE _ σT _ _ := (← whnf recTy) | return none
+  unless ← isDefEq σT (.const ``Nat []) do return none
+  let extract (nm : Name) : MetaM (Option Expr × Option Expr) := do
+    let some ci := (← getEnv).find? nm | return (none, none)
+    forallTelescope ci.type fun bs body => do
+      match_expr body with
+      | Eq _ lhs rhs =>
+        match_expr lhs.appArg! with
+        | Nat.succ _ => return (none, some (← mkLambdaFVars bs rhs))
+        | _          => return (some rhs, none)
+      | _ => return (none, none)
+  let (r01, s1) ← extract eqns[0]!
+  let (r02, s2) ← extract eqns[1]!
+  let some base := r01 <|> r02 | return none
+  let some stepF := s1 <|> s2 | return none
+  unless (stepF.find? (·.isConstOf cName)).isSome do return none      -- must be recursive
+  withLocalDeclD `rec recTy fun rec =>
+  withLocalDeclD `k σT fun k => do
+    let condE ← mkAppM ``BEq.beq #[k, mkNatLit 0]
+    let km1 ← mkAppM ``HSub.hSub #[k, mkNatLit 1]
+    let succBody := (stepF.beta #[km1]).replace fun s => if s.isConstOf cName then some rec else none
+    let bifE ← mkAppM ``cond #[condE, base, succBody]
+    let F ← mkLambdaFVars #[rec, k] bifE
+    some <$> reflectLoopCore F recTy
+
 elab "reflect% " t:term : term => do
   let e ← elabTerm t none
   synthesizeSyntheticMVarsNoPostponing
   let e ← instantiateMVars e
+  -- Recursion functional?  Its first argument is the self-call `σ → Free (Effect Op) ρ`.
+  if let .forallE _ recTy _ _ := (← whnf (← inferType e)) then
+    if let .forallE _ _ cod _ := (← whnf recTy) then
+      if (← whnf cod).isAppOf ``Free then
+        return ← reflectLoopCore e recTy
+  -- A structural-recursive `def` on `Nat` (compiled to `Nat.brecOn`)?  This path is now **merged**
+  -- with the bounded one: it returns the same `{ f // soundness }` subtype, where the recursion's
+  -- soundness is the uniform `ITree.Eutt` against the source `e` (`∀ N, f N ≈ ofFree (e N)`),
+  -- discharged generically by `ITree.mrec_adequacy`/`adeqBody'`.
+  if let some bareFn ← reflectStructuralNatRec e.getAppFn then
+    let fn := e.getAppFn
+    let some cName := fn.constName?
+      | throwError "reflect%: recursive source is not a definition"
+    let fnTy ← inferType bareFn
+    -- the soundness predicate  fun f => ∀ N, f N ≈ ofFree (e N)
+    let pred ← withLocalDeclD `f fnTy fun f => do
+      let body ← withLocalDeclD `N (.const ``Nat []) fun N => do
+        let rhs ← mkAppM ``ITree.ofFree #[mkApp fn N]
+        mkForallFVars #[N] (← mkAppM ``ITree.Eutt #[mkApp f N, rhs])
+      mkLambdaFVars #[f] body
+    let proofType ← instantiateMVars (← Meta.whnf (mkApp pred bareFn))
+    -- the generic adequacy proof (same shape for tail and non-tail recursion)
+    let eId := mkIdent cName
+    let prfStx ← `(by
+      intro N
+      refine ITree.mrec_adequacy _ $eId ?_ N
+      intro M IH
+      rcases M with _ | m <;>
+        exact ITree.adeqBody' _ _ _ _ IH (by simp [ITree.callsLt, freeBind] <;> omega)
+          (by simp [ITree.runSrc, freeBind_pure, freeBind, $eId:term]))
+    let proof ← elabTermEnsuringType prfStx (some proofType)
+    return ← mkAppOptM ``Subtype.mk #[fnTy, pred, bareFn, proof]
   -- Telescope the *type* (so this also works when `e` is a bare constant, not a
   -- literal `fun`), then apply `e` to the introduced arguments.
   forallTelescope (← inferType e) fun args codom => do
@@ -577,20 +720,28 @@ elab "reflect% " t:term : term => do
       let mut argHList ← mkAppOptM ``HList.nil #[none, denoteV]
       for (a, t) in (args.zip mainArgTps).reverse do
         argHList ← mkAppOptM ``HList.cons #[none, denoteV, t, none, a, argHList]
-      -- predicate  fun g => ∀ args, denoteProg (g (KleisliF Op) Tp.denote) ⟨args…⟩ = e args
+      -- The soundness is stated in the **interaction-tree domain** `Comp Op` (the `itree` stuff):
+      -- the program's meaning is `ITree.ofFree (denoteProg (g KleisliF Tp.denote) ⟨args…⟩)` and it
+      -- equals `ITree.ofFree (e args)`.  `ofFree` embeds the (terminating) `Free` denotation into
+      -- the coinductive domain, where recursion/divergence/failure also live.
+      let ofFreeHead ← mkAppOptM ``ITree.ofFree #[Op, τ]        -- `@ITree.ofFree Op τ`
+      -- predicate  fun g => ∀ args, ofFree (denoteProg (g KleisliF Tp.denote) ⟨args…⟩) ≈ ofFree (e args)
+      -- where `≈` is `ITree.Eutt` (weak bisimulation).  This is the *uniform* soundness target:
+      -- on the bounded fragment the two sides are equal so `≈` is `Eutt.of_eq`; the same `≈` is what
+      -- a `tau`-guarded recursion satisfies against its result.
       let pred ← withLocalDeclD `g gTy fun gv => do
         let lhs ← mkAppOptM ``denoteProg #[Op, none, none, mkAppN gv #[kf, denoteV], argHList]
-        let eq ← mkEq lhs (e.beta args)
-        mkLambdaFVars #[gv] (← mkForallFVars args eq)
-      -- proof  fun args => …   The denotation `denoteProg (g KleisliF Tp.denote) ⟨args…⟩` is
-      -- *definitionally* the host term with every proof-erased primitive replaced by its total
-      -- form; `bridgeErase` reconstructs that replacement on the host side with a proof, so the
-      -- soundness proof is that bridge (or `rfl` when nothing is erased).
+        let eutt ← mkAppM ``ITree.Eutt #[mkApp ofFreeHead lhs, mkApp ofFreeHead (e.beta args)]
+        mkLambdaFVars #[gv] (← mkForallFVars args eutt)
+      -- proof  fun args => Eutt.of_eq (congrArg ofFree (…))   The inner `denoteProg (g …) ⟨args…⟩ =
+      -- e args` is the `Free`-level fact (`rfl`, or `bridgeErase` for a proof-erased primitive);
+      -- `congrArg ofFree` lifts it into `Comp`, and `Eutt.of_eq` into the weak-bisimulation relation.
       let dp ← mkAppOptM ``denoteProg #[Op, none, none, mkAppN g #[kf, denoteV], argHList]
       let prf ← mkLambdaFVars args (← do
-        match ← bridgeErase (e.beta args) with
-        | none        => mkEqRefl dp                        -- denote g ≡ e args : `rfl`
-        | some (_, p) => mkEqSymm p)                        -- p : e args = erased ≡ dp
+        let base ← (do match ← bridgeErase (e.beta args) with
+          | none        => mkEqRefl dp                        -- denote g ≡ e args : `rfl`
+          | some (_, p) => mkEqSymm p)                        -- p : e args = erased ≡ dp
+        mkAppM ``ITree.Eutt.of_eq #[← mkAppM ``congrArg #[ofFreeHead, base]])
       mkAppOptM ``Subtype.mk #[gTy, pred, g, prf]
 
 end Freigen
