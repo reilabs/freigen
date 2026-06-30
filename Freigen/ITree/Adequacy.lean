@@ -1,4 +1,4 @@
-import Freigen.Eutt
+import Freigen.ITree.Eutt
 
 /-!
 # Adequacy of `mrec`: the reflected recursion is `≈` the source recursion

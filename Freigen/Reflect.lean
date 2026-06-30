@@ -1,7 +1,5 @@
 import Freigen.Ast
 import Freigen.ITree
-import Freigen.Eutt
-import Freigen.Adequacy
 
 /-!
 # The `reflect%` elaborator

@@ -1,4 +1,4 @@
-import Freigen.Adequacy
+import Freigen.ITree
 import Freigen.Reflect
 import Freigen.Examples.Circuit.Basic
 

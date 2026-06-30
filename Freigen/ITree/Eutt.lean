@@ -1,4 +1,4 @@
-import Freigen.ITree
+import Freigen.ITree.Basic
 
 /-!
 # Weak bisimulation (`eutt`) for interaction trees
