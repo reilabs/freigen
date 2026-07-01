@@ -1,5 +1,5 @@
 import Mathlib.Data.PFunctor.Univariate.M
-import Freigen.Free
+import Freigen.Effect
 
 /-!
 # Interaction trees: a coinductive denotation domain with effects, divergence, and failure
@@ -14,17 +14,16 @@ Ar  := ret ↦ ∅ | tau ↦ Unit | fail ↦ ∅ | vis e ↦ x   -- arities (chi
 
 so a computation is a (possibly infinite) tree whose leaves are `ret a` / `fail`, with internal
 `tau` (a silent step — the guard that makes recursion productive) and `vis e k` (perform effect
-`e`, branch on its result).  This is the domain in which **recursion** denotes: `Comp.iter`/`fix`
-is a *guarded corecursion*, total without any termination proof, and divergence is an infinite
-chain of `tau`s.
+`e`, branch on its result).  This is the domain in which **recursion** denotes: `mrec` is a
+*guarded corecursion*, total without any termination proof, and divergence is an infinite chain of
+`tau`s.
 
 Universes: `Effect Op x : Type 1`, so positions live in `Type 1`; arities (`x : Type`) live in
-`Type 0`.  `PFunctor.{1,0}` accommodates exactly this, and `Comp Op α : Type 1` — matching
-`Free (Effect Op) α`.
+`Type 0`.  `PFunctor.{1,0}` accommodates exactly this, and `Comp Op α : Type 1`.
 
 This file builds the core: the type, constructors and their `dest` laws, `bind` (corecursive) with
-its computation laws, and the guarded fixpoint `iter`/`fix`.  Weak bisimulation, convergence, and
-soundness build on top (subsequent sections / files).
+its computation laws, and the general-recursion combinator `mrec`.  Weak bisimulation builds on top
+(`Eutt.lean`).
 -/
 
 namespace Freigen
@@ -207,105 +206,12 @@ theorem bind_assoc {α β γ} (m : Comp Op α) (k : α → Comp Op β) (h : β �
   · obtain ⟨p, c, hd⟩ : ∃ p c, x.dest = ⟨p, c⟩ := ⟨_, _, rfl⟩
     exact ⟨p, c, c, hd, hd, fun _ => Or.inr rfl⟩
 
-/-! ## Divergence is representable -/
-
-/-- The always-`tau` tree: a canonical divergent (non-terminating, effect-free) computation. -/
-def spin : Comp Op α :=
-  PFunctor.M.corec (fun _ : Unit => (⟨Pos.tau, fun _ => ()⟩ : (P Op α).Obj Unit)) ()
-
-/-- `spin` is its own `tau` unfolding — it never makes progress (divergence). -/
-theorem spin_eq : (spin : Comp Op α) = tau spin := by
-  apply eq_of_dest_eq
-  conv_lhs => rw [spin, PFunctor.M.dest_corec]
-  simp only [PFunctor.map, dest_tau, Function.comp_def]
-  rfl
-
-/-! ## Guarded recursion: the iteration combinator
-
-`iter f a` runs `f a : Comp (α ⊕ β)`; on `inl a'` it loops (guarded by a `tau`, which is what
-makes the corecursion productive — no termination proof needed), on `inr b` it returns `b`.  This
-is the Elgot iteration operator, the basis for denoting recursive definitions. -/
-
-/-- The iteration coalgebra (one step of running the body tree). -/
-def iterCo {α β : Type} (f : α → Comp Op (α ⊕ β)) :
-    Comp Op (α ⊕ β) → (P Op β).Obj (Comp Op (α ⊕ β))
-  | t =>
-    match t.dest with
-    | ⟨p, c⟩ =>
-      match p, c with
-      | .ret (.inl a'), _ => ⟨Pos.tau, fun _ => f a'⟩
-      | .ret (.inr b),  _ => ⟨Pos.ret b, PEmpty.elim⟩
-      | .tau,  c => ⟨Pos.tau, fun u => c u⟩
-      | .fail, _ => ⟨Pos.fail, PEmpty.elim⟩
-      | .vis e, c => ⟨Pos.vis e, fun i => c i⟩
-
-/-- Elgot iteration: loop `f` from `a`, guarded by `tau`. -/
-def iter {α β : Type} (f : α → Comp Op (α ⊕ β)) (a : α) : Comp Op β :=
-  PFunctor.M.corec (iterCo f) (f a)
-
-/-- The continuation of one iteration step: loop (guarded by `tau`) or stop. -/
-def iterK {α β : Type} (f : α → Comp Op (α ⊕ β)) : (α ⊕ β) → Comp Op β
-  | .inl a' => tau (iter f a')
-  | .inr b  => ret b
-
-/-- **The fixpoint law.** `iter f a` unfolds to: run `f a`, then loop or return.  (Recursive call
-    `iter f a'` is guarded by a `tau`.)  This is what makes `iter` a genuine fixpoint of its
-    defining equation, proved by coinduction. -/
-theorem iter_unfold {α β : Type} (f : α → Comp Op (α ⊕ β)) (a : α) :
-    iter f a = bind (f a) (iterK f) := by
-  -- bisimulation up to "equal, or both are (iter-run / bind-run) of the same body tree"
-  suffices H : ∀ x y : Comp Op β,
-      (x = y ∨ ∃ t, x = PFunctor.M.corec (iterCo f) t ∧ y = bind t (iterK f)) → x = y by
-    exact H _ _ (Or.inr ⟨f a, rfl, rfl⟩)
-  refine PFunctor.M.bisim _ ?_
-  rintro x y (rfl | ⟨t, rfl, rfl⟩)
-  · obtain ⟨a0, g0, hd⟩ : ∃ a0 g0, x.dest = ⟨a0, g0⟩ := ⟨_, _, rfl⟩
-    exact ⟨a0, g0, g0, hd, hd, fun _ => Or.inl rfl⟩
-  · obtain ⟨p, c, hd⟩ : ∃ p c, t.dest = ⟨p, c⟩ := ⟨_, _, rfl⟩
-    match p, c, hd with
-    | .ret (.inl a'), c, hd =>
-      exact ⟨Pos.tau, fun _ => PFunctor.M.corec (iterCo f) (f a'),
-                      fun _ => PFunctor.M.corec (iterCo f) (f a'),
-        by simp only [PFunctor.M.dest_corec, iterCo, hd, PFunctor.map, Function.comp_def],
-        by simp only [bind, PFunctor.M.dest_corec, bindCo, hd, iterK, iter, dest_tau,
-                      PFunctor.map, Function.comp_def, corec_inr],
-        fun _ => Or.inl rfl⟩
-    | .ret (.inr b), c, hd =>
-      exact ⟨Pos.ret b, PEmpty.elim, PEmpty.elim,
-        by simp only [PFunctor.M.dest_corec, iterCo, hd, PFunctor.map, Function.comp_def]
-           exact congrArg (Sigma.mk _) (funext fun e => e.elim),
-        by simp only [bind, PFunctor.M.dest_corec, bindCo, hd, iterK, dest_ret,
-                      PFunctor.map, Function.comp_def]
-           exact congrArg (Sigma.mk _) (funext fun e => e.elim),
-        fun i => i.elim⟩
-    | .tau, c, hd =>
-      exact ⟨Pos.tau, fun u => PFunctor.M.corec (iterCo f) (c u),
-                      fun u => bind (c u) (iterK f),
-        by simp only [PFunctor.M.dest_corec, iterCo, hd, PFunctor.map, Function.comp_def],
-        by simp only [bind, PFunctor.M.dest_corec, bindCo, hd, PFunctor.map, Function.comp_def],
-        fun u => Or.inr ⟨c u, rfl, rfl⟩⟩
-    | .fail, c, hd =>
-      exact ⟨Pos.fail, PEmpty.elim, PEmpty.elim,
-        by simp only [PFunctor.M.dest_corec, iterCo, hd, PFunctor.map, Function.comp_def]
-           exact congrArg (Sigma.mk _) (funext fun e => e.elim),
-        by simp only [bind, PFunctor.M.dest_corec, bindCo, hd, PFunctor.map, Function.comp_def]
-           exact congrArg (Sigma.mk _) (funext fun e => e.elim),
-        fun i => i.elim⟩
-    | .vis e, c, hd =>
-      exact ⟨Pos.vis e, fun i => PFunctor.M.corec (iterCo f) (c i),
-                        fun i => bind (c i) (iterK f),
-        by simp only [PFunctor.M.dest_corec, iterCo, hd, PFunctor.map, Function.comp_def],
-        by simp only [bind, PFunctor.M.dest_corec, bindCo, hd, PFunctor.map, Function.comp_def],
-        fun i => Or.inr ⟨c i, rfl, rfl⟩⟩
-
 /-! ## General recursion: `mrec`
 
-`iter` only captures *tail* recursion: its step `σ → Comp (σ ⊕ ρ)` loops on `inl` and stops on
-`inr`, with no room for "make a recursive call, then continue with its result".  General (incl.
-non-tail) recursion needs the recursive call to be a node *inside* the tree, so the continuation
-after it is preserved.  We add one operation — a `call` effect — to the signature, let the body be
-an interaction tree over `CallOp Op σ ρ` (calls allowed anywhere), and tie the knot by
-**interpreting** every `call` back into the body, guarded by a `tau`.  This subsumes `iter`. -/
+A recursive call is a node *inside* the tree, so the continuation after it is preserved (this is what
+makes non-tail recursion work).  We add one operation — a `call` effect — to the signature, let the
+body be an interaction tree over `CallOp Op σ ρ` (calls allowed in any position), and tie the knot by
+**interpreting** every `call` back into the body, guarded by a `tau`. -/
 
 /-- The signature `Op` extended with a single recursive-call operation `call : σ → ρ`. -/
 inductive CallOp (Op : Type → Type → Type 1) (σ ρ : Type) : Type → Type → Type 1
@@ -335,8 +241,8 @@ def interp (body : σ → Comp (CallOp Op σ ρ) ρ) {γ : Type} (t : Comp (Call
   PFunctor.M.corec (interpCo body) t
 
 /-- **General recursion.** `mrec body` ties the recursive knot: run the body, interpreting each
-    self-`call` by re-running the body.  Unlike `iter`, the body may call itself in any position
-    (the continuation after a call is kept in the tree), so non-tail recursion is supported. -/
+    self-`call` by re-running the body.  The body may call itself in any position (the continuation
+    after a call is kept in the tree), so both tail and non-tail recursion are supported. -/
 def mrec (body : σ → Comp (CallOp Op σ ρ) ρ) (s : σ) : Comp Op ρ :=
   interp body (body s)
 
@@ -408,135 +314,6 @@ theorem interp_bind (body : σ → Comp (CallOp Op σ ρ) ρ) {β γ}
                  fun _ => Or.inl ⟨bind (body inp) c, by rw [bind_assoc], rfl⟩⟩
   · obtain ⟨p, c, hd⟩ : ∃ p c, x.dest = ⟨p, c⟩ := ⟨_, _, rfl⟩
     exact ⟨p, c, c, hd, hd, fun _ => Or.inr rfl⟩
-
-/-! ## Embedding source computations -/
-
-/-- Embed an ordinary (finite, total) source computation into the ITree domain. -/
-def ofFree {α} : Free (Effect Op) α → Comp Op α
-  | .Pure a     => ret a
-  | .Impure e c => vis e (fun x => ofFree (c x))
-
-@[simp] theorem ofFree_pure {α} (a : α) : ofFree (Free.Pure a : Free (Effect Op) α) = ret a := rfl
-
-/-- `ofFree` is a monad homomorphism. -/
-theorem ofFree_bind {α β} (m : Free (Effect Op) α) (k : α → Free (Effect Op) β) :
-    ofFree (freeBind m k) = bind (ofFree m) (fun a => ofFree (k a)) := by
-  induction m with
-  | Pure a => simp [freeBind, ofFree, bind_ret]
-  | Impure e c ih => simp [freeBind, ofFree, bind_vis, ih]
-
-/-- `ofFree` commutes with `forIn` over a list (it is a monad homomorphism). -/
-theorem ofFree_listForIn {α β : Type} (l : List α) (init : β)
-    (f : α → β → Free (Effect Op) (ForInStep β)) :
-    ofFree (forIn l init f) = forIn l init (fun a b => ofFree (f a b)) := by
-  induction l generalizing init with
-  | nil => simp only [List.forIn_nil]; rfl
-  | cons x xs ih =>
-    simp only [List.forIn_cons, free_bind_eq, ofFree_bind, bind_def]
-    congr 1; funext s; cases s with
-    | done b => rfl
-    | yield b => exact ih b
-
-/-- `ofFree` commutes with the bounded `forIn` loop — the bridge that makes the `Comp` denotation
-    of a `forN` correspond to the `Free` spec's loop. -/
-theorem ofFree_forIn {β : Type} (r : Std.Legacy.Range) (init : β)
-    (f : Nat → β → Free (Effect Op) (ForInStep β)) :
-    ofFree (forIn r init f) = forIn r init (fun i a => ofFree (f i a)) := by
-  rw [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.forIn_eq_forIn_range']
-  exact ofFree_listForIn _ init f
-
-/-! ## Observing convergence
-
-`stepN n c` runs the tree for up to `n` steps, peeling `tau`s and following the single `ret`,
-returning `some a` if a value is reached (and `none` on running out of fuel, on `fail`, or on a
-visible effect — this observation function is for the effect-free/divergence story).  `Converges`
-is "reaches a value in some finite number of steps".  Crucially this is an *observation* of the
-already-total denotation, not the denotation itself. -/
-
-/-- Run up to `n` steps, peeling `tau`s, returning the value if reached. -/
-def stepN {α} : Nat → Comp Op α → Option α
-  | 0,     _ => none
-  | n + 1, c =>
-    match c.dest with
-    | ⟨.ret a, _⟩ => some a
-    | ⟨.tau, k⟩   => stepN n (k PUnit.unit)
-    | _           => none
-
-/-- The tree reaches a value in finitely many steps. -/
-def Converges {α} (c : Comp Op α) (a : α) : Prop := ∃ n, stepN n c = some a
-
-@[simp] theorem stepN_ret {α} (n : Nat) (a : α) : stepN (n + 1) (ret a : Comp Op α) = some a := by
-  simp only [stepN, dest_ret]
-
-theorem stepN_tau {α} (n : Nat) (t : Comp Op α) : stepN (n + 1) (tau t) = stepN n t := by
-  simp only [stepN, dest_tau]
-
-/-- `spin` **diverges**: it never reaches a value. -/
-theorem spin_diverges {α} (a : α) : ¬ Converges (spin : Comp Op α) a := by
-  rintro ⟨n, hn⟩
-  induction n with
-  | zero => simp [stepN] at hn
-  | succ m ih =>
-    rw [spin_eq, stepN_tau] at hn
-    exact ih hn
-
-/-! ## General adequacy of `iter`
-
-The operational meaning of iterating a pure step `step : α → α ⊕ β`: loop on `inl`, stop on `inr`.
-`runStep` runs it for up to `n` steps.  **`iter_converges`** is the adequacy theorem: whenever the
-operational iteration reaches a result, the coinductive `iter` denotation *converges to the same
-value* — proved generally (for any `step`), by induction, using the `iter` fixpoint law.  This is
-the "recursion denotes soundly into the ITree domain" result; the toy `down` below is one instance. -/
-
-/-- Operational iteration of a pure step, up to `n` steps. -/
-def runStep {α β : Type} (step : α → α ⊕ β) : Nat → α → Option β
-  | 0,     _ => none
-  | n + 1, a => match step a with
-                | .inl a' => runStep step n a'
-                | .inr b  => some b
-
-/-- **Adequacy:** if the operational iteration of `step` reaches `b`, the `iter` denotation
-    converges to `b`.  General in `step` — this is `iter` computing the right thing. -/
-theorem iter_converges {α β : Type} (step : α → α ⊕ β) :
-    ∀ (n : Nat) (a : α) (b : β), runStep step n a = some b →
-      Converges (iter (fun a => ret (Op := Op) (step a)) a) b := by
-  intro n
-  induction n with
-  | zero => intro a b h; simp [runStep] at h
-  | succ m ih =>
-    intro a b h
-    have hstep : iter (fun a => ret (Op := Op) (step a)) a
-               = iterK (fun a => ret (Op := Op) (step a)) (step a) := by
-      rw [iter_unfold]; simp only [bind_ret]
-    rw [runStep] at h
-    rw [hstep]
-    cases hsa : step a with
-    | inl a' =>
-      rw [hsa] at h
-      obtain ⟨k, hk⟩ := ih a' b h
-      exact ⟨k + 1, by simp only [hsa, iterK]; rw [stepN_tau]; exact hk⟩
-    | inr b' =>
-      rw [hsa] at h
-      simp only [Option.some.injEq] at h
-      subst h
-      exact ⟨1, by simp only [hsa, iterK]; exact stepN_ret 0 b'⟩
-
-/-! ## A worked recursive instance: countdown -/
-
-/-- One step of countdown: at `0` stop with `0`, else loop on the predecessor. -/
-def downStep : Nat → Nat ⊕ Nat
-  | 0     => .inr 0
-  | n + 1 => .inl n
-
-/-- Countdown from `n` to `0` by guarded recursion. -/
-def down (n : Nat) : Comp Op Nat := iter (fun n => ret (downStep n)) n
-
-/-- Countdown converges to `0` from every `n` — an instance of the general `iter_converges`. -/
-theorem down_converges (n : Nat) : Converges (down n : Comp Op Nat) 0 := by
-  apply iter_converges (Op := Op) downStep (n + 1) n 0
-  induction n with
-  | zero => rfl
-  | succ m ih => rw [runStep]; simpa [downStep] using ih
 
 end ITree
 end Freigen

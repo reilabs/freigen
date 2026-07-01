@@ -11,7 +11,7 @@ injection, vector indexing).  Reifying arithmetic into explicit op nodes — rat
 opaque Lean functions — is what lets the AST spill *typed, inspectable* structure into a target.
 -/
 
-namespace Freigen.Scoped
+namespace Freigen
 
 /-- The universe of object-language types the AST may mention. -/
 inductive Tp : Type
@@ -150,4 +150,4 @@ def Bin.sym {a b c : Tp} : Bin a b c → String
   | .add => "+" | .sub => "-" | .mul => "*" | .pow => "^" | .eq => "==" | .and => "&&" | .or => "||"
   | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .pair => "," | .vecGet => "[]"
 
-end Freigen.Scoped
+end Freigen
