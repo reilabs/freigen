@@ -52,6 +52,16 @@ theorem sc_aset {α elemT : Tp} (v : Array elemT.denote) (i : Nat) (x : elemT.de
     (kk : Array elemT.denote → Code Op SOp (KC Op) Tp.denote α) (h : i < v.size) :
     denote (Code.aset v i x kk) = denote (kk (v.set i x h)) := dif_pos h
 
+/-- **Upcast `array → vec n`**, valid by the source's length proof `h : arr.size = n`. -/
+theorem sc_arrToVec {α elemT : Tp} {n : Nat} (arr : Array elemT.denote)
+    (kk : Vector elemT.denote n → Code Op SOp (KC Op) Tp.denote α) (h : arr.size = n) :
+    denote (Code.arrToVec arr kk) = denote (kk ⟨arr, h⟩) := dif_pos h
+
+/-- **Upcast `nat → fin n`**, valid by the source's bound proof `h : m < n`. -/
+theorem sc_natToFin {α : Tp} {n : Nat} (m : Nat)
+    (kk : Fin n → Code Op SOp (KC Op) Tp.denote α) (h : m < n) :
+    denote (Code.natToFin m kk) = denote (kk ⟨m, h⟩) := dif_pos h
+
 /-! ## Node steps of the invariant (★) -/
 
 /-- A `pure a` reflected via its continuation: `Kf a`, un-bound by `bind_ret`. -/

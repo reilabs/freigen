@@ -32,7 +32,7 @@ Five top-level concerns:
   `mrec` (with `interp` and the call-extended signature `CallOp`).
 - **AST** — `Freigen/Ast/` — `Ast.Tp` (the object-type universe `Tp` and the **reified** primitive
   ops `Un`/`Bin` — arithmetic is a *typed op node*, not an opaque closure) and `Ast.Basic` (the dumb
-  typed AST `Code`/`Prog`: `ret`/`lit`/`un`/`bin`/`vget`/`vset`/`aget`/`aset`/`op`/`ite`/`call`/`scope`,
+  typed AST `Code`/`Prog`: `ret`/`lit`/`un`/`bin`/`vget`/`vset`/`aget`/`aset`/`vec`/`arr`/`arrToVec`/`natToFin`/`op`/`ite`/`call`/`scope`,
   top-level `def_` and recursive `rec_`, PHOAS over a function family `F` and values `V`; `denoteProg`
   **uniformly into `Comp`** — a function is a `Comp`-Kleisli subroutine, a `rec_` is tied by `mrec`;
   `ofFree`; a pretty-printer).  The collection get/set nodes are **proof-erased** (a bare `Nat`

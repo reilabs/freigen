@@ -26,6 +26,7 @@ inductive Tp : Type
   | vec : Tp → Nat → Tp
   | array : Tp → Tp
   | sum : Tp → Tp → Tp
+  | fin : Nat → Tp
 
 /-- Denote an object type back into Lean.  Reducible so type-class search and unification see
     through it to the underlying Lean type. -/
@@ -39,19 +40,7 @@ inductive Tp : Type
   | .vec a n  => Vector a.denote n
   | .array a  => Array a.denote
   | .sum a b  => a.denote ⊕ b.denote
-
-/-- Every object type is inhabited (a *pure* expression always has a denotable value; the
-    proof-erased collection get/set nodes need a fallback element to reflect against). -/
-instance instInhabitedDenote : {α : Tp} → Inhabited α.denote
-  | .bool     => ⟨false⟩
-  | .nat      => ⟨0⟩
-  | .zmod _   => ⟨0⟩
-  | .unit     => ⟨()⟩
-  | .prod a b => ⟨(@default _ (instInhabitedDenote (α := a)), @default _ (instInhabitedDenote (α := b)))⟩
-  | .fn _ b   => ⟨fun _ => @default _ (instInhabitedDenote (α := b))⟩
-  | .vec a n  => ⟨Vector.replicate n (@default _ (instInhabitedDenote (α := a)))⟩
-  | .array _  => ⟨#[]⟩
-  | .sum a _  => ⟨Sum.inl (@default _ (instInhabitedDenote (α := a)))⟩
+  | .fin n    => Fin n
 
 /-- A heterogeneous list: `HList β [i₀, i₁, …]` holds a `β i₀`, a `β i₁`, ….  Used for the
     argument tuples of (multi-argument) function definitions. -/
@@ -73,6 +62,10 @@ inductive Un : Tp → Tp → Type
   | snd {a b : Tp} : Un (.prod a b) b
   | inl {a b : Tp} : Un a (.sum a b)
   | inr {a b : Tp} : Un b (.sum a b)
+  /-- **Total downcast** `v.toArray` : forget a vector's static length. -/
+  | toArray {a : Tp} {n : Nat} : Un (.vec a n) (.array a)
+  /-- **Total downcast** `i.val` : forget a `Fin`'s bound. -/
+  | finVal {n : Nat} : Un (.fin n) .nat
 
 /-- Binary primitive operations, indexed by (left, right, result) object type. -/
 inductive Bin : Tp → Tp → Tp → Type
@@ -95,6 +88,8 @@ def Un.denote {a b : Tp} : Un a b → a.denote → b.denote
   | .snd, p => p.2
   | .inl, x => Sum.inl x
   | .inr, x => Sum.inr x
+  | .toArray, v => v.toArray
+  | .finVal, i => i.val
 
 /-- Denote a binary primitive to its Lean operation. -/
 def Bin.denote {a b c : Tp} : Bin a b c → a.denote → b.denote → c.denote
@@ -126,6 +121,7 @@ def Tp.toStr : (α : Tp) → α.denote → String
   | .sum a b,  x => match x with
                     | .inl y => s!"inl {Tp.toStr a y}"
                     | .inr y => s!"inr {Tp.toStr b y}"
+  | .fin _,    i => toString i.val
 
 /-- Render an object *type* (`ZMod n` prints as `Field<n>`). -/
 def Tp.toTypeStr : Tp → String
@@ -138,10 +134,12 @@ def Tp.toTypeStr : Tp → String
   | .vec a n  => s!"Vector<{a.toTypeStr}, {n}>"
   | .array a  => s!"Array<{a.toTypeStr}>"
   | .sum a b  => s!"({a.toTypeStr} ⊕ {b.toTypeStr})"
+  | .fin n    => s!"Fin<{n}>"
 
 /-- Symbol for a unary primitive. -/
 def Un.sym {a b : Tp} : Un a b → String
   | .not => "!" | .fst => ".1 " | .snd => ".2 " | .inl => "inl " | .inr => "inr "
+  | .toArray => ".toArray " | .finVal => ".val "
 
 /-- Symbol for a binary primitive. -/
 def Bin.sym {a b c : Tp} : Bin a b c → String

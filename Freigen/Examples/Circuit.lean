@@ -388,6 +388,89 @@ def main(x4 : Vector<Nat, 3>, x5 : Nat) =>
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (ppCirc viaHelperC.1)
 
+/-! ### Constructing collections
+
+`#v[…]` / `⟨#[…], _⟩` / `Vector.ofFn` build a `Vector` from *computed* elements — reflected into the
+`vec` construction node (`#[…]` → `arr`).  `Vector.ofFn (fun i : Fin n => …)` is expanded over the `n`
+`Fin` indices, and `Fin`-indexed access `v[i]` becomes `v[i.val]`. -/
+
+/-- Build a new vector by doubling each lane of the input (`Vector.ofFn` + `Fin`-indexed reads). -/
+def vdouble (v : Vector Nat 3) : Free CircOp HintS (Vector Nat 3) :=
+  pure (Vector.ofFn (fun i : Fin 3 => v[i] + v[i]))
+
+def vdoubleC := reflect% vdouble
+example : ∀ v, denoteProg (vdoubleC.1 (KC CircOp) Tp.denote) (.cons v .nil)
+    ≈ ofFree (vdouble v) := vdoubleC.2
+
+/-- info:
+def main(x0 : Vector<Nat, 3>) =>
+  let v1 := 0
+  let v2 := x0[v1]
+  let v3 := 0
+  let v4 := x0[v3]
+  let v5 := v2 + v4
+  let v6 := 1
+  let v7 := x0[v6]
+  let v8 := 1
+  let v9 := x0[v8]
+  let v10 := v7 + v9
+  let v11 := 2
+  let v12 := x0[v11]
+  let v13 := 2
+  let v14 := x0[v13]
+  let v15 := v12 + v14
+  let v16 := #v[v5, v10, v15]
+  v16
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vdoubleC.1)
+
+/-! ### Casts between representations
+
+A refinement conversion the *source* performs is reflected into a **cast** node.  Downcasts
+(`v.toArray`, `i.val`) are total `un` ops.  Upcasts (`array → vec n`, `nat → fin n`) are proof-erased
+and **partial** — a size/bound mismatch fails in the denotation — but infallible in any reflected
+program, because the source's own proof (`arr.size = n` / `k < n`) closes the branch (`dif_pos`),
+exactly as for a get.  `Fin` is a first-class object type, so a `Fin` may be an input or a value. -/
+
+/-- `array → vec` upcast: rebuild a length-`3` vector from a runtime array + its size proof. -/
+def castAV (arr : Array Nat) (h : arr.size = 3) : Free CircOp HintS (Vector Nat 3) := pure ⟨arr, h⟩
+
+def castAVC := reflect% castAV
+example : ∀ arr h, denoteProg (castAVC.1 (KC CircOp) Tp.denote) (.cons arr .nil)
+    ≈ ofFree (castAV arr h) := castAVC.2
+
+/-- info:
+def main(x0 : Array<Nat>) =>
+  let v1 := x0 as Vector<_, 3>
+  v1
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castAVC.1)
+
+/-- `nat → fin` upcast, and a `Fin` **input** downcast back to `Nat` (`i.val`). -/
+def castNF (k : Nat) (h : k < 5) (i : Fin 5) : Free CircOp HintS (Fin 5 × Nat) :=
+  pure (⟨k, h⟩, i.val)
+
+def castNFC := reflect% castNF
+example : ∀ k h i, denoteProg (castNFC.1 (KC CircOp) Tp.denote) (.cons k (.cons i .nil))
+    ≈ ofFree (castNF k h i) := castNFC.2
+
+/-- info:
+def main(x0 : Nat, x1 : Fin<5>) =>
+  let v2 := x0 as Fin<5>
+  let v3 := .val x1
+  let v4 := (v2, v3)
+  v4
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castNFC.1)
+
+open Freigen.ITree in
+/-- The partial upcasts fail on a mismatch, directly. -/
+example : denote (Op := CircOp) (SOp := HintS)
+    (Code.arrToVec (a := .nat) (n := 3) (#[10, 20] : Array Nat) (fun v => .ret v)) = fail := rfl
+open Freigen.ITree in
+example : denote (Op := CircOp) (SOp := HintS)
+    (Code.natToFin (n := 5) 7 (fun i => .ret i)) = fail := rfl
+
 /-! ### The failing denotation, directly
 
 The erased get/set nodes fail out of range and return the element in range — the property the

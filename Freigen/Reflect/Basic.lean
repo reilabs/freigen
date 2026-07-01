@@ -39,6 +39,7 @@ partial def reifyTp (T : Expr) : MetaM (Option Expr) := do
       let some a ← reifyTp A | return none
       let some b ← reifyTp B | return none
       return some (mkApp2 (.const ``Tp.sum []) a b)
+  | Fin n => return some (mkApp (.const ``Tp.fin []) n)
   | _ =>
       if let .forallE _ A B _ := T then
         if B.hasLooseBVars then return none
@@ -116,6 +117,43 @@ def Env.mkArgHList (env : Env) (atoms : List Expr) : MetaM Expr := do
   for a in atoms.reverse do h ← mkAppM ``HList.cons #[a, h]
   pure h
 
+/-- Extract the elements of a `List` literal (`e₀ :: … :: []`). -/
+partial def listLitElems : Expr → Option (List Expr)
+  | e => match e.getAppFnArgs with
+    | (``List.nil, _)            => some []
+    | (``List.cons, #[_, x, xs]) => (listLitElems xs).map (x :: ·)
+    | _                          => none
+
+/-- Extract elements of a `List`/`Array` literal (`#[…]` = `List.toArray […]`). -/
+def seqLitElems (e : Expr) : Option (List Expr) :=
+  match e.getAppFnArgs with
+  | (``List.toArray, #[_, lst]) => listLitElems lst
+  | _                           => listLitElems e
+
+/-- Build a `Vector (V a) n` atom-vector from element atoms (`⟨#[atoms], rfl⟩`). -/
+def mkVecOfAtoms (V aTp nExpr : Expr) (atoms : List Expr) : MetaM Expr := do
+  let elemTy := mkApp V aTp
+  let arrExpr ← mkAppM ``List.toArray #[← mkListLit elemTy atoms]
+  let proof ← mkExpectedTypeHint (← mkEqRefl nExpr) (← mkEq (← mkAppM ``Array.size #[arrExpr]) nExpr)
+  mkAppOptM ``Vector.mk #[elemTy, nExpr, arrExpr, proof]
+
+/-- Extract a `Nat` literal, seeing through `OfNat.ofNat`. -/
+def natLitOf (e : Expr) : Option Nat :=
+  e.nat? <|> (match e.getAppFnArgs with
+    | (``OfNat.ofNat, #[_, n, _]) => n.nat?
+    | _                          => none)
+
+/-- The `Fin n` literal `⟨k, by decide⟩`. -/
+def mkFinLit (nExpr : Expr) (k : Nat) : MetaM Expr := do
+  mkAppOptM ``Fin.mk #[nExpr, mkNatLit k, ← mkDecideProof (← mkAppM ``LT.lt #[mkNatLit k, nExpr])]
+
+/-- Normalise a collection index to `(Nat-index, optional in-bounds proof)`: a `Fin n` index becomes
+    `i.val` with `i.isLt`; a `Nat` index passes through unchanged. -/
+def finIndexToNat (i : Expr) : MetaM (Expr × Option Expr) := do
+  match_expr ← whnf (← inferType i) with
+  | Fin _ => return (← mkAppM ``Fin.val #[i], some (← mkAppM ``Fin.isLt #[i]))
+  | _     => return (i, none)
+
 /-- Emit a `call cf args k`, binding the result atom for the continuation. -/
 def Env.emitCall (env : Env) (cf asList retTp hl : Expr) (k : Expr → MetaM Expr) : MetaM Expr := do
   let contLam ← withLocalDeclD `r (mkApp env.V retTp) fun vr => do mkLambdaFVars #[vr] (← k vr)
@@ -152,10 +190,18 @@ mutual
         env.reflectUn (mkApp2 (.const ``Un.inr []) aTp bTp) (mkApp2 (.const ``Tp.sum []) aTp bTp) x k
     | GetElem.getElem _ _ _ _ _ coll i _ =>
         -- `coll[i]` (with the *source* in-bounds proof, which the erased node drops): a `vget`/`aget`.
+        let (natIdx, _) ← finIndexToNat i          -- a `Fin` index becomes `i.val`
         match_expr ← reifyTpOrThrow (← inferType coll) with
-        | Tp.vec aTp nExpr => env.reflectGet ``Code.vget aTp (some nExpr) coll i k
-        | Tp.array aTp     => env.reflectGet ``Code.aget aTp none coll i k
+        | Tp.vec aTp nExpr => env.reflectGet ``Code.vget aTp (some nExpr) coll natIdx k
+        | Tp.array aTp     => env.reflectGet ``Code.aget aTp none coll natIdx k
         | _ => throwError "reflect%: get on a non-collection value{indentExpr coll}"
+    | Vector.ofFn nExpr elemTy f =>
+        -- `Vector.ofFn f` : expand over the `n` `Fin` indices into a `#v[f 0, …, f (n-1)]`.
+        let some n := natLitOf nExpr <|> natLitOf (← whnf nExpr)
+          | throwError "reflect%: `Vector.ofFn` non-literal length: {nExpr} (ctor {nExpr.ctorName}, whnf {(← whnf nExpr).ctorName})"
+        let aTp ← reifyTpOrThrow elemTy
+        let elems ← (List.range n).mapM (fun kk => do pure (f.beta #[← mkFinLit nExpr kk]))
+        env.reflectVec aTp nExpr elems k
     | Vector.set _ _ coll i x _ =>
         match_expr ← reifyTpOrThrow (← inferType coll) with
         | Tp.vec aTp nExpr => env.reflectSet ``Code.vset aTp (some nExpr) coll i x k
@@ -164,7 +210,57 @@ mutual
         match_expr ← reifyTpOrThrow (← inferType coll) with
         | Tp.array aTp => env.reflectSet ``Code.aset aTp none coll i x k
         | _ => throwError "reflect%: `Array.set` on a non-array{indentExpr coll}"
+    | Vector.mk _ nExpr arr _ =>
+        match_expr ← reifyTpOrThrow (← inferType a) with
+        -- a list literal is a construction; a runtime `arr` is an `array → vec` *cast* (`⟨arr, h⟩`).
+        | Tp.vec aTp _ =>
+            match seqLitElems arr with
+            | some elems => env.reflectVec aTp nExpr elems k
+            | none       => env.reflectCast ``Code.arrToVec (some aTp) nExpr arr k
+        | _ => throwError "reflect%: `Vector.mk` at a non-vector type{indentExpr a}"
+    | List.toArray _ lst =>
+        let some elems := seqLitElems lst | throwError "reflect%: array not built from a list literal{indentExpr a}"
+        match_expr ← reifyTpOrThrow (← inferType a) with
+        | Tp.array aTp => env.reflectArr aTp elems k
+        | _ => throwError "reflect%: array literal at a non-array type{indentExpr a}"
+    | Fin.mk nExpr m _ => env.reflectCast ``Code.natToFin none nExpr m k     -- `⟨m, h⟩ : Fin n` cast
+    | Vector.toArray A nExpr v =>                                            -- total downcast `v.toArray`
+        let aTp ← reifyTpOrThrow A
+        env.reflectUn (mkApp2 (.const ``Un.toArray []) aTp nExpr) (mkApp (.const ``Tp.array []) aTp) v k
+    | Fin.val nExpr i =>                                                     -- total downcast `i.val`
+        env.reflectUn (mkApp (.const ``Un.finVal []) nExpr) (.const ``Tp.nat []) i k
     | _ => throwError "reflect%: cannot reflect operand (not an atom or supported primitive):{indentExpr a}"
+
+  /-- Reflect a **vector construction** `#v[e₀,…]`: reflect the elements, emit a `vec` node. -/
+  partial def Env.reflectVec (env : Env) (aTp nExpr : Expr) (elems : List Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
+    env.reflectArgList elems fun atoms => do
+      let vecVal ← mkVecOfAtoms env.V aTp nExpr atoms
+      withLocalDeclD `v (mkApp env.V (mkApp2 (.const ``Tp.vec []) aTp nExpr)) fun vv => do
+        let lam ← mkLambdaFVars #[vv] (← k vv)
+        mkAppOptM ``Code.vec #[env.Op, env.SOp, env.F, env.V, none, aTp, nExpr, vecVal, lam]
+
+  /-- Reflect an **array construction** `#[e₀,…]`: reflect the elements, emit an `arr` node. -/
+  partial def Env.reflectArr (env : Env) (aTp : Expr) (elems : List Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
+    env.reflectArgList elems fun atoms => do
+      let lst ← mkListLit (mkApp env.V aTp) atoms
+      withLocalDeclD `v (mkApp env.V (mkApp (.const ``Tp.array []) aTp)) fun vv => do
+        let lam ← mkLambdaFVars #[vv] (← k vv)
+        mkAppOptM ``Code.arr #[env.Op, env.SOp, env.F, env.V, none, aTp, lst, lam]
+
+  /-- Reflect a proof-erased **upcast** node (`arrToVec`/`natToFin`): reflect the operand, emit the
+      cast.  `aTpOpt = some elemTp` for `array → vec` (result `vec elemTp n`), `none` for `nat → fin`
+      (result `fin n`). -/
+  partial def Env.reflectCast (env : Env) (ctor : Name) (aTpOpt : Option Expr) (nExpr operand : Expr)
+      (k : Expr → MetaM Expr) : MetaM Expr :=
+    env.reflectAtom operand fun oa => do
+      let resTp := match aTpOpt with
+        | some aTp => mkApp2 (.const ``Tp.vec []) aTp nExpr
+        | none     => mkApp (.const ``Tp.fin []) nExpr
+      withLocalDeclD `v (mkApp env.V resTp) fun vv => do
+        let lam ← mkLambdaFVars #[vv] (← k vv)
+        match aTpOpt with
+        | some aTp => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, nExpr, oa, lam]
+        | none     => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, nExpr, oa, lam]
 
   /-- Reflect a binary primitive: reflect both operands to atoms, emit a `bin` node. -/
   partial def Env.reflectBin (env : Env) (binOp cTp x y : Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
@@ -435,10 +531,18 @@ mutual
         let aTp ← reifyTpOrThrow A; let bTp ← reifyTpOrThrow B
         env.pUn resTp a (mkApp2 (.const ``Un.inr []) aTp bTp) (mkApp2 (.const ``Tp.sum []) aTp bTp) x k
     | GetElem.getElem _ _ _ _ _ coll i h =>
+        let (natIdx, finPf) ← finIndexToNat i        -- a `Fin` index becomes `i.val` with `i.isLt`
+        let proof := finPf.getD h
         match_expr ← reifyTpOrThrow (← inferType coll) with
-        | Tp.vec aTp nExpr => env.pGet resTp a ``Code.vget ``sc_vget aTp (some nExpr) coll i h k
-        | Tp.array aTp     => env.pGet resTp a ``Code.aget ``sc_aget aTp none coll i h k
+        | Tp.vec aTp nExpr => env.pGet resTp a ``Code.vget ``sc_vget aTp (some nExpr) coll natIdx proof k
+        | Tp.array aTp     => env.pGet resTp a ``Code.aget ``sc_aget aTp none coll natIdx proof k
         | _ => throwError "reflect%: get on a non-collection value{indentExpr coll}"
+    | Vector.ofFn nExpr elemTy f =>
+        let some n := natLitOf nExpr <|> natLitOf (← whnf nExpr)
+          | throwError "reflect%: `Vector.ofFn` non-literal length{indentExpr nExpr}"
+        let aTp ← reifyTpOrThrow elemTy
+        let elems ← (List.range n).mapM (fun kk => do pure (f.beta #[← mkFinLit nExpr kk]))
+        env.pVec resTp aTp nExpr elems k
     | Vector.set _ _ coll i x h =>
         match_expr ← reifyTpOrThrow (← inferType coll) with
         | Tp.vec aTp nExpr => env.pSet resTp a ``Code.vset ``sc_vset aTp (some nExpr) coll i x h k
@@ -447,6 +551,24 @@ mutual
         match_expr ← reifyTpOrThrow (← inferType coll) with
         | Tp.array aTp => env.pSet resTp a ``Code.aset ``sc_aset aTp none coll i x h k
         | _ => throwError "reflect%: `Array.set` on a non-array{indentExpr coll}"
+    | Vector.mk _ nExpr arr h =>
+        match_expr ← reifyTpOrThrow (← inferType a) with
+        | Tp.vec aTp _ =>
+            match seqLitElems arr with
+            | some elems => env.pVec resTp aTp nExpr elems k
+            | none       => env.pCast resTp a ``Code.arrToVec ``sc_arrToVec (some aTp) nExpr arr h k
+        | _ => throwError "reflect%: `Vector.mk` at a non-vector type{indentExpr a}"
+    | List.toArray _ lst =>
+        let some elems := seqLitElems lst | throwError "reflect%: array not a list literal{indentExpr a}"
+        match_expr ← reifyTpOrThrow (← inferType a) with
+        | Tp.array aTp => env.pArr resTp aTp elems k
+        | _ => throwError "reflect%: array literal at a non-array type{indentExpr a}"
+    | Fin.mk nExpr m h => env.pCast resTp a ``Code.natToFin ``sc_natToFin none nExpr m h k
+    | Vector.toArray A nExpr v =>
+        let aTp ← reifyTpOrThrow A
+        env.pUn resTp a (mkApp2 (.const ``Un.toArray []) aTp nExpr) (mkApp (.const ``Tp.array []) aTp) v k
+    | Fin.val nExpr i =>
+        env.pUn resTp a (mkApp (.const ``Un.finVal []) nExpr) (.const ``Tp.nat []) i k
     | _ => throwError "reflect%: cannot reflect operand{indentExpr a}"
 
   /-- Binary primitive: reflect both operands, bind the result as a fresh var `vc` (so the
@@ -483,12 +605,12 @@ mutual
       let node ← match nExpr with
         | some n => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, n, ac, ai, klam]
         | none   => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, ac, ai, klam]
-      -- the sc-lemma uses the *source* collection `coll` (concrete), not the reflected atom `ac`
-      -- (a fresh binder for a compound collection): the array bound `i < coll.size` then fits `h`,
-      -- and an enclosing `sc_aset`/`sc_vset` ties the binder to `coll`.
+      -- the sc-lemma uses the *source* collection `coll` and index `idx` (concrete), not the reflected
+      -- atoms `ac`/`ai` (fresh binders for a compound collection or computed index): the bound
+      -- `idx < coll.size` then fits `h`, and the enclosing node ties each binder to its source.
       let scStep ← match nExpr with
-        | some _ => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, none, coll, ai, klam, h]
-        | none   => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, coll, ai, klam, h]
+        | some _ => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, none, coll, idx, klam, h]
+        | none   => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, coll, idx, klam, h]
       pure (node, ← eqTransD scStep (kproof.replaceFVar vc elem))
 
   /-- Proof-erased **set**: as `pGet`, with the value operand and `sc_vset`/`sc_aset`. -/
@@ -506,11 +628,57 @@ mutual
       let node ← match nExpr with
         | some n => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, n, ac, ai, ax, klam]
         | none   => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, ac, ai, ax, klam]
-      -- as `pGet`: the sc-lemma uses the *source* collection `coll` so the array bound fits `h`.
+      -- as `pGet`: the sc-lemma uses the *source* collection/index/value so the array bound fits `h`.
       let scStep ← match nExpr with
-        | some _ => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, none, coll, ai, ax, klam, h]
-        | none   => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, coll, ai, ax, klam, h]
+        | some _ => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, none, coll, idx, x, klam, h]
+        | none   => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, coll, idx, x, klam, h]
       pure (node, ← eqTransD scStep (kproof.replaceFVar vc elem))
+
+  /-- Proof-erased **upcast** (`arrToVec`/`natToFin`): reflect the operand, emit the cast, and close
+      its `fail` branch with the source's proof `h` (`sc_arrToVec`/`sc_natToFin` = `dif_pos h`).
+      `elem` is the source `⟨operand, h⟩`; `aTpOpt = some elemTp` for `array→vec`, `none` for `nat→fin`. -/
+  partial def Env.pCast (env : Env) (resTp elem : Expr) (ctor scLemma : Name) (aTpOpt : Option Expr)
+      (nExpr operand h : Expr) (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) :=
+    let castTp := match aTpOpt with
+      | some aTp => mkApp2 (.const ``Tp.vec []) aTp nExpr
+      | none     => mkApp (.const ``Tp.fin []) nExpr
+    env.pAtom resTp operand fun oa =>
+    withLocalDeclD `v (mkApp env.V castTp) fun vc => do
+      let (kcode, kproof) ← k vc
+      let klam ← mkLambdaFVars #[vc] kcode
+      let node ← match aTpOpt with
+        | some aTp => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, nExpr, oa, klam]
+        | none     => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, nExpr, oa, klam]
+      -- the sc-lemma uses the *source* operand (concrete), not the reflected atom `oa`.
+      let scStep ← match aTpOpt with
+        | some aTp => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, nExpr, operand, klam, h]
+        | none     => mkAppOptM scLemma #[env.Op, env.SOp, resTp, nExpr, operand, klam, h]
+      pure (node, ← eqTransD scStep (kproof.replaceFVar vc elem))
+
+  /-- **Vector construction**: reflect the elements, bind the result vector as a fresh var, emit the
+      `vec` node, and instantiate the var with the atom-vector in the continuation's proof (the `vec`
+      step `denote (Code.vec elems k) = denote (k elems)` is definitional). -/
+  partial def Env.pVec (env : Env) (resTp aTp nExpr : Expr) (elems : List Expr)
+      (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) :=
+    env.pAtoms resTp elems fun atoms => do
+      let vecVal ← mkVecOfAtoms env.V aTp nExpr atoms
+      withLocalDeclD `v (mkApp env.V (mkApp2 (.const ``Tp.vec []) aTp nExpr)) fun vc => do
+        let (kcode, kproof) ← k vc
+        let klam ← mkLambdaFVars #[vc] kcode
+        let node ← mkAppOptM ``Code.vec #[env.Op, env.SOp, env.F, env.V, none, aTp, nExpr, vecVal, klam]
+        pure (node, kproof.replaceFVar vc vecVal)
+
+  /-- **Array construction**: as `pVec`, instantiating with `(#[atoms])`. -/
+  partial def Env.pArr (env : Env) (resTp aTp : Expr) (elems : List Expr)
+      (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) :=
+    env.pAtoms resTp elems fun atoms => do
+      let lst ← mkListLit (mkApp env.V aTp) atoms
+      let arrVal ← mkAppM ``List.toArray #[lst]
+      withLocalDeclD `v (mkApp env.V (mkApp (.const ``Tp.array []) aTp)) fun vc => do
+        let (kcode, kproof) ← k vc
+        let klam ← mkLambdaFVars #[vc] kcode
+        let node ← mkAppOptM ``Code.arr #[env.Op, env.SOp, env.F, env.V, none, aTp, lst, klam]
+        pure (node, kproof.replaceFVar vc arrVal)
 
   /-- Reflect a list of pure argument values to atoms, threading the proof-carrying continuation. -/
   partial def Env.pAtoms (env : Env) (resTp : Expr) (vals : List Expr)
