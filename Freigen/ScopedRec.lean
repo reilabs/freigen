@@ -180,52 +180,92 @@ def reflectRec (F recTy : Expr) (cName : Name) : TermElabM Expr := do
   let_expr FreeH Op SOp ρT := (← whnf codom)
     | throwError "reflect%: recursion result must be `FreeH Op SOp _`"
   let callOp := mkAppN (.const ``ITree.CallOp []) #[Op, σT, ρT]
+  let σTp ← reifyTpOrThrow σT
   let ρTp ← reifyTpOrThrow ρT
-  let kcF ← mkAppM ``KC #[callOp]
+  let kcCallOp ← mkAppM ``KC #[callOp]
   let denoteV := Lean.mkConst ``Tp.denote []
+  let tpTy := (.const ``Tp [] : Expr)
+  let σTpList ← mkListLit tpTy [σTp]
+  let fTy ← mkArrow (← mkAppM ``List #[tpTy]) (← mkArrow tpTy (mkSort (.succ (.succ .zero))))
+  let vTy ← mkArrow tpTy (mkSort (.succ .zero))
   let defs ← IO.mkRef (#[] : Array DefEntry)
-  -- the call-body FreeH term `cb` and its dumb `Code` reflection `bodyCode`, both `fun s => …`
-  let (cb, bodyCode) ← withLocalDeclD `s σT fun s => do
+  let defsUsed ← IO.mkRef (#[] : Array Name)
+  let fFn := .const cName []
+  -- `cb` : the FreeH call-body `fun s => …`
+  let cb ← withLocalDeclD `s σT fun s => do
     let cbT ← withLocalDeclD `rec recTy fun rec =>
       toCallBodyH rec.fvarId! Op SOp σT ρT ((F.beta #[rec]).beta #[s])
-    let env : Env := { Op := callOp, SOp, F := kcF, V := denoteV, subst := [], defs }
-    let codeT ← env.walkProg cbT (env.mkRet ·)
-    return (← mkLambdaFVars #[s] cbT, ← mkLambdaFVars #[s] codeT)
-  let fFn := .const cName []
-  -- the soundness hypotheses (proved per-program).  the body homom `denote (bodyCode N) =
-  -- ofFreeH (cb N)` — `denote` lands in `Comp`, matched against `ofFreeH` of the FreeH call-body.
+    mkLambdaFVars #[s] cbT
+  -- `recBody` : the `rec_` body `fun V0 F' argAtom => …`, parametric in the value/function reps
+  let recBody ← withLocalDeclD `V0 vTy fun Vp0 => withLocalDeclD `F' fTy fun F' =>
+    withLocalDeclD `arg (mkApp Vp0 σTp) fun argAtom => do
+      let codeT ← withLocalDeclD `s σT fun s => withLocalDeclD `rec recTy fun rec => do
+        let cbT ← toCallBodyH rec.fvarId! Op SOp σT ρT ((F.beta #[rec]).beta #[s])
+        let env : Env := { Op := callOp, SOp, F := F', V := Vp0, subst := [(s.fvarId!, argAtom)],
+                           defs, defsUsed }
+        env.walkProg cbT (env.mkRet ·)
+      mkLambdaFVars #[Vp0, F', argAtom] codeT
+  -- `bodyCode` : `recBody` at `V := Tp.denote`, `F := KC callOp` — what `recSound`/`denoteProg` see
+  let bodyCode := recBody.beta #[denoteV, kcCallOp]
+  -- the soundness hypotheses (the body homom + `mrec` adequacy side-conditions)
   let eId := mkIdent cName
   let hspec ← withLocalDeclD `N σT fun N => do
-    mkForallFVars #[N] (← mkEq (← mkAppM ``denote #[mkApp bodyCode N])
-      (← mkAppM ``ofFreeH #[mkApp cb N]))
+    mkForallFVars #[N] (← mkEq (← mkAppM ``denote #[bodyCode.beta #[N]])
+      (← mkAppM ``ofFreeH #[cb.beta #[N]]))
   let hspecPrf ← elabTermEnsuringType (← `(by
       intro N; simp only [Freigen.Scoped.denote, Freigen.Scoped.ofFreeH,
         Freigen.Scoped.ofFreeH_bind, Freigen.Scoped.ofFreeH_cond, Freigen.Scoped.Bin.denote,
         Freigen.Scoped.Un.denote, Freigen.ITree.bind_vis, Freigen.ITree.bind_ret,
         Freigen.ITree.bind_assoc])) (some hspec)
   let hrun ← withLocalDeclD `N σT fun N => do
-    mkForallFVars #[N] (← mkEq (← mkAppM ``runSrcH #[fFn, mkApp cb N]) (mkApp fFn N))
+    mkForallFVars #[N] (← mkEq (← mkAppM ``runSrcH #[fFn, cb.beta #[N]]) (mkApp fFn N))
   let hrunPrf ← elabTermEnsuringType (← `(by
       intro N; rcases N with _ | m <;>
         simp [Freigen.Scoped.runSrcH, Freigen.Scoped.FreeH.bind, Freigen.Scoped.FreeH.bind_pure,
           $eId:term] <;> rfl)) (some hrun)
   let hcl ← withLocalDeclD `N σT fun N => do
-    mkForallFVars #[N] (← mkAppM ``callsLtH #[N, mkApp cb N])
+    mkForallFVars #[N] (← mkAppM ``callsLtH #[N, cb.beta #[N]])
   let hclPrf ← elabTermEnsuringType (← `(by
       intro N; rcases N with _ | m <;>
         simp [Freigen.Scoped.callsLtH, Freigen.Scoped.FreeH.bind] <;> omega)) (some hcl)
-  -- recFn N = mrec (fun s => denote (bodyCode s)) N,  proof = recSound …
-  let bodyFn ← withLocalDeclD `s σT fun s => do
-    mkLambdaFVars #[s] (← mkAppM ``denote #[mkApp bodyCode s])
-  let recFn ← withLocalDeclD `N σT fun N => do mkLambdaFVars #[N] (← mkAppM ``mrec #[bodyFn, N])
-  let recFnTy ← inferType recFn
+  -- `recSoundApp` : ∀ N, mrec (fun s => denote (bodyCode s)) N ≈ ofFreeH (f N)   [mrec adequacy]
+  let recSoundApp ← mkAppOptM ``recSound #[Op, SOp, ρTp, bodyCode, cb, fFn, hspecPrf, hrunPrf, hclPrf]
+  -- `g` : the closed `Prog` — `rec_` (the reflected body) then `main(n) := call frec n`
+  let g ← withLocalDeclD `Fp fTy fun Fp => withLocalDeclD `Vp vTy fun Vp => do
+    let recBodyG := recBody.beta #[Vp]
+    let frecTy := mkApp2 Fp σTpList ρTp
+    let mainK ← withLocalDeclD `frec frecTy fun frec => do
+      let mainLam ← withLocalDeclD `hargs (← mkAppM ``HList #[Vp, σTpList]) fun hargs => do
+        let cont ← withLocalDeclD `r (mkApp Vp ρTp) fun r => do
+          mkLambdaFVars #[r] (← mkAppOptM ``Code.ret #[Op, SOp, Fp, Vp, ρTp, r])
+        mkLambdaFVars #[hargs]
+          (← mkAppOptM ``Code.call #[Op, SOp, Fp, Vp, ρTp, σTpList, ρTp, frec, hargs, cont])
+      mkLambdaFVars #[frec] (← mkAppOptM ``Prog.main #[Op, SOp, Fp, Vp, σTpList, ρTp, mainLam])
+    mkLambdaFVars #[Fp, Vp]
+      (← mkAppOptM ``Prog.rec_ #[Op, SOp, Fp, Vp, σTpList, ρTp, σTp, ρTp, recBodyG, mainK])
+  let closedTy ← mkAppOptM ``Closed #[Op, SOp, σTpList, ρTp]
+  let kc ← mkAppM ``KC #[Op]
   let ofFreeHead ← mkAppOptM ``ofFreeH #[Op, SOp, ρT]
-  let pred ← withLocalDeclD `g recFnTy fun g => do
+  let nilD ← mkAppOptM ``HList.nil #[none, denoteV]
+  let pred ← withLocalDeclD `g closedTy fun gv => do
     let body ← withLocalDeclD `N σT fun N => do
-      mkForallFVars #[N] (← mkAppM ``ITree.Eutt #[mkApp g N, mkApp ofFreeHead (mkApp fFn N)])
-    mkLambdaFVars #[g] body
-  let proof ← mkAppOptM ``recSound #[Op, SOp, ρTp, bodyCode, cb, fFn, hspecPrf, hrunPrf, hclPrf]
-  mkAppOptM ``Subtype.mk #[recFnTy, pred, recFn, proof]
+      let hlN ← mkAppOptM ``HList.cons #[none, denoteV, σTp, none, N, nilD]
+      let lhs ← mkAppOptM ``denoteProg #[Op, SOp, σTpList, ρTp, mkAppN gv #[kc, denoteV], hlN]
+      mkForallFVars #[N] (← mkAppM ``ITree.Eutt #[lhs, mkApp ofFreeHead (mkApp fFn N)])
+    mkLambdaFVars #[gv] body
+  -- proof: `denoteProg (g KC ⟨N⟩) = mrec (…) N` (bind right-identity), then `recSoundApp N`.
+  let bodyFnC ← withLocalDeclD `s σT fun s => do
+    mkLambdaFVars #[s] (← mkAppM ``denote #[bodyCode.beta #[s]])
+  let proof ← withLocalDeclD `N σT fun N => do
+    let hlN ← mkAppOptM ``HList.cons #[none, denoteV, σTp, none, N, nilD]
+    let lhs ← mkAppOptM ``denoteProg #[Op, SOp, σTpList, ρTp, mkAppN g #[kc, denoteV], hlN]
+    let rhs ← mkAppM ``mrec #[bodyFnC, N]
+    let bridge ← elabTermEnsuringType (← `(by
+        simp only [Freigen.Scoped.denoteProg, Freigen.Scoped.denote, Freigen.Scoped.HList.head,
+          Freigen.ITree.bind_ret_right])) (some (← mkEq lhs rhs))
+    mkLambdaFVars #[N]
+      (← mkAppM ``ITree.Eutt.trans #[← mkAppM ``ITree.Eutt.of_eq #[bridge], mkApp recSoundApp N])
+  mkAppOptM ``Subtype.mk #[closedTy, pred, g, proof]
 
 /-- **`reflect%`** — the unified entry point.  It does the right thing automatically:
 
@@ -259,14 +299,19 @@ def countdown : Nat → FreeH NoOp NoScope Nat
   | 0     => .pure 0
   | n + 1 => countdown n
 
-/-- `reflect%` reflects the recursive `def` into `{ g // ∀ N, g N ≈ ofFreeH (countdown N) }` —
-    the `mrec` denotation *and* its soundness, with no hand-written proof. -/
+/-- `reflect%` reflects the recursive `def` into a **`Prog` with a `rec_` node** (self-calls are the
+    `CallOp.call` op, tied by `mrec`) plus its soundness — the *same* `{ g : Closed // … denoteProg …
+    ≈ ofFreeH … }` shape as the non-recursive arm, so recursion is first-class in `Prog`. -/
 def countdownC := reflect% countdown
 
-/-- `.1` is the reflected `Comp NoOp` recursion. -/
-example (N : Nat) : Comp NoOp Nat := countdownC.1 N
-/-- `.2` is the bundled soundness against the source. -/
-example : ∀ N, countdownC.1 N ≈ ofFreeH (countdown N) := countdownC.2
+/-- `.1` is the closed `Prog` (a `rec_` + `main`). -/
+example : Closed NoOp NoScope [.nat] .nat := countdownC.1
+/-- `.2`: denoting the AST (`mrec` at the `rec_`) is `≈ ofFreeH` of the source, for every input. -/
+example : ∀ N, denoteProg (countdownC.1 (KC NoOp) Tp.denote) (.cons N .nil)
+    ≈ ofFreeH (countdown N) := countdownC.2
+
+-- Pretty-prints as `rec f0(x1 : Nat) => …` (with a self-call) and `def main(x) => f0(x)`.
+#eval pp (fun o => nomatch o) (fun s => nomatch s) countdownC.1
 
 /-- **Non-tail** recursion (`sm n + 1`): the self-call sits under a `bind`.  `reflect%` handles
     it through the same path — `interp_bind` pushes the post-call `+1` through. -/
@@ -275,6 +320,6 @@ def sm : Nat → FreeH NoOp NoScope Nat
   | n + 1 => do let r ← sm n; pure (r + 1)
 
 def smC := reflect% sm
-example : ∀ N, smC.1 N ≈ ofFreeH (sm N) := smC.2
+example : ∀ N, denoteProg (smC.1 (KC NoOp) Tp.denote) (.cons N .nil) ≈ ofFreeH (sm N) := smC.2
 
 end Freigen.Scoped

@@ -53,9 +53,10 @@ example : denoteProg (circC.1 (KC CircOp) Tp.denote) .nil ≈ ofFreeH circ := ci
 
 /-! ## First-order functions: a `main` that calls helper subroutines
 
-`double`/`quad` are plain `FreeH` helper functions.  Reflection **spills each into a `def_`** (a
-Kleisli subroutine) and `main` `call`s them — first-order functions, multiple defs, monomorphised on
-their argument/result object-types. -/
+`double`/`quad` are plain `FreeH` helpers; reflection spills each into a `def_` that `main` `call`s.
+Soundness now goes through a **compositional bisimulation** (no `FreeH` bridge): the reflector
+unfolds the source definitions it touched so scope- and call-binds fuse consistently on both sides,
+and `denoteProg ≈ ofFreeH` closes. -/
 
 def double (x : Nat) : FreeH CircOp HintS Nat := pure (x + x)
 def quad (x : Nat) : FreeH CircOp HintS Nat := do let d ← double x; double d

@@ -32,23 +32,31 @@ no self-reference and **no function values in ops**.
   for **top-level function definitions**, indexed by `Tp`, PHOAS over `F : List Tp → Tp → Type 1`
   and `V : Tp → Type`, `Op`/`SOp` opaque), `denote`/`denoteProg` **uniformly into the interaction-tree
   domain `Comp`** (a function denotes as a **`Comp`-Kleisli subroutine** `HList Tp.denote as → Comp Op
-  b`) — the denotation is recursion-agnostic; nothing in the AST or `denoteProg` cares whether the
-  program is recursive.  Plus a pretty-printer and the **`reflect%`** elaborator (non-recursive arm)
-  returning `{ g : Closed // ∀ args, denoteProg (g KC Tp.denote) ⟨args⟩ ≈ ofFreeH (foo args) }`
-  (`ofFreeH` only embeds the source `FreeH` for comparison).  The reflector reifies types into `Tp`,
-  A-normalises pure computation into `un`/`bin`/`lit` atoms, keeps effects/scoped blocks opaque, and
-  **spills each called helper function into a `def_`** via a two-pass discovery/build, monomorphised
-  on its `(name, argument-types, result-type)` signature.  `main` may itself be a **function of the
-  program's inputs** (`A₁ → … → Aₙ → FreeH …`), delivered as an `HList`.  Soundness goes through the
-  faithful `FreeH` denotation `denoteProgF` (`denoteProg = ofFreeH ∘ denoteProgF` by `ofFreeH_bind`,
-  `denoteProgF (reflect foo) = foo` by `rfl`), so it discharges to `Eutt.of_eq`.
+  b`).  A **`Prog.rec_`** node is a *recursive* function definition, denoted by `mrec`; its very
+  presence makes a total `Prog → FreeH` map **impossible to define** (no `mrec` in an inductive
+  monad), so the AST cannot — and does not — assume termination.  Plus a pretty-printer and the
+  **`reflect%`** elaborator returning `{ g : Closed // ∀ args, denoteProg (g KC Tp.denote) ⟨args⟩ ≈
+  ofFreeH (foo args) }` (`ofFreeH` only embeds the source `FreeH` for comparison).  The reflector
+  reifies types into `Tp`, A-normalises pure computation into `un`/`bin`/`lit` atoms, keeps
+  effects/scoped blocks opaque, and **spills each called helper function into a `def_`** via a
+  two-pass discovery/build, monomorphised on its `(name, argument-types, result-type)` signature.
+  `main` may itself be a **function of the program's inputs** (`A₁ → … → Aₙ → FreeH …`).  Soundness
+  is a **compositional bisimulation** (no `FreeH` bridge): the reflector records every source
+  definition it unfolds and feeds them to a `simp` that unfolds `denoteProg`/`denote` and
+  `ofFreeH`/`ofFreeH_bind` on *both* sides, so scope- and call-binds fuse consistently and the two
+  `Comp` trees converge — then `Eutt.of_eq`.
 - `Freigen/ITree/` — the coinductive denotation domain `Comp Op` (`ret`/`tau`/`vis`/`fail`), `bind` +
   monad/computation laws, weak bisimulation `≈` (`Eutt`) with its full construction algebra as a
   lawful `Setoid`, and the general-recursion combinator `mrec`.
-- `Freigen/ScopedRec.lean` — **recursion on the `FreeH` pipeline**: the `mrec` adequacy restated over
-  `ofFreeH` (`mrec_adequacyH`, generic over `SOp`), a `Code.ite` branch node, and the recursive arm of **`reflect%`** — a structural-recursive `def f : Nat → FreeH Op SOp ρ` reflects into `{ g // ∀ N,
-  g N ≈ ofFreeH (f N) }` (its call-body re-expressed over `CallOp`, reflected to dumb `Code`, `mrec`
-  tying the knot), for **tail and non-tail** recursion alike.
+- `Freigen/ScopedRec.lean` — **recursion, first-class in `Prog`**: the `mrec` adequacy over `ofFreeH`
+  (`mrec_adequacyH`/`recSound`, generic over `SOp`) and the recursive arm of **`reflect%`** — a
+  structural-recursive `def f : Nat → FreeH Op SOp ρ` reflects into a **`Prog` with a `rec_` node**
+  (its call-body re-expressed over `CallOp`, self-calls the `CallOp.call` op, `mrec` tying the knot)
+  and `main` calling it.  It returns the *same* `{ g : Closed // ∀ N, denoteProg (g KC Tp.denote) ⟨N⟩
+  ≈ ofFreeH (f N) }` shape as the non-recursive arm — the reflector composes the soundness as
+  `bind_ret_right` (main's call into the recursive fn) ∘ `mrec_adequacy` (the `rec_` body).  Handles
+  **tail and non-tail** recursion.  So one `reflect%` yields a uniform `{ g : Closed // … denoteProg …
+  ≈ ofFreeH … }` for values, parameterized `main`s, helper-calling programs, and recursion alike.
 - `Freigen/Free.lean` — the `Effect` functor (used by `Comp`'s `vis`) and the finite free monad
   `Free`/`ofFree` (used internally by `mrec` adequacy).
 - `Freigen/Examples/` — one module per signature:

@@ -58,10 +58,19 @@ inductive Code (Op : Type → Type → Type 1) (SOp : Type → Type)
 /-- A whole program: a telescope of pulled-out function **definitions** (`def_`) ending in `main`.
     Each `def_` binds a function name `F as b` the rest may `call`. -/
 inductive Prog (Op : Type → Type → Type 1) (SOp : Type → Type)
-    (F : List Tp → Tp → Type 1) (V : Tp → Type) (mainArgs : List Tp) (α : Tp) : Type 1
+    (F : List Tp → Tp → Type 1) (V : Tp → Type) (mainArgs : List Tp) (α : Tp) : Type 2
   | main : (HList V mainArgs → Code Op SOp F V α) → Prog Op SOp F V mainArgs α
   | def_ {as b} : (HList V as → Code Op SOp F V b) →
       (F as b → Prog Op SOp F V mainArgs α) → Prog Op SOp F V mainArgs α
+  /-- A **recursive** function definition `arg → res`.  Its body lives over the **call-extended
+      signature** `CallOp Op` — a self-call is the `CallOp.call` operation — so it may recur in any
+      position; it is denoted by `mrec`.  The body is parametric in `F` (it reaches the recursive
+      knot through `call`, not through a name).  This node's very existence makes a total `Prog →
+      FreeH` map **impossible to define** (no `mrec` in an inductive monad): the AST can't promise
+      termination. -/
+  | rec_ {arg res} :
+      (∀ F', V arg → Code (CallOp Op arg.denote res.denote) SOp F' V res) →
+      (F [arg] res → Prog Op SOp F V mainArgs α) → Prog Op SOp F V mainArgs α
 
 /-- A closed program, parametric in the function/value representations. -/
 def Closed (Op : Type → Type → Type 1) (SOp : Type → Type) (mainArgs : List Tp) (α : Tp) : Type 2 :=
@@ -85,35 +94,17 @@ def denote {Op : Type → Type → Type 1} {SOp : Type → Type} :
   | _, .call cf args k => ITree.bind (cf args) (fun r => denote (k r))
   | _, .scope _ b k => ITree.bind (denote b) (fun x => denote (k x))
 
-/-- Denote a whole program into `Comp` — **uniform, recursion-agnostic**: each `def_` binds its
-    body's `Comp`-subroutine; `main` denotes to a function of the program's inputs. -/
+/-- Denote a whole program into `Comp` — **uniformly**: `main` denotes to a function of the inputs,
+    a `def_` binds its body's `Comp`-subroutine, and a **`rec_` ties the recursive knot with `mrec`**.
+    There is deliberately no `FreeH`-valued analogue: `mrec` has no inductive counterpart, so a `Prog`
+    cannot be denoted into a finite monad — the AST does not (and cannot) assume termination. -/
 def denoteProg {Op : Type → Type → Type 1} {SOp : Type → Type} {mainArgs : List Tp} {α : Tp} :
     Prog Op SOp (KC Op) Tp.denote mainArgs α → HList Tp.denote mainArgs → Comp Op α.denote
   | .main body   => fun args => denote (body args)
   | .def_ body k => denoteProg (k (fun a => denote (body a)))
-
-/-- The FreeH-Kleisli representation — used only to *prove* soundness. -/
-abbrev KF (Op : Type → Type → Type 1) (SOp : Type → Type) : List Tp → Tp → Type 1 :=
-  fun as b => HList Tp.denote as → FreeH Op SOp b.denote
-
-/-- The **faithful** `FreeH` denotation (`F := KF`): `denoteF (reflect foo) = foo` by `rfl`, and
-    `denote = ofFreeH ∘ denoteF` by `ofFreeH_bind` — the bridge that discharges soundness. -/
-def denoteF {Op : Type → Type → Type 1} {SOp : Type → Type} :
-    {α : Tp} → Code Op SOp (KF Op SOp) Tp.denote α → FreeH Op SOp α.denote
-  | _, .ret v      => .pure v
-  | _, .lit a k    => denoteF (k a)
-  | _, .un o a k   => denoteF (k (Un.denote o a))
-  | _, .bin o a b k => denoteF (k (Bin.denote o a b))
-  | _, .op o i k   => .op o i (fun r => denoteF (k r))
-  | _, .ite c t e  => cond c (denoteF t) (denoteF e)
-  | _, .call cf args k => FreeH.bind (cf args) (fun r => denoteF (k r))
-  | _, .scope s b k => .hop s (denoteF b) (fun x => denoteF (k x))
-
-/-- The faithful `FreeH` denotation of a whole program (for the soundness proof). -/
-def denoteProgF {Op : Type → Type → Type 1} {SOp : Type → Type} {mainArgs : List Tp} {α : Tp} :
-    Prog Op SOp (KF Op SOp) Tp.denote mainArgs α → HList Tp.denote mainArgs → FreeH Op SOp α.denote
-  | .main body   => fun args => denoteF (body args)
-  | .def_ body k => denoteProgF (k (fun a => denoteF (body a)))
+  | @Prog.rec_ _ _ _ _ _ _ arg res body k =>
+      denoteProg (k (fun args =>
+        mrec (fun s => denote (body (KC (CallOp Op arg.denote res.denote)) s)) (HList.head args)))
 
 /-! ## A pretty-printer -/
 
@@ -176,6 +167,13 @@ private def ppProg {Op : Type → Type → Type 1} {SOp : Type → Type} {mainAr
       let (b, i) := ppCode name sname 1 i (body argv)
       let (rest, i) := ppProg name sname i (k (ULift.up f))
       (s!"def {f}({ppBinders as argv}) =>\n{b}\n{rest}", i)
+  | i, @Prog.rec_ _ _ _ _ _ _ arg res body k =>
+      let f := s!"f{i}"; let x := s!"x{i+1}"; let i := i + 2
+      let callName : {I R : Type} → Freigen.ITree.CallOp Op arg.denote res.denote I R → String :=
+        fun o => match o with | .base o' => name o' | .call => s!"{f} (self-call)"
+      let (b, i) := ppCode callName sname 1 i (body PpF x)
+      let (rest, i) := ppProg name sname i (k (ULift.up f))
+      (s!"rec {f}({x} : {arg.toTypeStr}) =>\n{b}\n{rest}", i)
 
 /-- Pretty-print a closed program. -/
 def pp {Op : Type → Type → Type 1} {SOp : Type → Type}
@@ -272,6 +270,9 @@ structure Env where
   V : Expr
   subst : List (FVarId × Expr)
   defs : IO.Ref (Array DefEntry)
+  /-- Every source definition the reflector unfolds (helpers, smart-constructors, the program itself).
+      Emitted into the soundness `simp` set so the source side unfolds to the same tree the AST does. -/
+  defsUsed : IO.Ref (Array Name)
   inBody : Bool := false
   resolved : Option (Array (DefEntry × Expr)) := none
 
@@ -364,7 +365,9 @@ mutual
         match ← env.tryCall e k with
         | some prog => pure prog
         | none => match ← unfoldDefinition? e with
-          | some e' => env.walkProg e' k
+          | some e' =>
+              if let some n := e.getAppFn.constName? then env.defsUsed.modify (·.push n)
+              env.walkProg e' k
           | none    => throwError "reflect%: don't know how to reflect computation{indentExpr e}"
 
   /-- Reflect a `bind x f`; a pure `x` is inlined via left-identity. -/
@@ -436,6 +439,7 @@ mutual
         unless dep do vps := vps.push i
       pure vps
     if valuePos.size == 0 then return none
+    env.defsUsed.modify (·.push cName)     -- the helper is `call`-spilled; unfold it on the source side
     let valueArgs := valuePos.toList.map (fArgs[·]!)
     let mut argTps : Array Expr := #[]
     for va in valueArgs do
@@ -496,6 +500,7 @@ def reflectMain (foo : Expr) : TermElabM Expr := do
     let fTy ← mkArrow (← mkAppM ``List #[tpTy]) (← mkArrow tpTy (mkSort (.succ (.succ .zero))))
     let vTy ← mkArrow tpTy (mkSort (.succ .zero))
     let defs ← IO.mkRef (#[] : Array DefEntry)
+    let defsUsed ← IO.mkRef (#[] : Array Name)
     let denoteV := Lean.mkConst ``Tp.denote []
     let topBody := (← unfoldDefinition? (foo.beta args)).getD (foo.beta args)
     let g ← withLocalDeclD `F fTy fun F => withLocalDeclD `V vTy fun V => do
@@ -504,7 +509,7 @@ def reflectMain (foo : Expr) : TermElabM Expr := do
       let walkMain (resolved : Option (Array (DefEntry × Expr))) (hargs : Expr) : MetaM Expr := do
         let mut subst : List (FVarId × Expr) := []
         for i in [0:args.size] do subst := (args[i]!.fvarId!, ← projHList hargs i) :: subst
-        let env : Env := { Op, SOp, F, V, subst, defs, resolved }
+        let env : Env := { Op, SOp, F, V, subst, defs, defsUsed, resolved }
         env.walkProg topBody (env.mkRet ·)
       let _ ← withLocalDeclD `args hlistTy fun h => walkMain none h    -- pass 1: discovery
       let entries ← defs.get
@@ -522,29 +527,34 @@ def reflectMain (foo : Expr) : TermElabM Expr := do
       mkLambdaFVars #[F, V] prog
     let gTy ← inferType g
     let kc ← mkAppM ``KC #[Op]
-    let kf ← mkAppM ``KF #[Op, SOp]
     -- the actual arguments as an `HList Tp.denote mainArgs`, for the soundness statement
     let mut argHList ← mkAppOptM ``HList.nil #[none, denoteV]
     for (a, t) in (args.zip mainArgTps).reverse do
       argHList ← mkAppOptM ``HList.cons #[none, denoteV, t, none, a, argHList]
     let ofFreeHead ← mkAppOptM ``ofFreeH #[Op, SOp, X]
     -- soundness  fun g => ∀ args, denoteProg (g KC Tp.denote) ⟨args⟩ ≈ ofFreeH (foo args)
-    -- — `denoteProg` lands in `Comp` directly; `ofFreeH` only embeds the source.
+    -- — `denoteProg` lands in `Comp` *directly*; `ofFreeH` only embeds the source `FreeH`.
     let pred ← withLocalDeclD `g gTy fun gv => do
       let lhs ← mkAppOptM ``denoteProg #[Op, SOp, none, none, mkAppN gv #[kc, denoteV], argHList]
       let eutt ← mkAppM ``ITree.Eutt #[lhs, mkApp ofFreeHead (foo.beta args)]
       mkLambdaFVars #[gv] (← mkForallFVars args eutt)
-    -- proof: `denoteProg (g KC ⟨args⟩) = ofFreeH (denoteProgF (g KF ⟨args⟩))` (`ofFreeH_bind`), and
-    -- `denoteProgF (g KF ⟨args⟩) ≡ foo args` (`rfl`), so `denoteProg … = ofFreeH (foo args)`.
+    -- proof: `denoteProg (g KC ⟨args⟩) = ofFreeH (foo args)` directly — `denote`/`denoteProg` and
+    -- `ofFreeH` unfold to the same tree, the `call`-binds fusing via `bind_ret`/`bind_vis`.
     let dpC ← mkAppOptM ``denoteProg #[Op, SOp, none, none, mkAppN g #[kc, denoteV], argHList]
-    let dpF ← mkAppOptM ``denoteProgF #[Op, SOp, none, none, mkAppN g #[kf, denoteV], argHList]
-    let homomTy ← mkEq dpC (mkApp ofFreeHead dpF)
-    let homom ← elabTermEnsuringType (← `(by
-      simp only [Freigen.Scoped.denoteProg, Freigen.Scoped.denote, Freigen.Scoped.denoteProgF,
-        Freigen.Scoped.denoteF, Freigen.Scoped.ofFreeH, Freigen.Scoped.ofFreeH_bind,
-        Freigen.Scoped.ofFreeH_cond, Freigen.ITree.bind_ret, Freigen.ITree.bind_vis,
-        Freigen.ITree.bind_assoc, Freigen.Scoped.HList.head, Freigen.Scoped.HList.tail])) (some homomTy)
-    let prf ← mkLambdaFVars args (← mkAppM ``ITree.Eutt.of_eq #[homom])
+    let eqTy ← mkEq dpC (mkApp ofFreeHead (foo.beta args))
+    -- compositional bisimulation: unfold `denoteProg`/`denote` and `ofFreeH`/`ofFreeH_bind` on *both*
+    -- sides, plus every source definition the reflector touched, so scope- and call-binds fuse
+    -- consistently and the two `Comp` trees converge.
+    if let some n := foo.getAppFn.constName? then defsUsed.modify (·.push n)
+    let usedIdents := (← defsUsed.get).toList.eraseDups.toArray.map (Lean.mkIdent ·)
+    let eqPrf ← elabTermEnsuringType (← `(by
+      simp only [Freigen.Scoped.denoteProg, Freigen.Scoped.denote, Freigen.Scoped.ofFreeH,
+        Freigen.Scoped.ofFreeH_bind, Freigen.Scoped.ofFreeH_cond, Freigen.ITree.bind_ret,
+        Freigen.ITree.bind_vis, Freigen.ITree.bind_assoc, Freigen.Scoped.HList.head,
+        Freigen.Scoped.HList.tail, Freigen.Scoped.Bin.denote, Freigen.Scoped.Un.denote,
+        Freigen.Scoped.FreeH.bind, Freigen.Scoped.FreeH.perform, bind, pure, Bind.bind, Pure.pure,
+        $[$usedIdents:ident],*])) (some eqTy)
+    let prf ← mkLambdaFVars args (← mkAppM ``ITree.Eutt.of_eq #[eqPrf])
     mkAppOptM ``Subtype.mk #[gTy, pred, g, prf]
 
 end Freigen.Scoped
