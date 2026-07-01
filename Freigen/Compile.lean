@@ -1,5 +1,7 @@
 import Freigen.Ast
+import Freigen.Reflect
 import Lean.Elab.Command
+import Lean.Elab.SyntheticMVars
 
 /-!
 # Compilation front-end: from a `Free` program to a file on disk
@@ -11,18 +13,20 @@ that capability into a *devex*:
   arguments (killing the hand-rolled `ppCirc`/`ppStore` wrappers);
 * a persistent **environment extension** (`compileExt`) recording *which declarations* to emit and
   *where*;
-* a **`#compile foo => "path"`** command that records `(path, foo)` at elaboration time — **no file
-  is written and nothing is evaluated here**, so the editor never touches the disk while you type,
-  and elaboration stays cheap.
+* a **`#compile prog => "path"`** command that takes the **raw `Free` program** `prog` directly —
+  it reflects it for you (`reflect% prog`) into a kernel-checked auxiliary definition and records
+  `(path, that def)`.  No `reflect%` boilerplate, no file written and no pretty-printing here, so the
+  editor never touches the disk while you type.
 
 Rendering (running the pretty-printer) is deferred to the `freigen` executable, which — being a
-compiled binary — can evaluate `render foo.1` after importing the library.  The `lake build
-<lib>:prog` facet wires the two together.  Because `foo` must be a `reflect%` result (a `{ Closed //
-≈-soundness }` pair), the recorded declaration only exists if its soundness proof type-checks:
-**every emitted file is certified `≈` its source.**
+compiled binary — evaluates `render foo.1` after importing the library, and also prints the
+`≈`-soundness statement proved by the reflection for your inspection.  The `lake build <lib>:prog`
+facet wires the two together.  Because `#compile prog` elaborates `reflect% prog` (a `{ Closed //
+≈-soundness }` pair) into a real definition, the artifact only exists if its soundness proof
+type-checks: **every emitted file is certified `≈` its source.**
 -/
 
-open Lean Elab Command
+open Lean Elab Command Term Meta
 
 namespace Freigen
 
@@ -51,11 +55,27 @@ initialize compileExt : SimplePersistentEnvExtension Artifact (Array Artifact) �
     addImportedFn := fun ass => ass.foldl (· ++ ·) #[]
   }
 
-/-- `#compile foo => "path"` records the reflected program `foo` for `lake build <lib>:prog` to
-    render and write to `path`.  `foo` is an identifier naming a `reflect%` result (a `{ Closed //
-    ≈-soundness }` pair) whose signature has a `[DSL]` instance. -/
-elab "#compile " id:ident " => " path:str : command => do
-  let name ← liftCoreM <| realizeGlobalConstNoOverload id
-  modifyEnv (compileExt.addEntry · (path.getString, name))
+/-- `#compile prog => "path"` reflects the raw `Free` program `prog` (`reflect% prog`) into a
+    kernel-checked auxiliary definition and records it for `lake build <lib>:prog` to render and
+    write to `path`.  `prog` is anything `reflect%` accepts — a value, a function of its inputs, or a
+    structural recursion — whose signature has a `[DSL]` instance. -/
+elab "#compile " prog:term " => " path:str : command => do
+  -- Reflect `prog` and its soundness proof, fully elaborated and closed.
+  let (value, type, levelParams) ← liftTermElabM do
+    let e ← elabTermAndSynthesize (← `(reflect% $prog)) none
+    synthesizeSyntheticMVarsNoPostponing
+    let e ← instantiateMVars e
+    let type ← instantiateMVars (← inferType e)
+    let levelParams := (collectLevelParams (collectLevelParams {} e) type).params.toList
+    pure (e, type, levelParams)
+  -- Materialise it as a compiled definition (kernel-checks the ≈-soundness proof; lets the emitter
+  -- evaluate `render`).  Name it after the source, uniquely per module.
+  let base : Name := if prog.raw.isIdent then prog.raw.getId else `compiled
+  let idx := (compileExt.getState (← getEnv)).size
+  let auxName := (← getMainModule) ++ base ++ Name.mkSimple s!"reflected_{idx}"
+  liftCoreM <| addAndCompile <| .defnDecl {
+    name := auxName, levelParams, type, value
+    hints := .opaque, safety := .safe, all := [auxName] }
+  modifyEnv (compileExt.addEntry · (path.getString, auxName))
 
 end Freigen

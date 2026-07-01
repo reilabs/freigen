@@ -5,15 +5,22 @@ open Lean Meta
 
 /-- Render one recorded artifact: evaluate `Freigen.render decl.1` (a `String`) and write it to
     `path`, creating parent directories.  Runs in `MetaM` so instance synthesis picks up the
-    declaration's `[DSL]` instance; `evalExpr` runs the pretty-printer over the imported code. -/
+    declaration's `[DSL]` instance; `evalExpr` runs the pretty-printer over the imported code.  Also
+    prints the `≈`-soundness statement the reflection proved (`decl`'s subtype predicate at `decl.1`)
+    for inspection during the build. -/
 unsafe def emitEntry (path : String) (decl : Name) : MetaM Unit := do
-  let closed ← mkAppM ``Subtype.val #[mkConst decl]        -- decl.1 : the `Closed` program
+  let c ← mkConstWithFreshMVarLevels decl
+  let closed ← mkAppM ``Subtype.val #[c]                   -- decl.1 : the `Closed` program
   let e ← mkAppM ``Freigen.render #[closed]                -- render decl.1 : String
   let contents ← evalExpr String (mkConst ``String) e
   let p : System.FilePath := path
   if let some dir := p.parent then IO.FS.createDirAll dir
   IO.FS.writeFile p contents
   IO.println s!"freigen: emitted {path} ({contents.length} bytes)"
+  -- The reflection's theorem: the subtype predicate `P` applied to the closed program `decl.1`.
+  if let (``Subtype, #[_, pred]) := (← whnf (← inferType c)).getAppFnArgs then
+    let stmt := (mkApp pred closed).headBeta
+    IO.println s!"  ⊢ {← ppExpr stmt}"
 
 /-- Import the given modules (loading env extensions) and flush every `#compile` artifact to disk. -/
 unsafe def runImpl (args : List String) : IO Unit := do

@@ -4,9 +4,9 @@ import Freigen
 # A downstream project using Freigen
 
 This is an ordinary Lake package that only `require`s Freigen (see `lakefile.lean`).  You write a
-`Free` program, `reflect%` it, and mark it with `#compile`; then `lake build MyCircuits:prog` renders
-the reflected AST and writes it to disk.  Nothing here is Freigen-internal — it is exactly what a user
-of the library writes.
+`Free` program and mark it with `#compile`; then `lake build MyCircuits:prog` reflects it, renders the
+AST, and writes it to disk.  Nothing here is Freigen-internal — it is exactly what a user of the
+library writes.
 -/
 
 namespace MyCircuits
@@ -19,11 +19,8 @@ def myProgram : Free CircOp HintS Unit := do
   let y ← hint (pure (x * 2))
   assert (y == 30)
 
-/-- `reflect%` gives the reflected `Prog` **and** its `≈`-soundness proof against `myProgram`. -/
-def myProgramC := reflect% myProgram
-example : denoteProg (myProgramC.1 (KC CircOp) Tp.denote) .nil ≈ ofFree myProgram := myProgramC.2
-
--- Emit the certified AST to `out/myProgram.prog` on `lake build MyCircuits:prog`.
-#compile myProgramC => "out/myProgram.prog"
+-- Reflect + emit the certified AST to `out/myProgram.prog` on `lake build MyCircuits:prog`.
+-- The build prints the `≈`-soundness statement the reflection proves.
+#compile myProgram => "out/myProgram.prog"
 
 end MyCircuits

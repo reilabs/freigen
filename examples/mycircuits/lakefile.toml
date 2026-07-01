@@ -1,0 +1,16 @@
+name = "mycircuits"
+defaultTargets = ["MyCircuits"]
+
+# Depend on Freigen from the repo root.  In a real project this would be a git require, e.g.
+#   [[require]]
+#   name = "freigen"
+#   git = "https://github.com/reilabs/freigen"
+#   rev = "main"
+# Note: this client uses a plain TOML lakefile — the `prog` facet and the `freigen` emitter both come
+# from the Freigen dependency, so the client needs no Lean lakefile of its own.
+[[require]]
+name = "freigen"
+path = "../.."
+
+[[lean_lib]]
+name = "MyCircuits"
