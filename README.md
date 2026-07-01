@@ -1,20 +1,65 @@
 # Freigen
 
-*frei* (free) + *eigen* (self) — reflecting effectful Lean programs into a free-monadic AST and
-denoting them back, with the round-trip proven faithful by weak bisimulation (`ITree.Eutt`) — which
-collapses to definitional `=` on the bounded fragment and absorbs the recursion guard's `tau`s.
+*frei* (free) + *eigen* (self) — a Lean DSL whose programs are **effectful free-monadic
+computations** (`FreeH`, the source of truth), given meaning by Lean-side interpreters and
+**reflected** into a dumb imperative AST that **denotes into interaction trees**, with the round-trip
+proven faithful by weak bisimulation (`≈`, `ITree.Eutt`).
 
-- `Freigen/Free.lean` — the free monad and the freer-monad `Effect` functor
-- `Freigen/Ast.lean` — the object-type universe `Tp`, the A-normal `Exp`/`Prog` AST, its denotation, and a pretty-printer
-- `Freigen/ITree/` — the **interaction-tree theory** (the coinductive denotation domain), re-exported by `Freigen/ITree.lean`:
-  - `ITree/Basic.lean` — **interaction trees** (`Comp Op`), the coinductive denotation domain (`ret`/`tau`/`vis`/`fail`) built on `PFunctor.M`: `bind` + monad + all computation laws (incl. right-identity and associativity, by bisimulation), `spin` (divergence); **`mrec`** — the *general* recursion combinator (the body is a tree over the call-extended signature `CallOp Op σ ρ`; `interp` ties the knot, re-running the body at each `call`, `tau`-guarded), with its computation laws and **`interp_bind`** (interp is a monad morphism — the law that makes *non-tail* recursion compute); and `iter` — the tail-recursion special case — with its **fixpoint unfolding law proved by coinduction** and **`iter_converges`**, the general adequacy theorem; plus `ofFree`, a convergence relation, and `down`/`spin` (terminating-recursion vs divergence)
-  - `ITree/Eutt.lean` — **`Eutt`**, equivalence-up-to-`tau` (weak bisimulation) on interaction trees, bisimulation-based (`∃ R, EuttF`-closed); `Eutt.of_eq` (so `≈` collapses to `=` on the `tau`-free bounded fragment), reflexivity, `tau`-stripping, and the **`Eutt` algebra** that lets `≈` be *constructed*: `EuttF` monotonicity, `eutt_closed` (`Eutt` is the largest bisimulation), `tau`-stripping on the left, and the `vis`/`bind` **congruences** (`eutt_bind_cong`, by induction on one `EuttF`-step).  This is the uniform soundness relation
-  - `ITree/Adequacy.lean` — **`mrec` adequacy**: the generic theorem that a reflected recursion's `mrec` denotation is `≈` its source.  `runSrc` plugs the source into a call-body at each `call`; `adeqBody` proves `interp ∘ ofFree ≈ ofFree ∘ runSrc` by a single structural induction over the `Eutt` congruences (no transitivity, no termination measure — the `callsLt` bound carries well-foundedness, discharged per-`N` after the `cond` reduces); `mrec_adequacy` is the strong-induction shell.  This is what `reflect%` emits for a recursive `def`'s soundness
-- `Freigen/Reflect.lean` — the `reflect%` elaborator.  **One path:** every `reflect%` returns a `{ g // soundness }` subtype, with the soundness the uniform `ITree.Eutt` (`≈`, weak bisimulation) against the source — `∀ args, … ≈ ITree.ofFree (e args)`.  A non-recursive `Free (Effect Op)` program reifies into a `Prog` and its soundness is `≈` of the definitional equality (`Eutt.of_eq`).  A **plain structural-recursive `def` on `Nat`** (compiled to `Nat.brecOn`, recognised via its equational lemmas) is re-expressed over the call-extended signature `CallOp Op σ ρ` (each self-call becomes a `call` node, *in any position* — tail **or non-tail**), emitted as the `ITree.mrec` knot, and its soundness `∀ N, f N ≈ ofFree (e N)` is discharged **generically and automatically** by `ITree.mrec_adequacy`/`adeqBody'` — so a recursive `def` reflects to function **and** proof, just like the bounded case.  (The raw **recursive-functional** entry `(σ → Free … ρ) → σ → Free … ρ` still returns the bare `ITree.mrec` knot — it has no source function to be sound against.)
-- `Freigen/Examples/Recursion.lean` — plain structural-recursive `def`s reflected via `reflect%`, each returning the `{ f // ∀ N, f N ≈ ofFree (source N) }` subtype — function **and** bundled soundness, no hand-written bisimulation.  `countdown` (**tail**: `| n+1 => countdown n`) and `sm` (**non-tail**: `| n+1 => do let r ← sm n; pure (r+1)`, the case the old `iter`-based reflection could not express) reflect through the *same* path; `countdownC.2`/`smC.2` are the soundness proofs for free, and composing with the source's own facts reads off closed forms (`countdownC.1 N ≈ ret 0`, `smC.1 N ≈ ret N`).  The recursion guard's `tau`s are absorbed by `≈`, exactly what the bounded fragment's strict `=` could not do
-- `Freigen/Examples/` — concrete operation signatures and example programs (one module per signature):
-  - `Circuit/` — the `CircOp` signature (`hint`/`assert`):
-    - `Circuit/Basic.lean` — the signature, smart constructors, and its computable semantics `runCirc` (`foldFree` into `Option`: `hint` = eval, `assert` = potential failure)
-    - `Circuit/Examples.lean` — reflect/pretty-print smoke tests, `runCirc` runs, and the `Vector` object type
-    - `Circuit/Poseidon.lean` — the Poseidon sponge hash over the BN254 scalar field for 4 inputs, over `Vector Fr t`
-  - `Storage.lean` — the `StoreOp` signature (`set`/`get`): a store of naturals addressed by naturals, with an operational denotation (`runStore`)
+## The shape of a program
+
+A program is a `FreeH Op SOp α` with **two orthogonal extension slots**:
+
+- `Op : Type → Type → Type 1` — **first-order effects**, opaque instructions (e.g. `CircOp.assert`).
+- `SOp : Type → Type` — **scoped constructs**: each operation carries an *in-monad block* (e.g.
+  `HintS`, the out-of-circuit `hint`).  `NoScope` recovers a plain first-order DSL.
+
+`FreeH` is the source of truth: run it in Lean, or `reflect%` it for compilation.  The block a
+scoped op carries is a positive recursive occurrence in the monad (`hop`) — an ordinary inductive, so
+no self-reference and **no function values in ops**.
+
+## Modules
+
+- `Freigen/Scoped.lean` — the monad `FreeH Op SOp` (`pure`/`op`/`hop`) + `Monad` instance, and the two
+  **generic** Lean interpreters: `run` (witness generation — scoped blocks are *run*) and `con`
+  (constrained — a `(α → Prop) → Prop` predicate transformer, scoped blocks *erased* to fresh
+  existentials).  Scoped signatures `HintS`/`NoScope`, the `hint` combinator, and their handlers.
+- `Freigen/Tp.lean` — the object-type universe `Tp` (`Bool`/`Nat`/`ZMod n`/`Unit`/`×`/`Vector`/
+  `Array`/`⊕`/`→`) with `Tp.denote`, and the **reified** primitive ops `Un`/`Bin` (arithmetic,
+  comparison, field ops, tupling, projection, injection, vector indexing) with their denotations and
+  pretty-printer symbols.  Arithmetic is a *typed op node*, not an opaque closure.
+- `Freigen/ScopedReflect.lean` — `ofFreeH` (the source's ITree semantics), the **dumb, typed
+  imperative AST** `Code`/`Prog` (`ret`/`lit`/`un`/`bin`/`op`/`ite`/`call`/`scope`, plus `Prog.def_`
+  for **top-level function definitions**, indexed by `Tp`, PHOAS over `F : List Tp → Tp → Type 1`
+  and `V : Tp → Type`, `Op`/`SOp` opaque), `denote`/`denoteProg` **uniformly into the interaction-tree
+  domain `Comp`** (a function denotes as a **`Comp`-Kleisli subroutine** `HList Tp.denote as → Comp Op
+  b`) — the denotation is recursion-agnostic; nothing in the AST or `denoteProg` cares whether the
+  program is recursive.  Plus a pretty-printer and the **`reflect%`** elaborator (non-recursive arm)
+  returning `{ g : Closed // ∀ args, denoteProg (g KC Tp.denote) ⟨args⟩ ≈ ofFreeH (foo args) }`
+  (`ofFreeH` only embeds the source `FreeH` for comparison).  The reflector reifies types into `Tp`,
+  A-normalises pure computation into `un`/`bin`/`lit` atoms, keeps effects/scoped blocks opaque, and
+  **spills each called helper function into a `def_`** via a two-pass discovery/build, monomorphised
+  on its `(name, argument-types, result-type)` signature.  `main` may itself be a **function of the
+  program's inputs** (`A₁ → … → Aₙ → FreeH …`), delivered as an `HList`.  Soundness goes through the
+  faithful `FreeH` denotation `denoteProgF` (`denoteProg = ofFreeH ∘ denoteProgF` by `ofFreeH_bind`,
+  `denoteProgF (reflect foo) = foo` by `rfl`), so it discharges to `Eutt.of_eq`.
+- `Freigen/ITree/` — the coinductive denotation domain `Comp Op` (`ret`/`tau`/`vis`/`fail`), `bind` +
+  monad/computation laws, weak bisimulation `≈` (`Eutt`) with its full construction algebra as a
+  lawful `Setoid`, and the general-recursion combinator `mrec`.
+- `Freigen/ScopedRec.lean` — **recursion on the `FreeH` pipeline**: the `mrec` adequacy restated over
+  `ofFreeH` (`mrec_adequacyH`, generic over `SOp`), a `Code.ite` branch node, and the recursive arm of **`reflect%`** — a structural-recursive `def f : Nat → FreeH Op SOp ρ` reflects into `{ g // ∀ N,
+  g N ≈ ofFreeH (f N) }` (its call-body re-expressed over `CallOp`, reflected to dumb `Code`, `mrec`
+  tying the knot), for **tail and non-tail** recursion alike.
+- `Freigen/Free.lean` — the `Effect` functor (used by `Comp`'s `vis`) and the finite free monad
+  `Free`/`ofFree` (used internally by `mrec` adequacy).
+- `Freigen/Examples/` — one module per signature:
+  - `Circuit` — `CircOp` (first-order `assert`) + the scoped `hint`: witness generation `runCirc`,
+    constrained semantics `conCirc`, and `reflect%` with `denote (circC.1 Id) ≈ ofFreeH circ`.
+  - `Storage` — `StoreOp` + `NoScope`: a hint-less DSL reusing the *same* pipeline with the scoped
+    slot empty (`hop` nodes never occur), operational `runStore`, and the same `≈`-soundness.
+
+## One-line summary
+
+Effects are first-order and opaque; **scoped constructs** carry an in-monad block and live in `hop`,
+so there is no self-reference and no function in any op.  `reflect%`/`denote` are generic over
+`Op`/`SOp`, the block reflects like a `let`, and soundness is the uniform `≈` (`ITree.Eutt`) via a
+single structural homomorphism — `denote (reflect% foo) ≈ ofFreeH foo`.  One `reflect%` does the right thing — a `FreeH` value or a structural `Nat` recursion.

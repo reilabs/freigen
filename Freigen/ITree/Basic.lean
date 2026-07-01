@@ -425,6 +425,26 @@ theorem ofFree_bind {α β} (m : Free (Effect Op) α) (k : α → Free (Effect O
   | Pure a => simp [freeBind, ofFree, bind_ret]
   | Impure e c ih => simp [freeBind, ofFree, bind_vis, ih]
 
+/-- `ofFree` commutes with `forIn` over a list (it is a monad homomorphism). -/
+theorem ofFree_listForIn {α β : Type} (l : List α) (init : β)
+    (f : α → β → Free (Effect Op) (ForInStep β)) :
+    ofFree (forIn l init f) = forIn l init (fun a b => ofFree (f a b)) := by
+  induction l generalizing init with
+  | nil => simp only [List.forIn_nil]; rfl
+  | cons x xs ih =>
+    simp only [List.forIn_cons, free_bind_eq, ofFree_bind, bind_def]
+    congr 1; funext s; cases s with
+    | done b => rfl
+    | yield b => exact ih b
+
+/-- `ofFree` commutes with the bounded `forIn` loop — the bridge that makes the `Comp` denotation
+    of a `forN` correspond to the `Free` spec's loop. -/
+theorem ofFree_forIn {β : Type} (r : Std.Legacy.Range) (init : β)
+    (f : Nat → β → Free (Effect Op) (ForInStep β)) :
+    ofFree (forIn r init f) = forIn r init (fun i a => ofFree (f i a)) := by
+  rw [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.forIn_eq_forIn_range']
+  exact ofFree_listForIn _ init f
+
 /-! ## Observing convergence
 
 `stepN n c` runs the tree for up to `n` steps, peeling `tau`s and following the single `ret`,
