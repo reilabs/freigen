@@ -207,27 +207,24 @@ def reflectRec (F recTy : Expr) (cName : Name) : TermElabM Expr := do
       mkLambdaFVars #[Vp0, F', argAtom] codeT
   -- `bodyCode` : `recBody` at `V := Tp.denote`, `F := KC callOp` — what `recSound`/`denoteProg` see
   let bodyCode := recBody.beta #[denoteV, kcCallOp]
-  -- the soundness hypotheses (the body homom + `mrec` adequacy side-conditions)
-  let eId := mkIdent cName
-  let hspec ← withLocalDeclD `N σT fun N => do
-    mkForallFVars #[N] (← mkEq (← mkAppM ``denote #[bodyCode.beta #[N]])
-      (← mkAppM ``ofFree #[cb.beta #[N]]))
-  let hspecPrf ← elabTermEnsuringType (← `(by
-      intro N; simp only [Freigen.denote, Freigen.ofFree,
-        Freigen.ofFree_bind, Freigen.ofFree_cond, Freigen.Bin.denote,
-        Freigen.Un.denote, Freigen.ITree.bind_vis, Freigen.ITree.bind_ret,
-        Freigen.ITree.bind_assoc, Nat.reduceLT, reduceDIte])) (some hspec)
+  -- the soundness hypotheses (the body homom + `mrec` adequacy side-conditions).
+  -- `hspec` (`∀ N, denote (bodyCode N) = ofFree (cb N)`) is a denotation congruence — prove it
+  -- **compositionally** (`pTop`), no `simp`.
+  let hspecPrf ← withLocalDeclD `N σT fun N => do
+    let penv : Env := { Op := callOp, SOp, F := kcCallOp, V := denoteV,
+                        subst := [(N.fvarId!, N)], defs, defsUsed }
+    let (_, proof) ← penv.pTop (cb.beta #[N]) ρTp
+    let want ← mkEq (← mkAppM ``denote #[bodyCode.beta #[N]]) (← mkAppM ``ofFree #[cb.beta #[N]])
+    mkLambdaFVars #[N] (← mkExpectedTypeHint proof want)
   let hrun ← withLocalDeclD `N σT fun N => do
     mkForallFVars #[N] (← mkEq (← mkAppM ``runSrc #[fFn, cb.beta #[N]]) (mkApp fFn N))
   let hrunPrf ← elabTermEnsuringType (← `(by
-      intro N; rcases N with _ | m <;>
-        simp [Freigen.runSrc, Freigen.Free.bind, Freigen.Free.bind_pure,
-          $eId:term] <;> rfl)) (some hrun)
+      intro N; rcases N with _ | m <;> first | rfl | exact Freigen.Free.bind_pure _)) (some hrun)
   let hcl ← withLocalDeclD `N σT fun N => do
     mkForallFVars #[N] (← mkAppM ``callsLt #[N, cb.beta #[N]])
   let hclPrf ← elabTermEnsuringType (← `(by
       intro N; rcases N with _ | m <;>
-        simp [Freigen.callsLt, Freigen.Free.bind] <;> omega)) (some hcl)
+        (repeat' first | apply And.intro | intro _) <;> first | omega | trivial)) (some hcl)
   -- `recSoundApp` : ∀ N, mrec (fun s => denote (bodyCode s)) N ≈ ofFree (f N)   [mrec adequacy]
   let recSoundApp ← mkAppOptM ``recSound #[Op, SOp, ρTp, bodyCode, cb, fFn, hspecPrf, hrunPrf, hclPrf]
   -- `g` : the closed `Prog` — `rec_` (the reflected body) then `main(n) := call frec n`
@@ -260,9 +257,8 @@ def reflectRec (F recTy : Expr) (cName : Name) : TermElabM Expr := do
     let hlN ← mkAppOptM ``HList.cons #[none, denoteV, σTp, none, N, nilD]
     let lhs ← mkAppOptM ``denoteProg #[Op, SOp, σTpList, ρTp, mkAppN g #[kc, denoteV], hlN]
     let rhs ← mkAppM ``mrec #[bodyFnC, N]
-    let bridge ← elabTermEnsuringType (← `(by
-        simp only [Freigen.denoteProg, Freigen.denote, Freigen.HList.head,
-          Freigen.ITree.bind_ret_right])) (some (← mkEq lhs rhs))
+    -- `denoteProg (g KC ⟨N⟩)` unfolds definitionally to `bind (mrec … N) ret`; `bind_ret_right` closes it.
+    let bridge ← mkExpectedTypeHint (← mkAppM ``ITree.bind_ret_right #[rhs]) (← mkEq lhs rhs)
     mkLambdaFVars #[N]
       (← mkAppM ``ITree.Eutt.trans #[← mkAppM ``ITree.Eutt.of_eq #[bridge], mkApp recSoundApp N])
   mkAppOptM ``Subtype.mk #[closedTy, pred, g, proof]

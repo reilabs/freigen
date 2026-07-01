@@ -45,12 +45,16 @@ Five top-level concerns:
   `vget`/`vset`/`aget`/`aset` nodes), and **spills each called helper into a `def_`** (a two-pass
   discovery/build, monomorphised on the helper's `(name, argument-types, result-type)`); `main` may be
   a function of the program's inputs.  `Reflect.Recursion` adds the recursion arm (a structural
-  recursion → a `rec_` node) with its `mrec` adequacy.  Soundness is a **compositional bisimulation**:
-  the reflector records every source definition it unfolds and feeds them to a `simp` unfolding
-  `denoteProg`/`denote` and `ofFree` on both sides, so all binds fuse and the `Comp` trees converge.
-  A reflected get/set drops the source's in-bounds proof, so the erased node's `fail` branch is
-  discharged in that same `simp` (`Nat.reduceLT`/`reduceDIte`) — *one side has the proof, so it
-  cannot actually fail*.
+  recursion → a `rec_` node) with its `mrec` adequacy.  **The reflector emits no `simp`** — every
+  proof it outputs is a compositional/structural term (`simp` is confined to the fixed library lemmas
+  like `adeqBody`).  Value-arm soundness: `pWalk` re-walks the source at the concrete representation
+  (`V := Tp.denote`) and, at every node, applies that node's congruence lemma (`Reflect.Sound`'s
+  `sc_op`/`sc_bind`/`sc_call`/…) to the sub-terms' equations — a proof term mirroring the source.  A
+  reflected get/set inserts **exactly the source's own in-bounds proof** (`sc_vget … h` = `dif_pos h`),
+  so the erased `fail` branch is closed *at that node* — no decidability, no global rewrite, sound for
+  a **symbolic** index at **any depth** (buried under effects, branches, or a helper call), including
+  dynamically-sized `Array` reads.  A non-reifiable argument (an in-bounds proof `j < n`) is erased
+  from the program inputs and instead quantifies the soundness statement.
 - **Examples** — `Freigen/Examples/` — `Circuit` (`CircOp` + scoped `hint`, `runCirc`/`conCirc`;
   hints, helper-calling and input-taking circuits, monomorphisation, multi-argument helpers, a
   `Vector` result, proof-erased vector get/set), `Storage` (hint-less `StoreOp`, operational

@@ -226,54 +226,167 @@ def main() =>
 
 `v[i]` / `v.set i x` reflect into the dedicated **`vget`/`vset`** (and `aget`/`aset` for `Array`)
 nodes.  The AST is *type-erased*: an index is a bare `Nat` with **no in-bounds proof**, so the
-denotation of a get/set **fails** (`ITree.fail`) out of range.  Reflection is still `≈`-sound because
-the *source* side carries the proof (`v[i]` elaborates `getElem … h`): the reflector's soundness
-`simp` discharges the erased node's failure branch (`Nat.reduceLT`/`reduceDIte`), i.e. *one side has
-the proof, so the write/read cannot actually fail*. -/
+denotation of a get/set **fails** (`ITree.fail`) out of range.
 
-/-- Read two vector slots (literal indices into a `Vector _ 3` input) and add them. -/
-def vgetSum (v : Vector Nat 3) : Free CircOp HintS Nat := pure (v[0] + v[2])
+Reflection is still `≈`-sound because the *source* side carries the proof (`v[i]` elaborates
+`getElem … h`).  Crucially the index need **not** be a literal: an in-bounds proof `h : j < n` that
+accompanies a *symbolic* index `j` is not a reifiable input, so `reflect%` **erases it from the AST
+and keeps it as a hypothesis of the soundness statement** — and the erased node's `fail` branch is
+discharged by that hypothesis (`h` rewrites `j < n ↦ True`, `reduceDIte` collapses the branch).  *One
+side has the proof, so the read/write cannot actually fail.* -/
 
-def vgetSumC := reflect% vgetSum
-example : ∀ v, denoteProg (vgetSumC.1 (KC CircOp) Tp.denote) (.cons v .nil)
-    ≈ ofFree (vgetSum v) := vgetSumC.2
+/-- Read a **symbolic** slot `j` (with erased in-bounds proof `h : j < 3`) and slot `0`, then add. -/
+def vgetSym (v : Vector Nat 3) (j : Nat) (h : j < 3) : Free CircOp HintS Nat := pure (v[j]'h + v[0])
 
--- Each `v[i]` is a `vget` node (`x0[…]`), not a total `Bin`.
+def vgetSymC := reflect% vgetSym
+-- `h` is quantified in the soundness statement but is **absent** from the reflected `main`.
+example : ∀ v j h, denoteProg (vgetSymC.1 (KC CircOp) Tp.denote) (.cons v (.cons j .nil))
+    ≈ ofFree (vgetSym v j h) := vgetSymC.2
+
+-- `main` takes only the vector and the index — no proof argument.
 /-- info:
-def main(x0 : Vector<Nat, 3>) =>
-  let v1 := 0
-  let v2 := x0[v1]
-  let v3 := 2
+def main(x0 : Vector<Nat, 3>, x1 : Nat) =>
+  let v2 := x0[x1]
+  let v3 := 0
   let v4 := x0[v3]
   let v5 := v2 + v4
   v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vgetSumC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vgetSymC.1)
 
-/-- Hint slot `0`, write it into slot `2` (`vset`), then read slot `2` back (`vget`). -/
-def vswap (v : Vector Nat 3) : Free CircOp HintS Nat := do
-  let a ← hint (pure v[0])
-  let w := v.set 2 a
-  pure w[2]
+/-- Write a value into symbolic slot `j` (`vset`), then read the same slot back (`vget`). -/
+def vsetSym (v : Vector Nat 3) (j : Nat) (h : j < 3) (x : Nat) : Free CircOp HintS Nat := do
+  let w := v.set j x
+  pure (w[j]'h)
 
-def vswapC := reflect% vswap
-example : ∀ v, denoteProg (vswapC.1 (KC CircOp) Tp.denote) (.cons v .nil)
-    ≈ ofFree (vswap v) := vswapC.2
+def vsetSymC := reflect% vsetSym
+example : ∀ v j h x, denoteProg (vsetSymC.1 (KC CircOp) Tp.denote) (.cons v (.cons j (.cons x .nil)))
+    ≈ ofFree (vsetSym v j h x) := vsetSymC.2
 
--- `x0 with [2] := v3` is a `vset`; the subsequent `v5[2]` a `vget`.
 /-- info:
-def main(x0 : Vector<Nat, 3>) =>
-  let v3 ← hint unconstrained
-    let v1 := 0
-    let v2 := x0[v1]
-    v2
-  let v4 := 2
-  let v5 := x0 with [v4] := v3
-  let v6 := 2
-  let v7 := v5[v6]
-  v7
+def main(x0 : Vector<Nat, 3>, x1 : Nat, x2 : Nat) =>
+  let v3 := x0 with [x1] := x2
+  let v4 := v3[x1]
+  v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vswapC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vsetSymC.1)
+
+/-- A **dynamically-sized** `Array` read: the bound `j < a.size` is itself symbolic, yet the erased
+    `aget` is still sound because the source proof `h` rules the failure out. -/
+def agetSym (a : Array Nat) (j : Nat) (h : j < a.size) : Free CircOp HintS Nat := pure (a[j]'h)
+
+def agetSymC := reflect% agetSym
+example : ∀ a j h, denoteProg (agetSymC.1 (KC CircOp) Tp.denote) (.cons a (.cons j .nil))
+    ≈ ofFree (agetSym a j h) := agetSymC.2
+
+/-- info:
+def main(x0 : Array<Nat>, x1 : Nat) =>
+  let v2 := x0[x1]
+  v2
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc agetSymC.1)
+
+/-- **Read-after-write on a dynamic array**: `(a.set i x)[i]` — the get's collection is itself the
+    `aset` node.  The array bound `i < (a.set i x).size` references that compound collection; soundness
+    still discharges it because the `aset` node's continuation binds its result to the *concrete*
+    `a.set i x`, against which the get's source proof fits. -/
+def arrRW (a : Array Nat) (i : Nat) (h : i < a.size) (x : Nat) : Free CircOp HintS Nat := do
+  let b := a.set i x
+  pure (b[i]'(by rw [Array.size_set]; exact h))
+
+def arrRWC := reflect% arrRW
+example : ∀ a i h x, denoteProg (arrRWC.1 (KC CircOp) Tp.denote) (.cons a (.cons i (.cons x .nil)))
+    ≈ ofFree (arrRW a i h x) := arrRWC.2
+
+/-- info:
+def main(x0 : Array<Nat>, x1 : Nat, x2 : Nat) =>
+  let v3 := x0 with [x1] := x2
+  let v4 := v3[x1]
+  v4
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc arrRWC.1)
+
+/-! ### Deeper in the tree
+
+A get/set need not sit at the top of `main`.  The compositional proof inserts the source's in-bounds
+proof *at the get's node*, wherever it is — buried under effects and branches, spilled inside a helper
+`def_`, or flowing as the argument of a helper call.  No node's soundness depends on any other. -/
+
+/-- A **spilled helper** indexing its own vector argument: the `vget` lives inside `f0`'s `def_`, and
+    its decidable bounds (`0 < 4`, `3 < 4`) are discharged in the generic helper soundness. -/
+def firstPlusLast (v : Vector Nat 4) : Free CircOp HintS Nat := pure (v[0] + v[3])
+def twice (v : Vector Nat 4) : Free CircOp HintS Nat := do
+  let a ← firstPlusLast v
+  let b ← firstPlusLast v
+  pure (a + b)
+
+def twiceC := reflect% twice
+example : ∀ v, denoteProg (twiceC.1 (KC CircOp) Tp.denote) (.cons v .nil)
+    ≈ ofFree (twice v) := twiceC.2
+
+/-- info:
+def f0(x1 : Vector<Nat, 4>) =>
+  let v2 := 0
+  let v3 := x1[v2]
+  let v4 := 3
+  let v5 := x1[v4]
+  let v6 := v3 + v5
+  v6
+def main(x7 : Vector<Nat, 4>) =>
+  let v8 := f0(x7)
+  let v9 := f0(x7)
+  let v10 := v8 + v9
+  v10
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc twiceC.1)
+
+/-- A **symbolic-bound array** get buried under an effect *and* inside a `bif` branch: the main-level
+    proof `h : j < a.size` still rules the failure out, through the `assert`'s `vis` and the branch. -/
+def deepArr (a : Array Nat) (j : Nat) (h : j < a.size) (b : Bool) : Free CircOp HintS Nat := do
+  let _ ← assert b
+  bif b then pure (a[j]'h) else pure 0
+
+def deepArrC := reflect% deepArr
+example : ∀ a j h b, denoteProg (deepArrC.1 (KC CircOp) Tp.denote) (.cons a (.cons j (.cons b .nil)))
+    ≈ ofFree (deepArr a j h b) := deepArrC.2
+
+/-- info:
+def main(x0 : Array<Nat>, x1 : Nat, x2 : Bool) =>
+  let v3 ← assert(x2)
+  if x2 then
+    let v4 := x0[x1]
+    v4
+  else
+    let v5 := 0
+    v5
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc deepArrC.1)
+
+/-- A **symbolic get flowing as the argument of a helper call** (`quad (v[j]'h)`): the get is reflected
+    at the call site and its bound is discharged there, while `quad` spills as `f0` — the compositional
+    proof composes the call with `quad`'s own soundness. -/
+def viaHelper (v : Vector Nat 3) (j : Nat) (h : j < 3) : Free CircOp HintS Unit := do
+  let q ← quad (v[j]'h)
+  assert (q == 0)
+
+def viaHelperC := reflect% viaHelper
+example : ∀ v j h, denoteProg (viaHelperC.1 (KC CircOp) Tp.denote) (.cons v (.cons j .nil))
+    ≈ ofFree (viaHelper v j h) := viaHelperC.2
+
+/-- info:
+def f0(x1 : Nat) =>
+  let v2 := x1 + x1
+  let v3 := v2 + v2
+  v3
+def main(x4 : Vector<Nat, 3>, x5 : Nat) =>
+  let v6 := x4[x5]
+  let v7 := f0(v6)
+  let v8 := 0
+  let v9 := v7 == v8
+  let v10 ← assert(v9)
+  v10
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc viaHelperC.1)
 
 /-! ### The failing denotation, directly
 

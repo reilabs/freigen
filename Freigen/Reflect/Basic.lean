@@ -1,12 +1,18 @@
 import Freigen.Ast
 import Freigen.Free
 import Freigen.ITree
+import Freigen.Reflect.Sound
 /-! ## The `reflect%` reflector — value arm
 
 Reflects a `Free Op SOp α` program (which may call top-level helper functions) into a `Prog`: pure
 computation is A-normalised into `un`/`bin`/`lit`; effects/scoped blocks pass through; **calls to
 helper functions become `call` nodes, monomorphised and spilled as `def_`s** (a two-pass
-discovery/build). -/
+discovery/build).
+
+Soundness is proved **compositionally** (`pWalk`, below): the reflector walks the source a second time
+at the concrete representation and assembles a congruence tree of `sc_*` lemmas mirroring the term —
+no `simp`.  A proof-erased get/set inserts exactly the source's own in-bounds proof (`dif_pos h`), so
+symbolic indices are sound at any depth. -/
 
 namespace Freigen
 open Lean Lean.Meta Lean.Elab.Term
@@ -88,8 +94,8 @@ structure Env where
   V : Expr
   subst : List (FVarId × Expr)
   defs : IO.Ref (Array DefEntry)
-  /-- Every source definition the reflector unfolds (helpers, smart-constructors, the program itself).
-      Emitted into the soundness `simp` set so the source side unfolds to the same tree the AST does. -/
+  /-- Every source definition the reflector unfolds (helpers, smart-constructors, the program itself);
+      recorded for the recursion arm's `mrec`-adequacy `simp`.  (The value arm proves compositionally.) -/
   defsUsed : IO.Ref (Array Name)
   inBody : Bool := false
   resolved : Option (Array (DefEntry × Expr)) := none
@@ -337,25 +343,387 @@ mutual
         some <$> emit (← mkFreshExprMVar (mkApp2 env.F asList retTp))
 end
 
-/-- Reflect a program `foo : A₁ → … → Aₙ → Free Op SOp X` (`n ≥ 0`; each `Aᵢ` a non-dependent
-    `Tp`-type) into `{ g : Closed // ∀ args, denoteProg (g KC Tp.denote) ⟨args⟩ ≈ ofFree (foo args) }`
-    — the `Prog` whose `main` is a function of the program's inputs (delivered as an `HList`), with a
-    `def_` per monomorphised helper.  The non-recursive arm of `reflect%`. -/
+/-! ## The compositional soundness proof (`pWalk`)
+
+Instead of discharging soundness with a global `simp`, the reflector **builds the proof structurally**,
+mirroring the source term.  `pWalk` walks the source again at the *concrete* representation
+(`V := Tp.denote`, `F := KC Op`) and, at every node, emits the equation of the invariant
+
+```
+denote code = bind (ofFree e) Kf        -- (★)   Kf = the reflected continuation's denotation
+```
+
+by applying that node's congruence lemma (`sc_op`, `sc_bind`, …) to the equations of the sub-terms.
+Every non-`get`/`set` atom step is *definitional* (`denote (Code.bin …) = denote (k …)` is `rfl`), so
+a get/set contributes the only real step: `sc_vget … h_src` = `dif_pos h_src`, the **source's own**
+in-bounds proof taken straight from the term.  No `simp`, no decidability, no hypothesis reachability
+— the proof is a congruence tree over the source, valid at *any* depth.  The produced `code` is
+definitionally the concrete specialisation of the abstract `g`, so the top-level (★) (`k = mkRet`,
+`Kf = ret`) *is* `denoteProg (g KC Tp.denote) ⟨args⟩ = ofFree (foo args)`. -/
+
+/-- `denote code` as an `Expr`. -/
+private def denoteE (c : Expr) : MetaM Expr := mkAppM ``denote #[c]
+
+/-- A `ret` continuation with the result `Tp` given **explicitly** — needed at `V := Tp.denote`,
+    where `α` cannot be recovered from a raw-typed atom by unifying `Tp.denote ?α`. -/
+def Env.mkRetT (env : Env) (resTp : Expr) : Expr → MetaM Expr := fun atom =>
+  mkAppOptM ``Code.ret #[env.Op, env.SOp, env.F, env.V, resTp, atom]
+
+/-- `Kf := fun (r : X) => denote (k r)` — the reflected continuation's denotation. -/
+private def mkKf (_V : Expr) (X : Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
+  withLocalDeclD `r X fun r => do mkLambdaFVars #[r] (← denoteE (← k r))
+
+/-- Lift a *code-only* continuation into the proof-carrying form, its step being `rfl`
+    (`denote (k atom) = denote (k atom)`). -/
+private def kRfl (k : Expr → MetaM Expr) : Expr → MetaM (Expr × Expr) := fun atom => do
+  let c ← k atom; pure (c, ← mkEqRefl (← denoteE c))
+
+/-- Build `HList V [tps]` from atoms with the `Tp` indices given **explicitly** — at `V := Tp.denote`
+    the index can't be recovered from a raw-typed atom. -/
+private def mkArgHListT (V : Expr) : List Expr → List Expr → MetaM Expr
+  | [],      []      => mkAppOptM ``HList.nil #[none, V]
+  | a :: as, t :: ts => do
+      let tail ← mkArgHListT V as ts
+      mkAppOptM ``HList.cons #[none, V, t, ← mkListLit (.const ``Tp []) ts, a, tail]
+  | _, _ => throwError "reflect%: argument/type length mismatch"
+
+/-- The result Lean type `X` of a source `e : Free Op SOp X`. -/
+private def freeResult (e : Expr) : MetaM Expr := do
+  let_expr Free _ _ X := (← whnf (← inferType e)) | throwError "reflect%: not a `Free`{indentExpr e}"
+  pure X
+
+/-- `Eq.trans` tolerant of a *definitional* mismatch at the shared point: the `denote`-of-a-node steps
+    are only defeq (a `Code.bin`/`vget` node reduces to its continuation), so coerce `h2`'s LHS to
+    `h1`'s RHS before chaining. -/
+private def eqTransD (h1 h2 : Expr) : MetaM Expr := do
+  let_expr Eq _ _ b := (← inferType h1) | throwError "reflect%: eqTransD h1 not an Eq"
+  let_expr Eq _ _ c := (← inferType h2) | throwError "reflect%: eqTransD h2 not an Eq"
+  mkAppM ``Eq.trans #[h1, ← mkExpectedTypeHint h2 (← mkEq b c)]
+
+mutual
+  /-- A *pure atom*, at `V := Tp.denote`: build its `Code` (as `reflectAtom`) with the proof
+      `denote code = denote-of (k a)`.  The continuation `k` itself returns `(code, proof)`, so proofs
+      thread through in one pass; every non-`get`/`set` step is definitional, and a get/set inserts
+      exactly `sc_*` (= `dif_pos h_src`, the source's own in-bounds proof).  `resTp` is the overall
+      result `Tp` (the sc-lemmas' `α`, unrecoverable through `Tp.denote`). -/
+  partial def Env.pAtom (env : Env) (resTp a : Expr) (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) := do
+    let a ← instantiateMVars a
+    if let .fvar fid := a then
+      if let some atom := env.subst.lookup fid then return ← k atom
+    if !(a.hasAnyFVar fun fid => (env.subst.lookup fid).isSome) then
+      -- a closed value: feed it *directly* (no `Code.lit` node — denotationally identical, and it
+      -- keeps a literal index/collection literal so a get/set's source proof `h` still fits).
+      return ← k a
+    match_expr a with
+    | HMul.hMul _ _ _ _ x y => let (o,c) ← arithOp ``Bin.mul ``Bin.mulZ (← inferType a); env.pBin resTp a o c x y k
+    | HAdd.hAdd _ _ _ _ x y => let (o,c) ← arithOp ``Bin.add ``Bin.addZ (← inferType a); env.pBin resTp a o c x y k
+    | HSub.hSub _ _ _ _ x y => let (o,c) ← arithOp ``Bin.sub ``Bin.subZ (← inferType a); env.pBin resTp a o c x y k
+    | HPow.hPow _ _ _ _ x y => env.pBin resTp a (.const ``Bin.pow []) (.const ``Tp.nat []) x y k
+    | BEq.beq _ _ x y       => env.pBin resTp a (.const ``Bin.eq []) (.const ``Tp.bool []) x y k
+    | Bool.and x y          => env.pBin resTp a (.const ``Bin.and []) (.const ``Tp.bool []) x y k
+    | Bool.or  x y          => env.pBin resTp a (.const ``Bin.or []) (.const ``Tp.bool []) x y k
+    | Bool.not x            => env.pUn resTp a (.const ``Un.not []) (.const ``Tp.bool []) x k
+    | Prod.mk _ _ x y =>
+        let aTp ← reifyTpOrThrow (← inferType x); let bTp ← reifyTpOrThrow (← inferType y)
+        env.pBin resTp a (mkApp2 (.const ``Bin.pair []) aTp bTp) (mkApp2 (.const ``Tp.prod []) aTp bTp) x y k
+    | Prod.fst _ _ p => env.pUn resTp a (← prodUn ``Un.fst p) (← reifyTpOrThrow (← inferType a)) p k
+    | Prod.snd _ _ p => env.pUn resTp a (← prodUn ``Un.snd p) (← reifyTpOrThrow (← inferType a)) p k
+    | Sum.inl A B x =>
+        let aTp ← reifyTpOrThrow A; let bTp ← reifyTpOrThrow B
+        env.pUn resTp a (mkApp2 (.const ``Un.inl []) aTp bTp) (mkApp2 (.const ``Tp.sum []) aTp bTp) x k
+    | Sum.inr A B x =>
+        let aTp ← reifyTpOrThrow A; let bTp ← reifyTpOrThrow B
+        env.pUn resTp a (mkApp2 (.const ``Un.inr []) aTp bTp) (mkApp2 (.const ``Tp.sum []) aTp bTp) x k
+    | GetElem.getElem _ _ _ _ _ coll i h =>
+        match_expr ← reifyTpOrThrow (← inferType coll) with
+        | Tp.vec aTp nExpr => env.pGet resTp a ``Code.vget ``sc_vget aTp (some nExpr) coll i h k
+        | Tp.array aTp     => env.pGet resTp a ``Code.aget ``sc_aget aTp none coll i h k
+        | _ => throwError "reflect%: get on a non-collection value{indentExpr coll}"
+    | Vector.set _ _ coll i x h =>
+        match_expr ← reifyTpOrThrow (← inferType coll) with
+        | Tp.vec aTp nExpr => env.pSet resTp a ``Code.vset ``sc_vset aTp (some nExpr) coll i x h k
+        | _ => throwError "reflect%: `Vector.set` on a non-vector{indentExpr coll}"
+    | Array.set _ coll i x h =>
+        match_expr ← reifyTpOrThrow (← inferType coll) with
+        | Tp.array aTp => env.pSet resTp a ``Code.aset ``sc_aset aTp none coll i x h k
+        | _ => throwError "reflect%: `Array.set` on a non-array{indentExpr coll}"
+    | _ => throwError "reflect%: cannot reflect operand{indentExpr a}"
+
+  /-- Binary primitive: reflect both operands, bind the result as a fresh var `vc` (so the
+      continuation reflects against a *variable*, as the abstract walk does), emit the `bin` node, and
+      instantiate `vc ↦ Bin.denote o x y` in the continuation's proof (the `bin` step is definitional). -/
+  partial def Env.pBin (env : Env) (resTp _a binOp cTp x y : Expr) (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) :=
+    env.pAtom resTp x fun ax =>
+    env.pAtom resTp y fun ay =>
+    withLocalDeclD `v (mkApp env.V cTp) fun vc => do
+      let (kcode, kproof) ← k vc
+      let klam ← mkLambdaFVars #[vc] kcode
+      let node ← mkAppOptM ``Code.bin #[env.Op, env.SOp, env.F, env.V, none, none, none, none, binOp, ax, ay, klam]
+      pure (node, kproof.replaceFVar vc (← mkAppM ``Bin.denote #[binOp, ax, ay]))
+
+  /-- Unary primitive: as `pBin`, with `vc ↦ Un.denote o x`. -/
+  partial def Env.pUn (env : Env) (resTp _a unOp cTp x : Expr) (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) :=
+    env.pAtom resTp x fun ax =>
+    withLocalDeclD `v (mkApp env.V cTp) fun vc => do
+      let (kcode, kproof) ← k vc
+      let klam ← mkLambdaFVars #[vc] kcode
+      let node ← mkAppOptM ``Code.un #[env.Op, env.SOp, env.F, env.V, none, none, none, unOp, ax, klam]
+      pure (node, kproof.replaceFVar vc (← mkAppM ``Un.denote #[unOp, ax]))
+
+  /-- Proof-erased **get**: reflect collection + index, bind the element as a fresh var, emit the node,
+      and close its `fail` branch with the *source's* proof `h` (`sc_vget`/`sc_aget` = `dif_pos h`),
+      instantiating the element var with the source `coll[i]'h` (`elem`). -/
+  partial def Env.pGet (env : Env) (resTp elem : Expr) (ctor scLemma : Name) (aTp : Expr) (nExpr : Option Expr)
+      (coll idx h : Expr) (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) :=
+    env.pAtom resTp coll fun ac =>
+    env.pAtom resTp idx fun ai =>
+    withLocalDeclD `v (mkApp env.V aTp) fun vc => do
+      let (kcode, kproof) ← k vc
+      let klam ← mkLambdaFVars #[vc] kcode
+      let node ← match nExpr with
+        | some n => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, n, ac, ai, klam]
+        | none   => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, ac, ai, klam]
+      -- the sc-lemma uses the *source* collection `coll` (concrete), not the reflected atom `ac`
+      -- (a fresh binder for a compound collection): the array bound `i < coll.size` then fits `h`,
+      -- and an enclosing `sc_aset`/`sc_vset` ties the binder to `coll`.
+      let scStep ← match nExpr with
+        | some _ => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, none, coll, ai, klam, h]
+        | none   => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, coll, ai, klam, h]
+      pure (node, ← eqTransD scStep (kproof.replaceFVar vc elem))
+
+  /-- Proof-erased **set**: as `pGet`, with the value operand and `sc_vset`/`sc_aset`. -/
+  partial def Env.pSet (env : Env) (resTp elem : Expr) (ctor scLemma : Name) (aTp : Expr) (nExpr : Option Expr)
+      (coll idx x h : Expr) (k : Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) :=
+    let collTp := match nExpr with
+      | some n => mkApp2 (.const ``Tp.vec []) aTp n
+      | none   => mkApp (.const ``Tp.array []) aTp
+    env.pAtom resTp coll fun ac =>
+    env.pAtom resTp idx fun ai =>
+    env.pAtom resTp x fun ax =>
+    withLocalDeclD `v (mkApp env.V collTp) fun vc => do
+      let (kcode, kproof) ← k vc
+      let klam ← mkLambdaFVars #[vc] kcode
+      let node ← match nExpr with
+        | some n => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, n, ac, ai, ax, klam]
+        | none   => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, ac, ai, ax, klam]
+      -- as `pGet`: the sc-lemma uses the *source* collection `coll` so the array bound fits `h`.
+      let scStep ← match nExpr with
+        | some _ => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, none, coll, ai, ax, klam, h]
+        | none   => mkAppOptM scLemma #[env.Op, env.SOp, resTp, aTp, coll, ai, ax, klam, h]
+      pure (node, ← eqTransD scStep (kproof.replaceFVar vc elem))
+
+  /-- Reflect a list of pure argument values to atoms, threading the proof-carrying continuation. -/
+  partial def Env.pAtoms (env : Env) (resTp : Expr) (vals : List Expr)
+      (k : List Expr → MetaM (Expr × Expr)) : MetaM (Expr × Expr) := do
+    match vals with
+    | []      => k []
+    | v :: vs => env.pAtom resTp v fun av => env.pAtoms resTp vs (fun atoms => k (av :: atoms))
+
+  /-- Prove a **call** to a helper: build the (concrete) subroutine `cf` and its own (★)-proof, reflect
+      the arguments, then `sc_call` — the helper's soundness `hcf : cf args = ofFree (helper args)`
+      composes with the caller's continuation. -/
+  partial def Env.pTryCall (env : Env) (resTp e : Expr) (k : Expr → MetaM Expr) :
+      MetaM (Option (Expr × Expr)) := do
+    if env.inBody then return none
+    let fn := e.getAppFn
+    let some cName := fn.constName? | return none
+    let some ci := (← getEnv).find? cName | return none
+    let some cVal := ci.value? | return none
+    let fArgs := e.getAppArgs
+    let cValInst := cVal.instantiateLevelParams ci.levelParams fn.constLevels!
+    match_expr ← whnf (cValInst.beta fArgs) with
+    | Free.op _ _ _ _ _ _ _ _ => return none
+    | Free.hop _ _ _ _ _ _ _   => return none
+    | _ => pure ()
+    let valuePos ← forallTelescope (← inferType fn) fun xs cod => do
+      let mut vps : Array Nat := #[]
+      for i in [0:xs.size] do
+        let mut dep := cod.containsFVar xs[i]!.fvarId!
+        for j in [i+1:xs.size] do
+          if (← inferType xs[j]!).containsFVar xs[i]!.fvarId! then dep := true
+        unless dep do vps := vps.push i
+      pure vps
+    if valuePos.size == 0 then return none
+    env.defsUsed.modify (·.push cName)
+    let valueArgs := valuePos.toList.map (fArgs[·]!)
+    let mut argTps : Array Expr := #[]
+    for va in valueArgs do
+      let some t ← reifyTp (← inferType va) | return none
+      argTps := argTps.push t
+    let asList ← mkListLit (.const ``Tp []) argTps.toList
+    let some retTp ← (match_expr (← whnf (← inferType e)) with
+                        | Free _ _ R => reifyTp R | _ => pure none) | return none
+    let hlistTy ← mkAppM ``HList #[env.V, asList]
+    -- the concrete subroutine `cf` and its parametric (★)-proof `bodyProof : ∀ hargs, cf hargs = ofFree …`.
+    -- Walk the body with fresh *identity*-mapped value vars `pvs` (so `pAtom`'s `atom = value`), then
+    -- substitute `pvs ↦ projHList hargs` — matching `g`'s spilled `def_` body (which projects `hargs`).
+    let (cf, bodyProofLam) ← withLocalDeclD `args hlistTy fun hargs => do
+      let decls : Array (Name × (Array Expr → MetaM Expr)) :=
+        valueArgs.toArray.map (fun va => (`x, fun _ => inferType va))
+      withLocalDeclsD decls fun pvs => do
+        let subst := (pvs.toList.map (fun p => (p.fvarId!, p))) ++ env.subst
+        let mut fullArgs := fArgs
+        for j in [0:valuePos.size] do fullArgs := fullArgs.set! (valuePos[j]!) pvs[j]!
+        let env' := { env with subst, inBody := true }
+        let (bcode, bproof) ← env'.pTop (cValInst.beta fullArgs) retTp
+        let mut projs : Array Expr := #[]
+        for j in [0:pvs.size] do projs := projs.push (← projHList hargs j)
+        let bcode' := bcode.replaceFVars pvs projs
+        let bproof' := bproof.replaceFVars pvs projs
+        pure (← mkLambdaFVars #[hargs] (← denoteE bcode'), ← mkLambdaFVars #[hargs] bproof')
+    let kcont ← withLocalDeclD `r (mkApp env.V retTp) fun vr => do mkLambdaFVars #[vr] (← k vr)
+    let (code, proof) ← env.pAtoms resTp valueArgs fun atoms => do
+      let argHList ← mkArgHListT env.V atoms argTps.toList
+      let callCode ← env.emitCall cf asList retTp argHList k
+      let hcf := bodyProofLam.beta #[argHList]
+      -- `m = ofFree (helper applied to *these* atoms)` — matches `hcf`'s RHS; a bin/get argument's
+      -- atom is a bound var here, later instantiated to the source value (so `m` becomes `ofFree e`).
+      let mut fullArgs := fArgs
+      for j in [0:valuePos.size] do fullArgs := fullArgs.set! (valuePos[j]!) atoms.toArray[j]!
+      let m ← mkAppM ``ofFree #[cValInst.beta fullArgs]
+      let scStep ← mkAppOptM ``sc_call
+        #[env.Op, env.SOp, asList, retTp, resTp, cf, argHList, kcont, m, hcf]
+      pure (callCode, scStep)
+    return some (code, proof)
+
+  /-- Prove a `Free` computation: `(code, proof : denote code = bind (ofFree e) Kf)`.  `resTp` is the
+      overall result `Tp` (the sc-lemmas' `α`). -/
+  partial def Env.pWalk (env : Env) (resTp e : Expr) (k : Expr → MetaM Expr) : MetaM (Expr × Expr) := do
+    let e := e.consumeMData.headBeta
+    if let .letE _ _ v b _ := e then return ← env.pWalk resTp (b.instantiate1 v) k
+    match_expr e with
+    | Free.pure _ _ _ a       => env.pPure resTp a k
+    | Pure.pure _ _ _ a       => env.pPure resTp a k
+    | Bind.bind _ _ _ _ x f   => env.pBindD resTp x f k
+    | Free.bind _ _ _ _ x f   => env.pBindD resTp x f k
+    | cond _ c t el           => env.pIte resTp c t el k
+    | Free.op _ _ _ I R o i cont => env.pOp resTp I R o i cont k
+    | Free.hop _ _ _ β s b cont  => env.pScope resTp β s b cont k
+    | _ =>
+        match ← env.pTryCall resTp e k with
+        | some r => pure r
+        | none =>
+        match ← unfoldDefinition? e with
+        | some e' => env.pWalk resTp e' k
+        | none    => throwError "reflect%: pWalk cannot handle{indentExpr e}"
+
+  /-- `pure a`: `pAtom`, then `sc_pure`. -/
+  partial def Env.pPure (env : Env) (resTp a : Expr) (k : Expr → MetaM Expr) : MetaM (Expr × Expr) := do
+    let (code, pA) ← env.pAtom resTp a (kRfl k)
+    let Kf ← mkKf env.V (← inferType a) k
+    return (code, ← mkAppOptM ``sc_pure #[env.Op, env.SOp, none, resTp, a, ← denoteE code, Kf, pA])
+
+  /-- `op o i cont`: reflect the input (`pAtom i`), then `sc_op` with the continuation's IH. -/
+  partial def Env.pOp (env : Env) (resTp I R o i cont : Expr) (k : Expr → MetaM Expr) : MetaM (Expr × Expr) := do
+    let ITp ← reifyTpOrThrow I; let RTp ← reifyTpOrThrow R
+    let Xr ← forallTelescope (← inferType cont) fun _ cod => do
+      let_expr Free _ _ X := (← whnf cod) | throwError "reflect%: op cont"
+      pure X
+    let Kf ← mkKf env.V Xr k
+    let (kbody, ih) ← withLocalDeclD `r R fun vr => do
+      let env' := { env with subst := (vr.fvarId!, vr) :: env.subst }
+      let (rcode, rproof) ← env'.pWalk resTp (cont.beta #[vr]) k
+      pure (← mkLambdaFVars #[vr] rcode, ← mkLambdaFVars #[vr] rproof)
+    let (code, pI) ← env.pAtom resTp i (kRfl fun ia => do
+      mkAppOptM ``Code.op #[env.Op, env.SOp, env.F, env.V, none, ITp, RTp, o, ia, kbody])
+    let scStep ← mkAppOptM ``sc_op #[env.Op, env.SOp, ITp, RTp, resTp, none, o, i, cont, kbody, Kf, ih]
+    return (code, ← eqTransD pI scStep)
+
+  /-- `bind x f`: pure `x` inlines by left-identity; else `sc_bind` composing `x`'s and `f`'s IHs. -/
+  partial def Env.pBindD (env : Env) (resTp x f : Expr) (k : Expr → MetaM Expr) : MetaM (Expr × Expr) := do
+    match_expr x.consumeMData.headBeta with
+    | Free.pure _ _ _ a => env.pWalk resTp (f.beta #[a]) k
+    | Pure.pure _ _ _ a => env.pWalk resTp (f.beta #[a]) k
+    | _ =>
+      let Y ← freeResult x
+      let X ← forallTelescope (← inferType f) fun _ cod => do
+        let_expr Free _ _ X := (← whnf cod) | throwError "reflect%: bind cont"
+        pure X
+      let Kf ← mkKf env.V X k
+      let (fproofLam) ← withLocalDeclD `r Y fun vr => do
+        let env' := { env with subst := (vr.fvarId!, vr) :: env.subst }
+        let (_, fp) ← env'.pWalk resTp (f.beta #[vr]) k
+        mkLambdaFVars #[vr] fp
+      let kInner : Expr → MetaM Expr := fun xa => do
+        let env' := if let .fvar fid := xa then { env with subst := (fid, xa) :: env.subst } else env
+        Prod.fst <$> env'.pWalk resTp (f.beta #[xa]) k
+      let (xcode, xproof) ← env.pWalk resTp x kInner
+      -- xproof : denote xcode = bind (ofFree x) (fun r => denote (kInner r))
+      let ofx ← mkAppM ``ofFree #[x]
+      let hEq ← mkAppM ``funext #[fproofLam]      -- (fun r => denote (kInner r)) = (fun r => bind (ofFree (f r)) Kf)
+      let compTy ← inferType (← denoteE xcode)
+      let fFun ← withLocalDeclD `kk (← mkArrow Y compTy) fun kk => do
+        mkLambdaFVars #[kk] (← mkAppM ``ITree.bind #[ofx, kk])
+      let congrStep ← mkAppM ``congrArg #[fFun, hEq]
+      let hC ← eqTransD xproof congrStep
+      return (xcode, ← mkAppOptM ``sc_bind #[env.Op, env.SOp, none, none, resTp, x, f, Kf, ← denoteE xcode, hC])
+
+  /-- `cond c t e`: reflect the scrutinee, then `sc_cond` with both arms' IHs. -/
+  partial def Env.pIte (env : Env) (resTp c t el : Expr) (k : Expr → MetaM Expr) : MetaM (Expr × Expr) := do
+    let X ← freeResult t
+    let Kf ← mkKf env.V X k
+    let (tcode, tproof) ← env.pWalk resTp t k
+    let (ecode, eproof) ← env.pWalk resTp el k
+    let (code, pC) ← env.pAtom resTp c (kRfl fun ca =>
+      mkAppOptM ``Code.ite #[env.Op, env.SOp, env.F, env.V, none, ca, tcode, ecode])
+    let scStep ← mkAppOptM ``sc_cond #[env.Op, env.SOp, none, resTp, c, t, el, tcode, ecode, Kf, tproof, eproof]
+    return (code, ← eqTransD pC scStep)
+
+  /-- `hop s b cont`: the block runs inline (`sc_top` to `ofFree b`), tail by IH, then `sc_scope`. -/
+  partial def Env.pScope (env : Env) (resTp β s b cont : Expr) (k : Expr → MetaM Expr) : MetaM (Expr × Expr) := do
+    let βTp ← reifyTpOrThrow β
+    let (Bcode, Bproof) ← env.pTop b βTp
+    let X ← forallTelescope (← inferType cont) fun _ cod => do
+      let_expr Free _ _ X := (← whnf cod) | throwError "reflect%: scope cont"
+      pure X
+    let Kf ← mkKf env.V X k
+    let (kbody, ih) ← withLocalDeclD `r β fun vr => do
+      let env' := { env with subst := (vr.fvarId!, vr) :: env.subst }
+      let (rc, rp) ← env'.pWalk resTp (cont.beta #[vr]) k
+      pure (← mkLambdaFVars #[vr] rc, ← mkLambdaFVars #[vr] rp)
+    let code ← mkAppOptM ``Code.scope #[env.Op, env.SOp, env.F, env.V, none, βTp, s, Bcode, kbody]
+    return (code, ← mkAppOptM ``sc_scope #[env.Op, env.SOp, βTp, resTp, none, s, b, cont, Bcode, kbody, Kf, Bproof, ih])
+
+  /-- Top-level (`k = mkRet`, `Kf = ret`): `denote code = ofFree e`.  `resTp` is `e`'s result `Tp`. -/
+  partial def Env.pTop (env : Env) (e resTp : Expr) : MetaM (Expr × Expr) := do
+    let (code, proof) ← env.pWalk resTp e (env.mkRetT resTp)
+    let brr ← mkAppM ``ITree.bind_ret_right #[← mkAppM ``ofFree #[e]]
+    return (code, ← eqTransD proof brr)
+
+end
+
+
+/-- Reflect a program `foo : A₁ → … → Aₙ → Free Op SOp X` (`n ≥ 0`) into
+    `{ g : Closed // ∀ args, denoteProg (g KC Tp.denote) ⟨value-args⟩ ≈ ofFree (foo args) }` — the
+    `Prog` whose `main` is a function of the program's inputs (delivered as an `HList`), with a `def_`
+    per monomorphised helper.  Each `Aᵢ` that reifies to a `Tp` is a program input; any that does not
+    (e.g. an in-bounds proof `j < n` for a symbolic index) is **erased from the AST** and instead
+    left quantifying the soundness statement, where it discharges the erased get/set's `fail` branch.
+    The non-recursive arm of `reflect%`. -/
 def reflectMain (foo : Expr) : TermElabM Expr := do
   forallTelescope (← inferType foo) fun args codom => do
     let_expr Free Op SOp X := (← whnf codom)
       | throwError "reflect%: the body must have type `Free Op SOp _`, got{indentExpr codom}"
     let _ ← reifyTpOrThrow X
-    -- `main`'s inputs must be monomorphic and non-dependent (no type-parameter arguments)
+    -- Classify each argument: those whose type reifies to a `Tp` are **program inputs**; the rest
+    -- (e.g. an in-bounds proof `j < n` accompanying a symbolic index) are **erased** from the AST but
+    -- kept as hypotheses scoping the soundness statement — that is how a proof-erased `vget`/`vset`'s
+    -- `fail` branch is ruled out when the index is symbolic: the source still carries the proof.
+    let argTpOpt ← args.mapM (fun a => do reifyTp (← inferType a))
+    let mut mainArgTps : Array Expr := #[]
+    let mut valueArgs : Array Expr := #[]
+    for i in [0:args.size] do
+      if let some t := argTpOpt[i]! then
+        mainArgTps := mainArgTps.push t; valueArgs := valueArgs.push args[i]!
+    -- program inputs must be monomorphic and non-dependent (no type-parameter arguments); a *hypothesis*
+    -- argument may freely depend on earlier value arguments (it is a proof *about* them).
     for i in [0:args.size] do
       if X.containsFVar args[i]!.fvarId! then
         throwError "reflect%: `main`'s result type may not depend on its arguments"
       for j in [i+1:args.size] do
-        if (← inferType args[j]!).containsFVar args[i]!.fvarId! then
+        if argTpOpt[j]!.isSome && (← inferType args[j]!).containsFVar args[i]!.fvarId! then
           throwError "reflect%: `main` may not take a type-parameter argument\
                       {indentExpr (← inferType args[i]!)}"
-    let mut mainArgTps : Array Expr := #[]
-    for a in args do mainArgTps := mainArgTps.push (← reifyTpOrThrow (← inferType a))
     let tpTy := (.const ``Tp [] : Expr)
     let mainArgsList ← mkListLit tpTy mainArgTps.toList
     let fTy ← mkArrow (← mkAppM ``List #[tpTy]) (← mkArrow tpTy (mkSort (.succ (.succ .zero))))
@@ -369,7 +737,7 @@ def reflectMain (foo : Expr) : TermElabM Expr := do
       -- walk `main` under an argument tuple `hargs`, substituting each host argument for its atom
       let walkMain (resolved : Option (Array (DefEntry × Expr))) (hargs : Expr) : MetaM Expr := do
         let mut subst : List (FVarId × Expr) := []
-        for i in [0:args.size] do subst := (args[i]!.fvarId!, ← projHList hargs i) :: subst
+        for i in [0:valueArgs.size] do subst := (valueArgs[i]!.fvarId!, ← projHList hargs i) :: subst
         let env : Env := { Op, SOp, F, V, subst, defs, defsUsed, resolved }
         env.walkProg topBody (env.mkRet ·)
       let _ ← withLocalDeclD `args hlistTy fun h => walkMain none h    -- pass 1: discovery
@@ -388,9 +756,9 @@ def reflectMain (foo : Expr) : TermElabM Expr := do
       mkLambdaFVars #[F, V] prog
     let gTy ← inferType g
     let kc ← mkAppM ``KC #[Op]
-    -- the actual arguments as an `HList Tp.denote mainArgs`, for the soundness statement
+    -- the actual (value) arguments as an `HList Tp.denote mainArgs`, for the soundness statement
     let mut argHList ← mkAppOptM ``HList.nil #[none, denoteV]
-    for (a, t) in (args.zip mainArgTps).reverse do
+    for (a, t) in (valueArgs.zip mainArgTps).reverse do
       argHList ← mkAppOptM ``HList.cons #[none, denoteV, t, none, a, argHList]
     let ofFreeFn ← mkAppOptM ``ofFree #[Op, SOp, X]
     -- soundness  fun g => ∀ args, denoteProg (g KC Tp.denote) ⟨args⟩ ≈ ofFree (foo args)
@@ -406,16 +774,15 @@ def reflectMain (foo : Expr) : TermElabM Expr := do
     -- compositional bisimulation: unfold `denoteProg`/`denote` and `ofFree`/`ofFree_bind` on *both*
     -- sides, plus every source definition the reflector touched, so scope- and call-binds fuse
     -- consistently and the two `Comp` trees converge.
-    if let some n := foo.getAppFn.constName? then defsUsed.modify (·.push n)
-    let usedIdents := (← defsUsed.get).toList.eraseDups.toArray.map (Lean.mkIdent ·)
-    let eqPrf ← elabTermEnsuringType (← `(by
-      simp only [Freigen.denoteProg, Freigen.denote, Freigen.ofFree,
-        Freigen.ofFree_bind, Freigen.ofFree_cond, Freigen.ITree.bind_ret,
-        Freigen.ITree.bind_vis, Freigen.ITree.bind_assoc, Freigen.HList.head,
-        Freigen.HList.tail, Freigen.Bin.denote, Freigen.Un.denote,
-        Freigen.Free.bind, Freigen.Free.perform, bind, pure, Bind.bind, Pure.pure,
-        Nat.reduceLT, reduceDIte,
-        $[$usedIdents:ident],*])) (some eqTy)
+    -- **The compositional soundness proof**: walk the source at the concrete representation and
+    -- assemble the `sc_*` congruence lemmas — the source's own in-bounds proofs discharge each erased
+    -- get/set `fail` branch (`dif_pos`), and helper calls compose via each helper's own (★)-proof.
+    -- No `simp`: the proof term mirrors the source structure.
+    let mut psubst : List (FVarId × Expr) := []
+    for va in valueArgs do psubst := (va.fvarId!, va) :: psubst
+    let penv : Env := { Op, SOp, F := kc, V := denoteV, subst := psubst, defs, defsUsed }
+    let (_, proof) ← penv.pTop topBody (← reifyTpOrThrow X)
+    let eqPrf ← mkExpectedTypeHint proof eqTy
     let prf ← mkLambdaFVars args (← mkAppM ``ITree.Eutt.of_eq #[eqPrf])
     mkAppOptM ``Subtype.mk #[gTy, pred, g, prf]
 
