@@ -1,5 +1,5 @@
 import Mathlib.Data.PFunctor.Univariate.M
-import Freigen.Effect
+import Freigen.ITree.Effect
 
 /-!
 # Interaction trees: a coinductive denotation domain with effects, divergence, and failure

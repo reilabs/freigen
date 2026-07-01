@@ -1,5 +1,5 @@
 import Freigen.Free
-import Freigen.Recursion
+import Freigen.Reflect
 
 /-!
 # The `CircOp` circuit DSL
@@ -20,16 +20,33 @@ namespace Freigen
 inductive CircOp : Type → Type → Type 1
   | assert : CircOp Bool Unit
 
+/-- The `hint` scoped signature: for every block type `β`, exactly one `hint` op. -/
+abbrev HintS : Type → Type := fun _ => Unit
+
+/-- `hint b`: compute a witness out-of-circuit by running the block `b` (witness generation), or
+    introduce a fresh existential and *erase* `b` (constrained).  `b` is a full computation in the
+    same monad — a scoped construct, handled per-semantics below. -/
+def hint {β} (b : Free CircOp HintS β) : Free CircOp HintS β := .hop () b .pure
+
 /-- Smart constructor for `assert`. -/
 def assert (b : Bool) : Free CircOp HintS Unit := Free.perform CircOp.assert b
 
-/-- **Witness generation** into `Option`: `assert false` fails; `hint` blocks are run. -/
+/-- **Witness generation** into `Option`: `assert false` fails; a `hint` *runs* its block. -/
 def runCirc {α} (p : Free CircOp HintS α) : Option α :=
-  p.run (fun o i => match o, i with | .assert, b => if b then some () else none) hintRun
+  p.run (fun o i => match o, i with | .assert, b => if b then some () else none)
+        (fun _ mb => mb)                         -- hint: use the block's value
 
-/-- **Constrained** predicate transformer: `assert b` conjoins `b`, `hint` is a fresh existential. -/
+/-- The predicate-transformer monad for the constrained semantics. -/
+abbrev PredT (α : Type) : Type := (α → Prop) → Prop
+instance : Monad PredT where
+  pure a := fun c => c a
+  bind m f := fun c => m (fun a => f a c)
+
+/-- **Constrained** semantics: `assert b` conjoins `b`; a `hint` introduces a fresh existential and
+    *erases* its block (the handler ignores it).  It's the generic `run` at `PredT`. -/
 def conCirc {α} (p : Free CircOp HintS α) : (α → Prop) → Prop :=
-  p.con (fun o i => match o, i with | .assert, b => fun c => b = true ∧ c ()) hintCon
+  p.run (M := PredT) (fun o i => match o, i with | .assert, b => fun c => b = true ∧ c ())
+        (fun _ _ c => ∃ x, c x)                  -- hint: fresh existential, block erased
 
 /-- Op names for the pretty-printer. -/
 def circName {I R : Type} : CircOp I R → String | .assert => "assert"

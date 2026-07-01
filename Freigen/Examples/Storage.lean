@@ -1,5 +1,5 @@
 import Freigen.Free
-import Freigen.Recursion
+import Freigen.Reflect
 
 /-!
 # The `StoreOp` DSL — a **hint-less** (`NoScope`) example
@@ -19,11 +19,13 @@ inductive StoreOp : Type → Type → Type 1
 def get (a : Nat) : Free StoreOp NoScope Nat := Free.perform StoreOp.get a
 def set (a v : Nat) : Free StoreOp NoScope Unit := Free.perform StoreOp.set (a, v)
 
-/-- Operational semantics into a state monad (the store is a function `Nat → Nat`). -/
+/-- Operational semantics into a state monad (the store is a function `Nat → Nat`).  There are no
+    scoped ops (`NoScope`), so the scoped handler is vacuous. -/
 def runStore {α} (p : Free StoreOp NoScope α) : StateM (Nat → Nat) α :=
   p.run (fun o i => match o, i with
     | .get, a      => fun s => (s a, s)
-    | .set, (a, v) => fun s => ((), fun x => if x == a then v else s x)) noScopeRun
+    | .set, (a, v) => fun s => ((), fun x => if x == a then v else s x))
+    (fun s _ => s.elim)
 
 /-- Op names for the pretty-printer. -/
 def storeName {I R : Type} : StoreOp I R → String | .get => "get" | .set => "set"

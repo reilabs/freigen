@@ -1,5 +1,6 @@
 import Freigen.Examples.Circuit
 import Freigen.Examples.Storage
+import Freigen.Examples.Recursion
 
 /-!
 # Examples
