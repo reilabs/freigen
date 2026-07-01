@@ -3,4 +3,5 @@ import Freigen.Free
 import Freigen.ITree
 import Freigen.Ast
 import Freigen.Reflect
+import Freigen.Compile
 import Freigen.Examples

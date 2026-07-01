@@ -1,5 +1,6 @@
 import Freigen.Free
 import Freigen.Reflect
+import Freigen.Compile
 
 /-!
 # The `CircOp` circuit DSL
@@ -51,9 +52,10 @@ def conCirc {α} (p : Free CircOp HintS α) : (α → Prop) → Prop :=
 /-- Op names for the pretty-printer. -/
 def circName {I R : Type} : CircOp I R → String | .assert => "assert"
 
-/-- Pretty-print a closed `CircOp`/`HintS` program. -/
-def ppCirc {mainArgs α} (c : Closed CircOp HintS mainArgs α) : String :=
-  pp circName (fun _ => "hint") c
+/-- The DSL instance: op/scope naming for `render` and `#compile`. -/
+instance : DSL CircOp HintS where
+  opName := circName
+  scopeName _ := "hint"
 
 /-! ## A hint + a constraint -/
 
@@ -84,7 +86,7 @@ def main() =>
   let v4 ← assert(v3)
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (render circC.1)
 
 /-! ## First-order functions: `main` calling helper subroutines
 
@@ -118,7 +120,7 @@ def main() =>
   let v9 ← assert(v8)
   v9
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circ2C.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (render circ2C.1)
 
 /-! ## A `main` with inputs
 
@@ -142,7 +144,7 @@ def main(x0 : Nat) =>
   let v5 ← assert(v4)
   v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc checkSquareC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (render checkSquareC.1)
 
 /-! ## Monomorphising a polymorphic helper
 
@@ -176,7 +178,7 @@ def main(x6 : Field<5>, x7 : Field<7>, x8 : Field<5>) =>
   let v12 := v9 + v11
   v12
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc monoC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (render monoC.1)
 
 /-! ## A multi-argument helper -/
 
@@ -203,7 +205,7 @@ def main(x5 : Field<5>, x6 : Field<5>) =>
   let v9 := v7 + v8
   v9
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc multiC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (render multiC.1)
 
 /-! ## A vector-valued result
 
@@ -220,6 +222,6 @@ def main() =>
   let v0 := #v[1, 2, 3]
   v0
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vecC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (render vecC.1)
 
 end Freigen

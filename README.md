@@ -50,6 +50,14 @@ Five top-level concerns:
   `Vector` result), `Storage` (hint-less `StoreOp`, operational `runStore`), and `Recursion`
   (`countdown`/`sm`).  Every example proves its `≈`-soundness and pins its result/AST with
   `#guard_msgs`.
+- **Compilation** — `Freigen/Compile.lean` — turns the reflect-and-pretty-print capability into a
+  usable tool: a `DSL` type-class carrying each signature's op/scope naming (so `render` is the
+  argument-free `pp`), and a `#compile foo => "path"` command recording *which reflected program to
+  emit where*.  A Lake `library_facet prog` (in `lakefile.lean`) does the writing: `lake build
+  <lib>:prog` renders every `#compile`'d program of `<lib>` and writes the `.prog` files.  It works
+  on **any downstream library that `require`s Freigen** — see `examples/mycircuits/`.  Since
+  `#compile` points at a `reflect%` result, an artifact only exists if its `≈`-soundness proof
+  type-checks: **every emitted file is certified against its source.**
 
 ## One line
 

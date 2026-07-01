@@ -1,5 +1,6 @@
 import Freigen.Free
 import Freigen.Reflect
+import Freigen.Compile
 
 /-!
 # The `StoreOp` DSL — a **hint-less** (`NoScope`) example
@@ -30,6 +31,11 @@ def runStore {α} (p : Free StoreOp NoScope α) : StateM (Nat → Nat) α :=
 /-- Op names for the pretty-printer. -/
 def storeName {I R : Type} : StoreOp I R → String | .get => "get" | .set => "set"
 
+/-- The DSL instance: `NoScope` has no scoped constructs, so `scopeName` is vacuous. -/
+instance : DSL StoreOp NoScope where
+  opName := storeName
+  scopeName s := s.elim
+
 def storeProg : Free StoreOp NoScope Nat := do
   set 0 42
   get 0
@@ -50,6 +56,6 @@ def main() =>
   v3
 -/
 #guard_msgs (whitespace := lax) in
-  #eval IO.println (pp storeName (fun _ => "?") storeC.1)
+  #eval IO.println (render storeC.1)
 
 end Freigen

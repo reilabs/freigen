@@ -1,11 +1,17 @@
 import Freigen.Reflect
 import Freigen.Free
+import Freigen.Compile
 
 /-! # Recursion examples: `countdown` (tail) and `sm` (non-tail), reflected into `rec_` programs. -/
 
 namespace Freigen
 
 inductive NoOp : Type → Type → Type 1
+
+/-- The DSL instance: both `NoOp` and `NoScope` are empty, so both namers are vacuous. -/
+instance : DSL NoOp NoScope where
+  opName o := nomatch o
+  scopeName s := s.elim
 
 /-- A tail-recursive `Free` function. -/
 def countdown : Nat → Free NoOp NoScope Nat
@@ -41,7 +47,7 @@ def main(x8 : Nat) =>
   v9
 -/
 #guard_msgs (whitespace := lax) in
-  #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) countdownC.1)
+  #eval IO.println (render countdownC.1)
 
 /-- **Non-tail** recursion (`sm n + 1`): the self-call sits under a `bind`.  `reflect%` handles
     it through the same path — `interp_bind` pushes the post-call `+1` through. -/
@@ -51,6 +57,5 @@ def sm : Nat → Free NoOp NoScope Nat
 
 def smC := reflect% sm
 example : ∀ N, denoteProg (smC.1 (KC NoOp) Tp.denote) (.cons N .nil) ≈ ofFree (sm N) := smC.2
-
 
 end Freigen
