@@ -32,22 +32,29 @@ Five top-level concerns:
   `mrec` (with `interp` and the call-extended signature `CallOp`).
 - **AST** — `Freigen/Ast/` — `Ast.Tp` (the object-type universe `Tp` and the **reified** primitive
   ops `Un`/`Bin` — arithmetic is a *typed op node*, not an opaque closure) and `Ast.Basic` (the dumb
-  typed AST `Code`/`Prog`: `ret`/`lit`/`un`/`bin`/`op`/`ite`/`call`/`scope`, top-level `def_` and
-  recursive `rec_`, PHOAS over a function family `F` and values `V`; `denoteProg` **uniformly into
-  `Comp`** — a function is a `Comp`-Kleisli subroutine, a `rec_` is tied by `mrec`; `ofFree`; a
-  pretty-printer).  A `Prog` admits `rec_`, so it has no total map into a finite monad — the AST does
-  not assume termination.
+  typed AST `Code`/`Prog`: `ret`/`lit`/`un`/`bin`/`vget`/`vset`/`aget`/`aset`/`op`/`ite`/`call`/`scope`,
+  top-level `def_` and recursive `rec_`, PHOAS over a function family `F` and values `V`; `denoteProg`
+  **uniformly into `Comp`** — a function is a `Comp`-Kleisli subroutine, a `rec_` is tied by `mrec`;
+  `ofFree`; a pretty-printer).  The collection get/set nodes are **proof-erased** (a bare `Nat`
+  index, no in-bounds proof) so their denotation is *partial* — an out-of-range access is `fail`.  A
+  `Prog` admits `rec_`, so it has no total map into a finite monad — the AST does not assume
+  termination.
 - **Reflection** — `Freigen/Reflect/` — `reflect%` compiles a `Free` program into a `Prog` with its
   `≈`-soundness against `ofFree`.  `Reflect.Basic` reifies Lean types into `Tp`, A-normalises pure
-  computation into `un`/`bin`/`lit`, and **spills each called helper into a `def_`** (a two-pass
+  computation into `un`/`bin`/`lit` (and a source `coll[i]` / `coll.set i x` into the proof-erased
+  `vget`/`vset`/`aget`/`aset` nodes), and **spills each called helper into a `def_`** (a two-pass
   discovery/build, monomorphised on the helper's `(name, argument-types, result-type)`); `main` may be
   a function of the program's inputs.  `Reflect.Recursion` adds the recursion arm (a structural
   recursion → a `rec_` node) with its `mrec` adequacy.  Soundness is a **compositional bisimulation**:
   the reflector records every source definition it unfolds and feeds them to a `simp` unfolding
   `denoteProg`/`denote` and `ofFree` on both sides, so all binds fuse and the `Comp` trees converge.
+  A reflected get/set drops the source's in-bounds proof, so the erased node's `fail` branch is
+  discharged in that same `simp` (`Nat.reduceLT`/`reduceDIte`) — *one side has the proof, so it
+  cannot actually fail*.
 - **Examples** — `Freigen/Examples/` — `Circuit` (`CircOp` + scoped `hint`, `runCirc`/`conCirc`;
   hints, helper-calling and input-taking circuits, monomorphisation, multi-argument helpers, a
-  `Vector` result), `Storage` (hint-less `StoreOp`, operational `runStore`), and `Recursion`
+  `Vector` result, proof-erased vector get/set), `Storage` (hint-less `StoreOp`, operational
+  `runStore`), and `Recursion`
   (`countdown`/`sm`).  Every example proves its `≈`-soundness and pins its result/AST with
   `#guard_msgs`.
 

@@ -7,7 +7,9 @@ import Mathlib.Algebra.Ring.Defs
 A small, closed universe of the types the dumb AST may mention (`Bool`/`Nat`/`ZMod n`/`Unit`/`×`/
 `Vector`/`Array`/`⊕`/`→`), denoted back into Lean by `Tp.denote`, together with the **reified**
 unary/binary primitive operations `Un`/`Bin` (arithmetic, comparison, field ops, tupling, projection,
-injection, vector indexing).  Reifying arithmetic into explicit op nodes — rather than embedding
+injection).  Collection get/set are *not* here — being proof-erased and *partial* (an out-of-range
+index fails), they live as dedicated `Code` nodes denoting into `Comp`, not as total `Bin` ops.
+Reifying arithmetic into explicit op nodes — rather than embedding
 opaque Lean functions — is what lets the AST spill *typed, inspectable* structure into a target.
 -/
 
@@ -39,7 +41,7 @@ inductive Tp : Type
   | .sum a b  => a.denote ⊕ b.denote
 
 /-- Every object type is inhabited (a *pure* expression always has a denotable value; the
-    proof-erased `vecGet` falls back to `default` on an out-of-range index). -/
+    proof-erased collection get/set nodes need a fallback element to reflect against). -/
 instance instInhabitedDenote : {α : Tp} → Inhabited α.denote
   | .bool     => ⟨false⟩
   | .nat      => ⟨0⟩
@@ -85,9 +87,6 @@ inductive Bin : Tp → Tp → Tp → Type
   | subZ {n : Nat} : Bin (.zmod n) (.zmod n) (.zmod n)
   | mulZ {n : Nat} : Bin (.zmod n) (.zmod n) (.zmod n)
   | pair {a b : Tp} : Bin a b (.prod a b)
-  /-- Index a vector at a (`Nat`) position.  **Proof-erased**: the index carries no in-bounds proof,
-      so the denotation is *total* (`getElem!`, falling back to `default` out of range). -/
-  | vecGet {a : Tp} {n : Nat} : Bin (.vec a n) .nat a
 
 /-- Denote a unary primitive to its Lean operation. -/
 def Un.denote {a b : Tp} : Un a b → a.denote → b.denote
@@ -110,7 +109,6 @@ def Bin.denote {a b c : Tp} : Bin a b c → a.denote → b.denote → c.denote
   | .subZ, x, y => x - y
   | .mulZ, x, y => x * y
   | .pair, x, y => (x, y)
-  | .vecGet, v, i => v[i]!
 
 /-! ## Pretty-printing helpers -/
 
@@ -148,6 +146,6 @@ def Un.sym {a b : Tp} : Un a b → String
 /-- Symbol for a binary primitive. -/
 def Bin.sym {a b c : Tp} : Bin a b c → String
   | .add => "+" | .sub => "-" | .mul => "*" | .pow => "^" | .eq => "==" | .and => "&&" | .or => "||"
-  | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .pair => "," | .vecGet => "[]"
+  | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .pair => ","
 
 end Freigen

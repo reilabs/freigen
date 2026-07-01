@@ -54,6 +54,15 @@ inductive Code (Op : Type → Type → Type 1) (SOp : Type → Type)
   | lit   {α β} : α.denote → (V α → Code Op SOp F V β) → Code Op SOp F V β
   | un    {α a b} : Un a b → V a → (V b → Code Op SOp F V α) → Code Op SOp F V α
   | bin   {α a b c} : Bin a b c → V a → V b → (V c → Code Op SOp F V α) → Code Op SOp F V α
+  /-- **Vector get** `v[i]`, *proof-erased*: the index is a plain `Nat` with no in-bounds proof, so
+      an out-of-range read **fails** in the denotation. -/
+  | vget  {α a n} : V (.vec a n) → V .nat → (V a → Code Op SOp F V α) → Code Op SOp F V α
+  /-- **Vector set** `v[i] := x`, proof-erased: an out-of-range write **fails**. -/
+  | vset  {α a n} : V (.vec a n) → V .nat → V a → (V (.vec a n) → Code Op SOp F V α) → Code Op SOp F V α
+  /-- **Array get** `a[i]`, proof-erased: an out-of-range read **fails**. -/
+  | aget  {α a} : V (.array a) → V .nat → (V a → Code Op SOp F V α) → Code Op SOp F V α
+  /-- **Array set** `a[i] := x`, proof-erased: an out-of-range write **fails**. -/
+  | aset  {α a} : V (.array a) → V .nat → V a → (V (.array a) → Code Op SOp F V α) → Code Op SOp F V α
   | op    {α I R} : Op I.denote R.denote → V I → (V R → Code Op SOp F V α) → Code Op SOp F V α
   | ite   {α} : V .bool → Code Op SOp F V α → Code Op SOp F V α → Code Op SOp F V α
   | call  {α as b} : F as b → HList V as → (V b → Code Op SOp F V α) → Code Op SOp F V α
@@ -93,6 +102,10 @@ def denote {Op : Type → Type → Type 1} {SOp : Type → Type} :
   | _, .lit a k    => denote (k a)
   | _, .un o a k   => denote (k (Un.denote o a))
   | _, .bin o a b k => denote (k (Bin.denote o a b))
+  | _, @Code.vget _ _ _ _ _ _ n v i k => if h : i < n then denote (k (v[i]'h)) else fail
+  | _, @Code.vset _ _ _ _ _ _ n v i x k => if h : i < n then denote (k (v.set i x h)) else fail
+  | _, .aget v i k => if h : i < v.size then denote (k (v[i]'h)) else fail
+  | _, .aset v i x k => if h : i < v.size then denote (k (v.set i x h)) else fail
   | _, .op o i k   => vis (Effect.mk o i) (fun r => denote (k r))
   | _, .ite c t e  => cond c (denote t) (denote e)
   | _, .call cf args k => ITree.bind (cf args) (fun r => denote (k r))
@@ -140,10 +153,21 @@ private def ppCode {Op : Type → Type → Type 1} {SOp : Type → Type} {α : T
       (s!"{ppIndent d}let {v} := {Un.sym o}{a}\n{r}", j)
   | d, i, .bin o a b k =>
       let v := s!"v{i}"
-      let rhs := if Bin.sym o == "," then s!"({a}, {b})"
-                 else if Bin.sym o == "[]" then s!"{a}[{b}]" else s!"{a} {Bin.sym o} {b}"
+      let rhs := if Bin.sym o == "," then s!"({a}, {b})" else s!"{a} {Bin.sym o} {b}"
       let (r, j) := ppCode name sname d (i+1) (k v)
       (s!"{ppIndent d}let {v} := {rhs}\n{r}", j)
+  | d, i, .vget coll idx k =>
+      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
+      (s!"{ppIndent d}let {v} := {coll}[{idx}]\n{r}", j)
+  | d, i, .vset coll idx x k =>
+      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
+      (s!"{ppIndent d}let {v} := {coll} with [{idx}] := {x}\n{r}", j)
+  | d, i, .aget coll idx k =>
+      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
+      (s!"{ppIndent d}let {v} := {coll}[{idx}]\n{r}", j)
+  | d, i, .aset coll idx x k =>
+      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
+      (s!"{ppIndent d}let {v} := {coll} with [{idx}] := {x}\n{r}", j)
   | d, i, .op o inp k =>
       let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
       (s!"{ppIndent d}let {v} ← {name o}({inp})\n{r}", j)

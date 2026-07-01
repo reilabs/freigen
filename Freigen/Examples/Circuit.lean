@@ -222,4 +222,78 @@ def main() =>
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vecC.1)
 
+/-! ## Proof-erased collection get / set
+
+`v[i]` / `v.set i x` reflect into the dedicated **`vget`/`vset`** (and `aget`/`aset` for `Array`)
+nodes.  The AST is *type-erased*: an index is a bare `Nat` with **no in-bounds proof**, so the
+denotation of a get/set **fails** (`ITree.fail`) out of range.  Reflection is still `≈`-sound because
+the *source* side carries the proof (`v[i]` elaborates `getElem … h`): the reflector's soundness
+`simp` discharges the erased node's failure branch (`Nat.reduceLT`/`reduceDIte`), i.e. *one side has
+the proof, so the write/read cannot actually fail*. -/
+
+/-- Read two vector slots (literal indices into a `Vector _ 3` input) and add them. -/
+def vgetSum (v : Vector Nat 3) : Free CircOp HintS Nat := pure (v[0] + v[2])
+
+def vgetSumC := reflect% vgetSum
+example : ∀ v, denoteProg (vgetSumC.1 (KC CircOp) Tp.denote) (.cons v .nil)
+    ≈ ofFree (vgetSum v) := vgetSumC.2
+
+-- Each `v[i]` is a `vget` node (`x0[…]`), not a total `Bin`.
+/-- info:
+def main(x0 : Vector<Nat, 3>) =>
+  let v1 := 0
+  let v2 := x0[v1]
+  let v3 := 2
+  let v4 := x0[v3]
+  let v5 := v2 + v4
+  v5
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vgetSumC.1)
+
+/-- Hint slot `0`, write it into slot `2` (`vset`), then read slot `2` back (`vget`). -/
+def vswap (v : Vector Nat 3) : Free CircOp HintS Nat := do
+  let a ← hint (pure v[0])
+  let w := v.set 2 a
+  pure w[2]
+
+def vswapC := reflect% vswap
+example : ∀ v, denoteProg (vswapC.1 (KC CircOp) Tp.denote) (.cons v .nil)
+    ≈ ofFree (vswap v) := vswapC.2
+
+-- `x0 with [2] := v3` is a `vset`; the subsequent `v5[2]` a `vget`.
+/-- info:
+def main(x0 : Vector<Nat, 3>) =>
+  let v3 ← hint unconstrained
+    let v1 := 0
+    let v2 := x0[v1]
+    v2
+  let v4 := 2
+  let v5 := x0 with [v4] := v3
+  let v6 := 2
+  let v7 := v5[v6]
+  v7
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vswapC.1)
+
+/-! ### The failing denotation, directly
+
+The erased get/set nodes fail out of range and return the element in range — the property the
+reflector's soundness relies on the source proof to rule out.  (`Array` shares the same `aget`/`aset`
+machinery; its size is dynamic, so these are shown on closed literals.) -/
+
+open Freigen.ITree in
+/-- An out-of-range `vget` denotes to `fail`. -/
+example : denote (Op := CircOp) (SOp := HintS)
+    (Code.vget (a := .nat) (n := 3) ⟨#[10, 20, 30], rfl⟩ 5 (fun x => .ret x)) = fail := by
+  simp only [denote, Nat.reduceLT, reduceDIte]
+
+open Freigen.ITree in
+/-- An in-range `aget` returns the element; an out-of-range one fails. -/
+example : denote (Op := CircOp) (SOp := HintS)
+    (Code.aget (a := .nat) (#[10, 20, 30] : Array Nat) 1 (fun x => .ret x)) = ret 20 := rfl
+
+open Freigen.ITree in
+example : denote (Op := CircOp) (SOp := HintS)
+    (Code.aget (a := .nat) (#[10, 20, 30] : Array Nat) 7 (fun x => .ret x)) = fail := rfl
+
 end Freigen

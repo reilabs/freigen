@@ -144,6 +144,20 @@ mutual
     | Sum.inr A B x =>
         let aTp ← reifyTpOrThrow A; let bTp ← reifyTpOrThrow B
         env.reflectUn (mkApp2 (.const ``Un.inr []) aTp bTp) (mkApp2 (.const ``Tp.sum []) aTp bTp) x k
+    | GetElem.getElem _ _ _ _ _ coll i _ =>
+        -- `coll[i]` (with the *source* in-bounds proof, which the erased node drops): a `vget`/`aget`.
+        match_expr ← reifyTpOrThrow (← inferType coll) with
+        | Tp.vec aTp nExpr => env.reflectGet ``Code.vget aTp (some nExpr) coll i k
+        | Tp.array aTp     => env.reflectGet ``Code.aget aTp none coll i k
+        | _ => throwError "reflect%: get on a non-collection value{indentExpr coll}"
+    | Vector.set _ _ coll i x _ =>
+        match_expr ← reifyTpOrThrow (← inferType coll) with
+        | Tp.vec aTp nExpr => env.reflectSet ``Code.vset aTp (some nExpr) coll i x k
+        | _ => throwError "reflect%: `Vector.set` on a non-vector{indentExpr coll}"
+    | Array.set _ coll i x _ =>
+        match_expr ← reifyTpOrThrow (← inferType coll) with
+        | Tp.array aTp => env.reflectSet ``Code.aset aTp none coll i x k
+        | _ => throwError "reflect%: `Array.set` on a non-array{indentExpr coll}"
     | _ => throwError "reflect%: cannot reflect operand (not an atom or supported primitive):{indentExpr a}"
 
   /-- Reflect a binary primitive: reflect both operands to atoms, emit a `bin` node. -/
@@ -160,6 +174,35 @@ mutual
     withLocalDeclD `v (mkApp env.V cTp) fun vc => do
       let lam ← mkLambdaFVars #[vc] (← k vc)
       mkAppOptM ``Code.un #[env.Op, env.SOp, env.F, env.V, none, none, none, unOp, ax, lam]
+
+  /-- Reflect a proof-erased collection **get** (`vget`/`aget`): reflect collection + index to atoms,
+      emit the node binding the element atom for the continuation.  `nExpr` is the vector length
+      (`some`) or `none` for an array. -/
+  partial def Env.reflectGet (env : Env) (ctor : Name) (aTp : Expr) (nExpr : Option Expr)
+      (coll idx : Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
+    env.reflectAtom coll fun ac =>
+    env.reflectAtom idx fun ai =>
+    withLocalDeclD `v (mkApp env.V aTp) fun vc => do
+      let lam ← mkLambdaFVars #[vc] (← k vc)
+      match nExpr with
+      | some n => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, n, ac, ai, lam]
+      | none   => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, ac, ai, lam]
+
+  /-- Reflect a proof-erased collection **set** (`vset`/`aset`): reflect collection, index and value
+      to atoms, emit the node binding the *updated collection* atom for the continuation. -/
+  partial def Env.reflectSet (env : Env) (ctor : Name) (aTp : Expr) (nExpr : Option Expr)
+      (coll idx x : Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
+    env.reflectAtom coll fun ac =>
+    env.reflectAtom idx fun ai =>
+    env.reflectAtom x fun ax => do
+      let collTp := match nExpr with
+        | some n => mkApp2 (.const ``Tp.vec []) aTp n
+        | none   => mkApp (.const ``Tp.array []) aTp
+      withLocalDeclD `v (mkApp env.V collTp) fun vc => do
+        let lam ← mkLambdaFVars #[vc] (← k vc)
+        match nExpr with
+        | some n => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, n, ac, ai, ax, lam]
+        | none   => mkAppOptM ctor #[env.Op, env.SOp, env.F, env.V, none, aTp, ac, ai, ax, lam]
 
   /-- Reflect a list of argument values into their atoms. -/
   partial def Env.reflectArgList (env : Env) : List Expr → (List Expr → MetaM Expr) → MetaM Expr
@@ -371,6 +414,7 @@ def reflectMain (foo : Expr) : TermElabM Expr := do
         Freigen.ITree.bind_vis, Freigen.ITree.bind_assoc, Freigen.HList.head,
         Freigen.HList.tail, Freigen.Bin.denote, Freigen.Un.denote,
         Freigen.Free.bind, Freigen.Free.perform, bind, pure, Bind.bind, Pure.pure,
+        Nat.reduceLT, reduceDIte,
         $[$usedIdents:ident],*])) (some eqTy)
     let prf ← mkLambdaFVars args (← mkAppM ``ITree.Eutt.of_eq #[eqPrf])
     mkAppOptM ``Subtype.mk #[gTy, pred, g, prf]

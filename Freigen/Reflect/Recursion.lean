@@ -216,7 +216,7 @@ def reflectRec (F recTy : Expr) (cName : Name) : TermElabM Expr := do
       intro N; simp only [Freigen.denote, Freigen.ofFree,
         Freigen.ofFree_bind, Freigen.ofFree_cond, Freigen.Bin.denote,
         Freigen.Un.denote, Freigen.ITree.bind_vis, Freigen.ITree.bind_ret,
-        Freigen.ITree.bind_assoc])) (some hspec)
+        Freigen.ITree.bind_assoc, Nat.reduceLT, reduceDIte])) (some hspec)
   let hrun ← withLocalDeclD `N σT fun N => do
     mkForallFVars #[N] (← mkEq (← mkAppM ``runSrc #[fFn, cb.beta #[N]]) (mkApp fFn N))
   let hrunPrf ← elabTermEnsuringType (← `(by
