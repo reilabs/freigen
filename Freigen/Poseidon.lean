@@ -262,11 +262,11 @@ def poseidonF (a b : Fr) : Free CircOp HintS Fr := pure (hash2 a b)
 -- `reflect% poseidonF` does NOT go through yet.  Progress on the missing features:
 --   ✓ 2. vector/array construction (`#v[…]`, `Vector.ofFn`) + `Fin`-indexed access — DONE
 --   ✓ 4. `Fin` as an object type (input/value) + array↔vec / nat↔fin casts — DONE
+--   ✓ 9. stateful/multi-arg recursion (`Nat → State → Free`, tupled `rec_` state) — DONE
 -- Still missing:
 --   1. field `x ^ 5`             5. `getElem!` / `getElem?`
 --   6. `if` on a decidable prop (only `bif`/`Bool`)
---   7. `Nat` `<`,`≤`,`/`,`%`     8. bounded loops (`List.foldl`, `for`)
---   9. stateful/multi-arg recursion (`Nat → State → Free`)
+--   7. `Nat` `<`,`≤`,`/`,`%`     8. bounded loops (`List.foldl`, `for`; or express via 9)
 -- def poseidonC := reflect% poseidonF
 
 end Freigen.Poseidon

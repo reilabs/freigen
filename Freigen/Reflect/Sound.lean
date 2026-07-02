@@ -17,8 +17,8 @@ by the congruence lemma for that node.  This is what lets a proof-erased `vget`/
 carry the *actual* in-bounds proof from the source (`sc_vget … (h : i < n)` is literally `dif_pos h`)
 — no `simp`, no decidability, no reachability of a hypothesis: the proof term mirrors the term.
 
-Each `sc_*` is one node's step of (★); each `L_*`/`Code`-level `rfl` is a pure-atom step.  The whole
-per-program proof is a tree of these applied to each other, `Eutt.of_eq`-lifted at the very top.
+Each `sc_*` is one node's step of (★); every other `Code` node's step is definitional (`rfl`).  The
+whole per-program proof is a tree of these applied to each other, `Eutt.of_eq`-lifted at the very top.
 -/
 
 namespace Freigen
@@ -30,37 +30,55 @@ variable {Op : Type → Type → Type 1} {SOp : Type → Type}
 theorem bind_cond {α β : Type} (c : Bool) (a b : Comp Op α) (k : α → Comp Op β) :
     ITree.bind (cond c a b) k = cond c (ITree.bind a k) (ITree.bind b k) := by cases c <;> rfl
 
-/-! ## Pure-atom steps: the reflected collection nodes carry the source's in-bounds proof -/
+/-! ## Pure-atom steps: the reflected partial-op nodes carry the source's proof
+
+`sc_pop` is the one generic step; each per-op `sc_*` bridges the source's proof (`h : i < n`, …) to
+`POp.denote … = some v` (a `dif_pos`).  A new `POp` needs exactly one bridging lemma here. -/
+
+/-- Generic **partial-op step**: when the op's denotation succeeds, the `pop` node steps to its
+    continuation — the erased `fail` branch is closed by `h`. -/
+theorem sc_pop {α b : Tp} {as : List Tp} (o : POp as b) (args : HList Tp.denote as)
+    {v : b.denote} (kk : b.denote → Code Op SOp (KC Op) Tp.denote α)
+    (h : POp.denote o args = some v) :
+    denote (Code.pop o args kk) = denote (kk v) := by
+  simp only [denote]
+  rw [h]
 
 /-- **Vector get**, in bounds by the *source's* proof `h`. -/
-theorem sc_vget {α elemT : Tp} {n : Nat} (v : Vector elemT.denote n) (i : Nat)
-    (kk : elemT.denote → Code Op SOp (KC Op) Tp.denote α) (h : i < n) :
-    denote (Code.vget v i kk) = denote (kk (v[i]'h)) := dif_pos h
+theorem sc_vget {α a : Tp} {n : Nat} (v : Vector a.denote n) (i : Nat)
+    (kk : a.denote → Code Op SOp (KC Op) Tp.denote α) (h : i < n) :
+    denote (Code.pop .vget (.cons v (.cons i .nil)) kk) = denote (kk (v[i]'h)) :=
+  sc_pop .vget (.cons v (.cons i .nil)) kk (by exact dif_pos h)
 
 /-- **Vector set**, in bounds by the source's proof `h`. -/
-theorem sc_vset {α elemT : Tp} {n : Nat} (v : Vector elemT.denote n) (i : Nat) (x : elemT.denote)
-    (kk : Vector elemT.denote n → Code Op SOp (KC Op) Tp.denote α) (h : i < n) :
-    denote (Code.vset v i x kk) = denote (kk (v.set i x h)) := dif_pos h
+theorem sc_vset {α a : Tp} {n : Nat} (v : Vector a.denote n) (i : Nat) (x : a.denote)
+    (kk : Vector a.denote n → Code Op SOp (KC Op) Tp.denote α) (h : i < n) :
+    denote (Code.pop .vset (.cons v (.cons i (.cons x .nil))) kk) = denote (kk (v.set i x h)) :=
+  sc_pop .vset (.cons v (.cons i (.cons x .nil))) kk (by exact dif_pos h)
 
 /-- **Array get**, in bounds by the source's proof `h`. -/
-theorem sc_aget {α elemT : Tp} (v : Array elemT.denote) (i : Nat)
-    (kk : elemT.denote → Code Op SOp (KC Op) Tp.denote α) (h : i < v.size) :
-    denote (Code.aget v i kk) = denote (kk (v[i]'h)) := dif_pos h
+theorem sc_aget {α a : Tp} (v : Array a.denote) (i : Nat)
+    (kk : a.denote → Code Op SOp (KC Op) Tp.denote α) (h : i < v.size) :
+    denote (Code.pop .aget (.cons v (.cons i .nil)) kk) = denote (kk (v[i]'h)) :=
+  sc_pop .aget (.cons v (.cons i .nil)) kk (by exact dif_pos h)
 
 /-- **Array set**, in bounds by the source's proof `h`. -/
-theorem sc_aset {α elemT : Tp} (v : Array elemT.denote) (i : Nat) (x : elemT.denote)
-    (kk : Array elemT.denote → Code Op SOp (KC Op) Tp.denote α) (h : i < v.size) :
-    denote (Code.aset v i x kk) = denote (kk (v.set i x h)) := dif_pos h
+theorem sc_aset {α a : Tp} (v : Array a.denote) (i : Nat) (x : a.denote)
+    (kk : Array a.denote → Code Op SOp (KC Op) Tp.denote α) (h : i < v.size) :
+    denote (Code.pop .aset (.cons v (.cons i (.cons x .nil))) kk) = denote (kk (v.set i x h)) :=
+  sc_pop .aset (.cons v (.cons i (.cons x .nil))) kk (by exact dif_pos h)
 
 /-- **Upcast `array → vec n`**, valid by the source's length proof `h : arr.size = n`. -/
-theorem sc_arrToVec {α elemT : Tp} {n : Nat} (arr : Array elemT.denote)
-    (kk : Vector elemT.denote n → Code Op SOp (KC Op) Tp.denote α) (h : arr.size = n) :
-    denote (Code.arrToVec arr kk) = denote (kk ⟨arr, h⟩) := dif_pos h
+theorem sc_arrToVec {α a : Tp} {n : Nat} (arr : Array a.denote)
+    (kk : Vector a.denote n → Code Op SOp (KC Op) Tp.denote α) (h : arr.size = n) :
+    denote (Code.pop .arrToVec (.cons arr .nil) kk) = denote (kk ⟨arr, h⟩) :=
+  sc_pop .arrToVec (.cons arr .nil) kk (by exact dif_pos h)
 
 /-- **Upcast `nat → fin n`**, valid by the source's bound proof `h : m < n`. -/
 theorem sc_natToFin {α : Tp} {n : Nat} (m : Nat)
     (kk : Fin n → Code Op SOp (KC Op) Tp.denote α) (h : m < n) :
-    denote (Code.natToFin m kk) = denote (kk ⟨m, h⟩) := dif_pos h
+    denote (Code.pop .natToFin (.cons m .nil) kk) = denote (kk ⟨m, h⟩) :=
+  sc_pop .natToFin (.cons m .nil) kk (by exact dif_pos h)
 
 /-! ## Node steps of the invariant (★) -/
 
@@ -116,9 +134,5 @@ theorem sc_call {as : List Tp} {b α : Tp}
     denote (Code.call cf args K') = ITree.bind m (fun r => denote (K' r)) := by
   show ITree.bind (cf args) (fun r => denote (K' r)) = ITree.bind m (fun r => denote (K' r))
   rw [hcf]
-
-/-- Close off a top-level walk (continuation `mkRet`, so `Kf = ret`): `ITree.bind (ofFree e) ret = ofFree e`. -/
-theorem sc_top {α : Tp} (e : Free Op SOp α.denote) (C : Comp Op α.denote)
-    (hC : C = ITree.bind (ofFree e) ret) : C = ofFree e := by rw [hC, bind_ret_right]
 
 end Freigen

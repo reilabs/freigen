@@ -31,24 +31,29 @@ Five top-level concerns:
   `≈` (`Eutt`) as a lawful `Setoid` with its congruence algebra, and the general-recursion combinator
   `mrec` (with `interp` and the call-extended signature `CallOp`).
 - **AST** — `Freigen/Ast/` — `Ast.Tp` (the object-type universe `Tp` and the **reified** primitive
-  ops `Un`/`Bin` — arithmetic is a *typed op node*, not an opaque closure) and `Ast.Basic` (the dumb
-  typed AST `Code`/`Prog`: `ret`/`lit`/`un`/`bin`/`vget`/`vset`/`aget`/`aset`/`vec`/`arr`/`arrToVec`/`natToFin`/`op`/`ite`/`call`/`scope`,
+  ops: total `Un`/`Bin` — arithmetic is a *typed op node*, not an opaque closure — and **partial**
+  `POp` with `Option`-valued denotation: `vget`/`vset`/`aget`/`aset`/`arrToVec`/`natToFin`) and
+  `Ast.Basic` (the dumb typed AST `Code`/`Prog`:
+  `ret`/`lit`/`un`/`bin`/`pop`/`vec`/`arr`/`op`/`ite`/`call`/`scope`,
   top-level `def_` and recursive `rec_`, PHOAS over a function family `F` and values `V`; `denoteProg`
   **uniformly into `Comp`** — a function is a `Comp`-Kleisli subroutine, a `rec_` is tied by `mrec`;
-  `ofFree`; a pretty-printer).  The collection get/set nodes are **proof-erased** (a bare `Nat`
-  index, no in-bounds proof) so their denotation is *partial* — an out-of-range access is `fail`.  A
+  `ofFree`; a pretty-printer).  The single `pop` node carries every **proof-erased** partial
+  primitive (a bare `Nat` index, no in-bounds proof), so its denotation is *partial* — a failing
+  `POp.denote` (an out-of-range access, a size mismatch) is `fail`.  A
   `Prog` admits `rec_`, so it has no total map into a finite monad — the AST does not assume
   termination.
 - **Reflection** — `Freigen/Reflect/` — `reflect%` compiles a `Free` program into a `Prog` with its
   `≈`-soundness against `ofFree`.  `Reflect.Basic` reifies Lean types into `Tp`, A-normalises pure
-  computation into `un`/`bin`/`lit` (and a source `coll[i]` / `coll.set i x` into the proof-erased
-  `vget`/`vset`/`aget`/`aset` nodes), and **spills each called helper into a `def_`** (a two-pass
+  computation into `un`/`bin`/`lit` (and a source `coll[i]` / `coll.set i x` into proof-erased
+  `pop` nodes), and **spills each called helper into a `def_`** (a two-pass
   discovery/build, monomorphised on the helper's `(name, argument-types, result-type)`); `main` may be
   a function of the program's inputs.  `Reflect.Recursion` adds the recursion arm (a structural
-  recursion → a `rec_` node) with its `mrec` adequacy.  **The reflector emits no `simp`** — every
+  recursion `Nat → A₁ → … → Free Op SOp ρ` on the first argument, extra `Tp`-typed state threading
+  through the tupled `rec_` state → a `rec_` node) with its `mrec` adequacy (parameterised by the
+  measure `μ = ·.1`).  **The reflector emits no `simp`** — every
   proof it outputs is a compositional/structural term (`simp` is confined to the fixed library lemmas
-  like `adeqBody`).  Value-arm soundness: `pWalk` re-walks the source at the concrete representation
-  (`V := Tp.denote`) and, at every node, applies that node's congruence lemma (`Reflect.Sound`'s
+  like `adeqBody`).  Value-arm soundness: the **same walk, re-run in proof mode**, walks the source
+  at the concrete representation (`V := Tp.denote`) and, at every node, applies that node's congruence lemma (`Reflect.Sound`'s
   `sc_op`/`sc_bind`/`sc_call`/…) to the sub-terms' equations — a proof term mirroring the source.  A
   reflected get/set inserts **exactly the source's own in-bounds proof** (`sc_vget … h` = `dif_pos h`),
   so the erased `fail` branch is closed *at that node* — no decidability, no global rewrite, sound for

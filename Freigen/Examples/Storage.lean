@@ -38,8 +38,10 @@ def storeProg : Free StoreOp NoScope Nat := do
 #guard_msgs in #eval (runStore storeProg).run' (fun _ => 0)
 
 /-- The same `reflect%` pipeline; no `hop` nodes, soundness for free. -/
-def storeC := reflect% storeProg
-example : denoteProg (storeC.1 (KC StoreOp) Tp.denote) .nil ≈ ofFree storeProg := storeC.2
+reflect_def storeC := storeProg
+/-- info: Freigen.storeC_sound : ITree.Eutt (denoteProg (storeC (KC StoreOp) Tp.denote) HList.nil) (ofFree storeProg) -/
+#guard_msgs (whitespace := lax) in
+#check storeC_sound
 
 /-- info:
 def main() =>
@@ -50,6 +52,6 @@ def main() =>
   v3
 -/
 #guard_msgs (whitespace := lax) in
-  #eval IO.println (pp storeName (fun _ => "?") storeC.1)
+  #eval IO.println (pp storeName (fun _ => "?") storeC)
 
 end Freigen

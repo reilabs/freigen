@@ -1,9 +1,12 @@
 name = "freigen"
 version = "0.1.0"
-defaultTargets = ["freigen"]
+defaultTargets = ["Freigen", "freigen"]
 
 [[lean_lib]]
 name = "Freigen"
+# Build every Freigen.* module, imported by the umbrella or not — an orphan
+# module must fail CI rather than silently go unchecked.
+globs = ["Freigen", "Freigen.+"]
 
 [[require]]
 name = "mathlib"

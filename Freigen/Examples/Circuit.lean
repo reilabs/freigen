@@ -10,8 +10,9 @@ Lean-side semantics: `runCirc` (witness generation, blocks run) and `conCirc` (c
 predicate transformer, blocks erased to fresh existentials).  `reflect%` compiles it to the dumb
 `Prog` AST, sound against `ofFree` by `≈`.
 
-Every example asserts its `runCirc` result and its pretty-printed AST via `#guard_msgs`, so the
-comments can't drift from what the code actually produces.
+Every example is reflected with `reflect_def C := src` (named `C` / `C_sound`), and pins its
+`runCirc` result, its **soundness statement** (`#check C_sound`), and its pretty-printed AST via
+`#guard_msgs`, so the comments can't drift from what the code actually produces.
 -/
 
 namespace Freigen
@@ -68,10 +69,11 @@ def circ : Free CircOp HintS Unit := do
 /-- Constrained semantics: `∃ x, (x == 7) = true ∧ …` (the block is erased). -/
 example : conCirc circ (fun _ => True) := ⟨7, rfl, trivial⟩
 
-def circC := reflect% circ
-example : Closed CircOp HintS [] .unit := circC.1
-/-- Denoting the AST is `≈ ofFree` of the source (`ofFree` embeds only the source for comparison). -/
-example : denoteProg (circC.1 (KC CircOp) Tp.denote) .nil ≈ ofFree circ := circC.2
+reflect_def circC := circ
+example : Closed CircOp HintS [] .unit := circC
+/-- info: Freigen.circC_sound : ITree.Eutt (denoteProg (circC (KC CircOp) Tp.denote) HList.nil) (ofFree circ) -/
+#guard_msgs (whitespace := lax) in
+#check circC_sound
 
 -- The reified AST — arithmetic is a real `Bin.eq` node, the `hint` an out-of-circuit scope.
 /-- info:
@@ -84,7 +86,7 @@ def main() =>
   let v4 ← assert(v3)
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circC)
 
 /-! ## First-order functions: `main` calling helper subroutines
 
@@ -99,8 +101,10 @@ def circ2 : Free CircOp HintS Unit := do
   let q ← quad y
   assert (q == 12)
 
-def circ2C := reflect% circ2
-example : denoteProg (circ2C.1 (KC CircOp) Tp.denote) .nil ≈ ofFree circ2 := circ2C.2
+reflect_def circ2C := circ2
+/-- info: Freigen.circ2C_sound : ITree.Eutt (denoteProg (circ2C (KC CircOp) Tp.denote) HList.nil) (ofFree circ2) -/
+#guard_msgs (whitespace := lax) in
+#check circ2C_sound
 
 -- `quad` is spilled as `f0` (with `double` inlined), and `main` calls it.
 /-- info:
@@ -118,7 +122,7 @@ def main() =>
   let v9 ← assert(v8)
   v9
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circ2C.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circ2C)
 
 /-! ## A `main` with inputs
 
@@ -128,9 +132,11 @@ def checkSquare (x : Nat) : Free CircOp HintS Unit := do
   let s ← hint (pure (x * x))
   assert (s == x * x)
 
-def checkSquareC := reflect% checkSquare
-example : ∀ x, denoteProg (checkSquareC.1 (KC CircOp) Tp.denote) (.cons x .nil)
-    ≈ ofFree (checkSquare x) := checkSquareC.2
+reflect_def checkSquareC := checkSquare
+/-- info: Freigen.checkSquareC_sound (x : ℕ) :
+  ITree.Eutt (denoteProg (checkSquareC (KC CircOp) Tp.denote) (HList.cons x HList.nil)) (ofFree (checkSquare x)) -/
+#guard_msgs (whitespace := lax) in
+#check checkSquareC_sound
 
 /-- info:
 def main(x0 : Nat) =>
@@ -142,7 +148,7 @@ def main(x0 : Nat) =>
   let v5 ← assert(v4)
   v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc checkSquareC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc checkSquareC)
 
 /-! ## Monomorphising a polymorphic helper
 
@@ -157,9 +163,12 @@ def monoExample (a : ZMod 5) (b : ZMod 7) (c : ZMod 5) : Free CircOp HintS (ZMod
   let r ← dbl c
   pure (p + r)
 
-def monoC := reflect% monoExample
-example : ∀ a b c, denoteProg (monoC.1 (KC CircOp) Tp.denote) (.cons a (.cons b (.cons c .nil)))
-    ≈ ofFree (monoExample a b c) := monoC.2
+reflect_def monoC := monoExample
+/-- info: Freigen.monoC_sound (a : ZMod 5) (b : ZMod 7) (c : ZMod 5) :
+  ITree.Eutt (denoteProg (monoC (KC CircOp) Tp.denote) (HList.cons a (HList.cons b (HList.cons c HList.nil))))
+    (ofFree (monoExample a b c)) -/
+#guard_msgs (whitespace := lax) in
+#check monoC_sound
 
 -- Two spilled defs (`f0 = dbl@5`, `f3 = dbl@7`); `main` takes three args and reuses `f0` for the third.
 /-- info:
@@ -176,7 +185,7 @@ def main(x6 : Field<5>, x7 : Field<7>, x8 : Field<5>) =>
   let v12 := v9 + v11
   v12
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc monoC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc monoC)
 
 /-! ## A multi-argument helper -/
 
@@ -187,9 +196,12 @@ def multiExample (a b : ZMod 5) : Free CircOp HintS (ZMod 5) := do
   let q ← muladd b a
   pure (p + q)
 
-def multiC := reflect% multiExample
-example : ∀ a b, denoteProg (multiC.1 (KC CircOp) Tp.denote) (.cons a (.cons b .nil))
-    ≈ ofFree (multiExample a b) := multiC.2
+reflect_def multiC := multiExample
+/-- info: Freigen.multiC_sound (a b : ZMod 5) :
+  ITree.Eutt (denoteProg (multiC (KC CircOp) Tp.denote) (HList.cons a (HList.cons b HList.nil)))
+    (ofFree (multiExample a b)) -/
+#guard_msgs (whitespace := lax) in
+#check multiC_sound
 
 -- One two-argument def (`f0 = muladd@5`), called twice.
 /-- info:
@@ -203,7 +215,7 @@ def main(x5 : Field<5>, x6 : Field<5>) =>
   let v9 := v7 + v8
   v9
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc multiC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc multiC)
 
 /-! ## A vector-valued result
 
@@ -211,8 +223,10 @@ def main(x5 : Field<5>, x6 : Field<5>) =>
 
 def vecConst : Free CircOp HintS (Vector Nat 3) := pure ⟨#[1, 2, 3], rfl⟩
 
-def vecC := reflect% vecConst
-example : denoteProg (vecC.1 (KC CircOp) Tp.denote) .nil ≈ ofFree vecConst := vecC.2
+reflect_def vecC := vecConst
+/-- info: Freigen.vecC_sound : ITree.Eutt (denoteProg (vecC (KC CircOp) Tp.denote) HList.nil) (ofFree vecConst) -/
+#guard_msgs (whitespace := lax) in
+#check vecC_sound
 
 -- The vector prints as `#v[…]`.
 /-- info:
@@ -220,13 +234,14 @@ def main() =>
   let v0 := #v[1, 2, 3]
   v0
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vecC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vecC)
 
 /-! ## Proof-erased collection get / set
 
-`v[i]` / `v.set i x` reflect into the dedicated **`vget`/`vset`** (and `aget`/`aset` for `Array`)
-nodes.  The AST is *type-erased*: an index is a bare `Nat` with **no in-bounds proof**, so the
-denotation of a get/set **fails** (`ITree.fail`) out of range.
+`v[i]` / `v.set i x` reflect into the **partial-primitive node** `Code.pop` at ops
+**`POp.vget`/`POp.vset`** (and `aget`/`aset` for `Array`).  The AST is *type-erased*: an index is a
+bare `Nat` with **no in-bounds proof**, so the denotation of a get/set **fails** (`ITree.fail`) out
+of range.
 
 Reflection is still `≈`-sound because the *source* side carries the proof (`v[i]` elaborates
 `getElem … h`).  Crucially the index need **not** be a literal: an in-bounds proof `h : j < n` that
@@ -238,10 +253,13 @@ side has the proof, so the read/write cannot actually fail.* -/
 /-- Read a **symbolic** slot `j` (with erased in-bounds proof `h : j < 3`) and slot `0`, then add. -/
 def vgetSym (v : Vector Nat 3) (j : Nat) (h : j < 3) : Free CircOp HintS Nat := pure (v[j]'h + v[0])
 
-def vgetSymC := reflect% vgetSym
+reflect_def vgetSymC := vgetSym
 -- `h` is quantified in the soundness statement but is **absent** from the reflected `main`.
-example : ∀ v j h, denoteProg (vgetSymC.1 (KC CircOp) Tp.denote) (.cons v (.cons j .nil))
-    ≈ ofFree (vgetSym v j h) := vgetSymC.2
+/-- info: Freigen.vgetSymC_sound (v : Vector ℕ 3) (j : ℕ) (h : j < 3) :
+  ITree.Eutt (denoteProg (vgetSymC (KC CircOp) Tp.denote) (HList.cons v (HList.cons j HList.nil)))
+    (ofFree (vgetSym v j h)) -/
+#guard_msgs (whitespace := lax) in
+#check vgetSymC_sound
 
 -- `main` takes only the vector and the index — no proof argument.
 /-- info:
@@ -252,16 +270,19 @@ def main(x0 : Vector<Nat, 3>, x1 : Nat) =>
   let v5 := v2 + v4
   v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vgetSymC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vgetSymC)
 
 /-- Write a value into symbolic slot `j` (`vset`), then read the same slot back (`vget`). -/
 def vsetSym (v : Vector Nat 3) (j : Nat) (h : j < 3) (x : Nat) : Free CircOp HintS Nat := do
   let w := v.set j x
   pure (w[j]'h)
 
-def vsetSymC := reflect% vsetSym
-example : ∀ v j h x, denoteProg (vsetSymC.1 (KC CircOp) Tp.denote) (.cons v (.cons j (.cons x .nil)))
-    ≈ ofFree (vsetSym v j h x) := vsetSymC.2
+reflect_def vsetSymC := vsetSym
+/-- info: Freigen.vsetSymC_sound (v : Vector ℕ 3) (j : ℕ) (h : j < 3) (x : ℕ) :
+  ITree.Eutt (denoteProg (vsetSymC (KC CircOp) Tp.denote) (HList.cons v (HList.cons j (HList.cons x HList.nil))))
+    (ofFree (vsetSym v j h x)) -/
+#guard_msgs (whitespace := lax) in
+#check vsetSymC_sound
 
 /-- info:
 def main(x0 : Vector<Nat, 3>, x1 : Nat, x2 : Nat) =>
@@ -269,22 +290,25 @@ def main(x0 : Vector<Nat, 3>, x1 : Nat, x2 : Nat) =>
   let v4 := v3[x1]
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vsetSymC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vsetSymC)
 
 /-- A **dynamically-sized** `Array` read: the bound `j < a.size` is itself symbolic, yet the erased
     `aget` is still sound because the source proof `h` rules the failure out. -/
 def agetSym (a : Array Nat) (j : Nat) (h : j < a.size) : Free CircOp HintS Nat := pure (a[j]'h)
 
-def agetSymC := reflect% agetSym
-example : ∀ a j h, denoteProg (agetSymC.1 (KC CircOp) Tp.denote) (.cons a (.cons j .nil))
-    ≈ ofFree (agetSym a j h) := agetSymC.2
+reflect_def agetSymC := agetSym
+/-- info: Freigen.agetSymC_sound (a : Array ℕ) (j : ℕ) (h : j < a.size) :
+  ITree.Eutt (denoteProg (agetSymC (KC CircOp) Tp.denote) (HList.cons a (HList.cons j HList.nil)))
+    (ofFree (agetSym a j h)) -/
+#guard_msgs (whitespace := lax) in
+#check agetSymC_sound
 
 /-- info:
 def main(x0 : Array<Nat>, x1 : Nat) =>
   let v2 := x0[x1]
   v2
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc agetSymC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc agetSymC)
 
 /-- **Read-after-write on a dynamic array**: `(a.set i x)[i]` — the get's collection is itself the
     `aset` node.  The array bound `i < (a.set i x).size` references that compound collection; soundness
@@ -294,9 +318,12 @@ def arrRW (a : Array Nat) (i : Nat) (h : i < a.size) (x : Nat) : Free CircOp Hin
   let b := a.set i x
   pure (b[i]'(by rw [Array.size_set]; exact h))
 
-def arrRWC := reflect% arrRW
-example : ∀ a i h x, denoteProg (arrRWC.1 (KC CircOp) Tp.denote) (.cons a (.cons i (.cons x .nil)))
-    ≈ ofFree (arrRW a i h x) := arrRWC.2
+reflect_def arrRWC := arrRW
+/-- info: Freigen.arrRWC_sound (a : Array ℕ) (i : ℕ) (h : i < a.size) (x : ℕ) :
+  ITree.Eutt (denoteProg (arrRWC (KC CircOp) Tp.denote) (HList.cons a (HList.cons i (HList.cons x HList.nil))))
+    (ofFree (arrRW a i h x)) -/
+#guard_msgs (whitespace := lax) in
+#check arrRWC_sound
 
 /-- info:
 def main(x0 : Array<Nat>, x1 : Nat, x2 : Nat) =>
@@ -304,7 +331,7 @@ def main(x0 : Array<Nat>, x1 : Nat, x2 : Nat) =>
   let v4 := v3[x1]
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc arrRWC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc arrRWC)
 
 /-! ### Deeper in the tree
 
@@ -320,9 +347,11 @@ def twice (v : Vector Nat 4) : Free CircOp HintS Nat := do
   let b ← firstPlusLast v
   pure (a + b)
 
-def twiceC := reflect% twice
-example : ∀ v, denoteProg (twiceC.1 (KC CircOp) Tp.denote) (.cons v .nil)
-    ≈ ofFree (twice v) := twiceC.2
+reflect_def twiceC := twice
+/-- info: Freigen.twiceC_sound (v : Vector ℕ 4) :
+  ITree.Eutt (denoteProg (twiceC (KC CircOp) Tp.denote) (HList.cons v HList.nil)) (ofFree (twice v)) -/
+#guard_msgs (whitespace := lax) in
+#check twiceC_sound
 
 /-- info:
 def f0(x1 : Vector<Nat, 4>) =>
@@ -338,7 +367,7 @@ def main(x7 : Vector<Nat, 4>) =>
   let v10 := v8 + v9
   v10
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc twiceC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc twiceC)
 
 /-- A **symbolic-bound array** get buried under an effect *and* inside a `bif` branch: the main-level
     proof `h : j < a.size` still rules the failure out, through the `assert`'s `vis` and the branch. -/
@@ -346,9 +375,12 @@ def deepArr (a : Array Nat) (j : Nat) (h : j < a.size) (b : Bool) : Free CircOp 
   let _ ← assert b
   bif b then pure (a[j]'h) else pure 0
 
-def deepArrC := reflect% deepArr
-example : ∀ a j h b, denoteProg (deepArrC.1 (KC CircOp) Tp.denote) (.cons a (.cons j (.cons b .nil)))
-    ≈ ofFree (deepArr a j h b) := deepArrC.2
+reflect_def deepArrC := deepArr
+/-- info: Freigen.deepArrC_sound (a : Array ℕ) (j : ℕ) (h : j < a.size) (b : Bool) :
+  ITree.Eutt (denoteProg (deepArrC (KC CircOp) Tp.denote) (HList.cons a (HList.cons j (HList.cons b HList.nil))))
+    (ofFree (deepArr a j h b)) -/
+#guard_msgs (whitespace := lax) in
+#check deepArrC_sound
 
 /-- info:
 def main(x0 : Array<Nat>, x1 : Nat, x2 : Bool) =>
@@ -360,7 +392,7 @@ def main(x0 : Array<Nat>, x1 : Nat, x2 : Bool) =>
     let v5 := 0
     v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc deepArrC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc deepArrC)
 
 /-- A **symbolic get flowing as the argument of a helper call** (`quad (v[j]'h)`): the get is reflected
     at the call site and its bound is discharged there, while `quad` spills as `f0` — the compositional
@@ -369,9 +401,12 @@ def viaHelper (v : Vector Nat 3) (j : Nat) (h : j < 3) : Free CircOp HintS Unit 
   let q ← quad (v[j]'h)
   assert (q == 0)
 
-def viaHelperC := reflect% viaHelper
-example : ∀ v j h, denoteProg (viaHelperC.1 (KC CircOp) Tp.denote) (.cons v (.cons j .nil))
-    ≈ ofFree (viaHelper v j h) := viaHelperC.2
+reflect_def viaHelperC := viaHelper
+/-- info: Freigen.viaHelperC_sound (v : Vector ℕ 3) (j : ℕ) (h : j < 3) :
+  ITree.Eutt (denoteProg (viaHelperC (KC CircOp) Tp.denote) (HList.cons v (HList.cons j HList.nil)))
+    (ofFree (viaHelper v j h)) -/
+#guard_msgs (whitespace := lax) in
+#check viaHelperC_sound
 
 /-- info:
 def f0(x1 : Nat) =>
@@ -386,7 +421,7 @@ def main(x4 : Vector<Nat, 3>, x5 : Nat) =>
   let v10 ← assert(v9)
   v10
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc viaHelperC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc viaHelperC)
 
 /-! ### Constructing collections
 
@@ -398,9 +433,11 @@ def main(x4 : Vector<Nat, 3>, x5 : Nat) =>
 def vdouble (v : Vector Nat 3) : Free CircOp HintS (Vector Nat 3) :=
   pure (Vector.ofFn (fun i : Fin 3 => v[i] + v[i]))
 
-def vdoubleC := reflect% vdouble
-example : ∀ v, denoteProg (vdoubleC.1 (KC CircOp) Tp.denote) (.cons v .nil)
-    ≈ ofFree (vdouble v) := vdoubleC.2
+reflect_def vdoubleC := vdouble
+/-- info: Freigen.vdoubleC_sound (v : Vector ℕ 3) :
+  ITree.Eutt (denoteProg (vdoubleC (KC CircOp) Tp.denote) (HList.cons v HList.nil)) (ofFree (vdouble v)) -/
+#guard_msgs (whitespace := lax) in
+#check vdoubleC_sound
 
 /-- info:
 def main(x0 : Vector<Nat, 3>) =>
@@ -422,7 +459,7 @@ def main(x0 : Vector<Nat, 3>) =>
   let v16 := #v[v5, v10, v15]
   v16
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vdoubleC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vdoubleC)
 
 /-! ### Casts between representations
 
@@ -435,24 +472,29 @@ exactly as for a get.  `Fin` is a first-class object type, so a `Fin` may be an 
 /-- `array → vec` upcast: rebuild a length-`3` vector from a runtime array + its size proof. -/
 def castAV (arr : Array Nat) (h : arr.size = 3) : Free CircOp HintS (Vector Nat 3) := pure ⟨arr, h⟩
 
-def castAVC := reflect% castAV
-example : ∀ arr h, denoteProg (castAVC.1 (KC CircOp) Tp.denote) (.cons arr .nil)
-    ≈ ofFree (castAV arr h) := castAVC.2
+reflect_def castAVC := castAV
+/-- info: Freigen.castAVC_sound (arr : Array ℕ) (h : arr.size = 3) :
+  ITree.Eutt (denoteProg (castAVC (KC CircOp) Tp.denote) (HList.cons arr HList.nil)) (ofFree (castAV arr h)) -/
+#guard_msgs (whitespace := lax) in
+#check castAVC_sound
 
 /-- info:
 def main(x0 : Array<Nat>) =>
   let v1 := x0 as Vector<_, 3>
   v1
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castAVC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castAVC)
 
 /-- `nat → fin` upcast, and a `Fin` **input** downcast back to `Nat` (`i.val`). -/
 def castNF (k : Nat) (h : k < 5) (i : Fin 5) : Free CircOp HintS (Fin 5 × Nat) :=
   pure (⟨k, h⟩, i.val)
 
-def castNFC := reflect% castNF
-example : ∀ k h i, denoteProg (castNFC.1 (KC CircOp) Tp.denote) (.cons k (.cons i .nil))
-    ≈ ofFree (castNF k h i) := castNFC.2
+reflect_def castNFC := castNF
+/-- info: Freigen.castNFC_sound (k : ℕ) (h : k < 5) (i : Fin 5) :
+  ITree.Eutt (denoteProg (castNFC (KC CircOp) Tp.denote) (HList.cons k (HList.cons i HList.nil)))
+    (ofFree (castNF k h i)) -/
+#guard_msgs (whitespace := lax) in
+#check castNFC_sound
 
 /-- info:
 def main(x0 : Nat, x1 : Fin<5>) =>
@@ -461,35 +503,39 @@ def main(x0 : Nat, x1 : Fin<5>) =>
   let v4 := (v2, v3)
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castNFC.1)
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castNFC)
 
 open Freigen.ITree in
 /-- The partial upcasts fail on a mismatch, directly. -/
 example : denote (Op := CircOp) (SOp := HintS)
-    (Code.arrToVec (a := .nat) (n := 3) (#[10, 20] : Array Nat) (fun v => .ret v)) = fail := rfl
+    (Code.pop (.arrToVec (a := .nat) (n := 3)) (.cons (#[10, 20] : Array Nat) .nil)
+      (fun v => .ret v)) = fail := rfl
 open Freigen.ITree in
 example : denote (Op := CircOp) (SOp := HintS)
-    (Code.natToFin (n := 5) 7 (fun i => .ret i)) = fail := rfl
+    (Code.pop (.natToFin (n := 5)) (.cons 7 .nil) (fun i => .ret i)) = fail := rfl
 
 /-! ### The failing denotation, directly
 
-The erased get/set nodes fail out of range and return the element in range — the property the
-reflector's soundness relies on the source proof to rule out.  (`Array` shares the same `aget`/`aset`
-machinery; its size is dynamic, so these are shown on closed literals.) -/
+The erased get/set ops fail out of range and return the element in range — the property the
+reflector's soundness relies on the source proof to rule out.  (`Array` shares the same
+`aget`/`aset` machinery; its size is dynamic, so these are shown on closed literals.) -/
 
 open Freigen.ITree in
 /-- An out-of-range `vget` denotes to `fail`. -/
 example : denote (Op := CircOp) (SOp := HintS)
-    (Code.vget (a := .nat) (n := 3) ⟨#[10, 20, 30], rfl⟩ 5 (fun x => .ret x)) = fail := by
-  simp only [denote, Nat.reduceLT, reduceDIte]
+    (Code.pop (.vget (a := .nat) (n := 3)) (.cons ⟨#[10, 20, 30], rfl⟩ (.cons 5 .nil))
+      (fun x => .ret x)) = fail := by
+  simp only [denote, POp.denote, Nat.reduceLT, reduceDIte]
 
 open Freigen.ITree in
 /-- An in-range `aget` returns the element; an out-of-range one fails. -/
 example : denote (Op := CircOp) (SOp := HintS)
-    (Code.aget (a := .nat) (#[10, 20, 30] : Array Nat) 1 (fun x => .ret x)) = ret 20 := rfl
+    (Code.pop (.aget (a := .nat)) (.cons (#[10, 20, 30] : Array Nat) (.cons 1 .nil))
+      (fun x => .ret x)) = ret 20 := rfl
 
 open Freigen.ITree in
 example : denote (Op := CircOp) (SOp := HintS)
-    (Code.aget (a := .nat) (#[10, 20, 30] : Array Nat) 7 (fun x => .ret x)) = fail := rfl
+    (Code.pop (.aget (a := .nat)) (.cons (#[10, 20, 30] : Array Nat) (.cons 7 .nil))
+      (fun x => .ret x)) = fail := rfl
 
 end Freigen
