@@ -9,8 +9,9 @@ A minimal downstream project that depends on Freigen, writes a `Free` program, a
   facet and the emitter come from the dependency).
 - `Client/Program.lean` — a hand-written `Free CircOp HintS` program, marked with
   `#compile … => "out/myProgram.prog"`.
-- `Client/Poseidon.lean` — a *library-provided* program (Freigen's Poseidon over BN254 `Fr`),
-  marked with `#compile … => "out/poseidon.prog"` — two artifacts per build.
+- `Client/Poseidon.lean` — a *real* circuit: the Poseidon hash over BN254 `Fr` (reference
+  constants, circomlib-pinned test vectors, `≈`-soundness and axiom guards inline), marked with
+  `#compile … => "out/poseidon.prog"` — two artifacts per build.
 - `expected/` — golden files; CI diffs every emitted artifact against them.
 
 ## Build and compile

@@ -41,8 +41,6 @@ namespace Freigen
 /-- info: 'Freigen.sumCheckedC_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sumCheckedC_sound
 
-/-- info: 'Freigen.Poseidon.poseidonC_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms Poseidon.poseidonC_sound
 
 /-- info: 'Freigen.ITree.Eutt.trans' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms ITree.Eutt.trans
