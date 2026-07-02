@@ -47,16 +47,19 @@ TYPE    ::= bool | nat | unit
           | (zmod NAT) | (fin NAT) | (vec TYPE NAT) | (array TYPE)
           | (prod TYPE TYPE) | (sum TYPE TYPE) | (fn TYPE TYPE)
 VALUE   ::= true | false | NAT | unit | opaque
-          | (pair VALUE VALUE) | (vec VALUE*) | (array VALUE*) | (inl VALUE) | (inr VALUE)
+          | (VALUE*) | (inl VALUE) | (inr VALUE)
 UNOP    ::= not | fst | snd | inl | inr | to-array | fin-val
 BINOP   ::= add | sub | mul | pow | eq | lt | le | and | or
           | addf | subf | mulf | powf | pair
 POP     ::= vget | vset | aget | aset | select | (arr-to-vec NAT) | (nat-to-fin NAT)
 ```
 
-Numeric `VALUE`s are plain decimal and are typed by the annotation on their binder (`nat`,
-`(zmod p)` — the canonical representative — or `(fin n)`).  A `(fn …)`-typed literal has no
-serializable payload and renders as `opaque`.
+`VALUE`s are parsed *type-directed* from the annotation on their binder, so they carry no
+redundant structure: a numeral is plain decimal (`nat`, `(zmod p)` — the canonical
+representative — or `(fin n)`), and a composite (a pair, a vector, an array) is a bare list of
+its components.  The one exception is a sum, whose `inl`/`inr` head is a real bit of information
+the type does not determine.  A `(fn …)`-typed literal has no serializable payload and renders as
+`opaque`.
 -/
 
 namespace Freigen
@@ -74,17 +77,19 @@ def Tp.toSexp : Tp → String
   | .sum a b  => s!"(sum {a.toSexp} {b.toSexp})"
   | .fin n    => s!"(fin {n})"
 
-/-- Render a host literal of object type `α` as an S-expression value.  Scalars are typed by their
-    binder's annotation; a function literal has no serializable payload (`opaque`). -/
+/-- Render a host literal of object type `α` as an S-expression value.  The binder's type
+    annotation directs the parse, so a value carries no redundant structure: scalars are bare
+    tokens, composites bare lists — only a sum's `inl`/`inr` head (a real data bit) survives.  A
+    function literal has no serializable payload (`opaque`). -/
 def Tp.toSexpVal : (α : Tp) → α.denote → String
   | .bool,     b => toString b
   | .nat,      n => toString n
   | .zmod _,   x => toString x.val
   | .unit,     _ => "unit"
-  | .prod a b, p => s!"(pair {a.toSexpVal p.1} {b.toSexpVal p.2})"
+  | .prod a b, p => s!"({a.toSexpVal p.1} {b.toSexpVal p.2})"
   | .fn _ _,   _ => "opaque"
-  | .vec a _,  v => "(vec" ++ String.join (v.toList.map (fun x => " " ++ a.toSexpVal x)) ++ ")"
-  | .array a,  v => "(array" ++ String.join (v.toList.map (fun x => " " ++ a.toSexpVal x)) ++ ")"
+  | .vec a _,  v => "(" ++ String.intercalate " " (v.toList.map a.toSexpVal) ++ ")"
+  | .array a,  v => "(" ++ String.intercalate " " (v.toList.map a.toSexpVal) ++ ")"
   | .sum a b,  x => match x with
                     | .inl y => s!"(inl {a.toSexpVal y})"
                     | .inr y => s!"(inr {b.toSexpVal y})"

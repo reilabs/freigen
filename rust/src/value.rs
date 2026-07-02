@@ -56,18 +56,14 @@ impl fmt::Display for Value {
             Value::Nat(n) => write!(f, "{n}"),
             Value::Field { val, .. } => write!(f, "{val}"),
             Value::Unit => write!(f, "unit"),
-            Value::Pair(a, b) => write!(f, "(pair {a} {b})"),
-            Value::Vec(xs) => {
-                write!(f, "(vec")?;
-                for x in xs {
-                    write!(f, " {x}")?;
-                }
-                write!(f, ")")
-            }
-            Value::Array(xs) => {
-                write!(f, "(array")?;
-                for x in xs {
-                    write!(f, " {x}")?;
+            Value::Pair(a, b) => write!(f, "({a} {b})"),
+            Value::Vec(xs) | Value::Array(xs) => {
+                write!(f, "(")?;
+                for (i, x) in xs.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{x}")?;
                 }
                 write!(f, ")")
             }

@@ -256,7 +256,7 @@ reflect_def vecC := vecConst
 (program
   (main () (vec nat 3)
     (block
-      (let v0 (vec nat 3) (lit (vec 1 2 3)))
+      (let v0 (vec nat 3) (lit (1 2 3)))
       (ret v0))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize vecC)

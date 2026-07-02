@@ -135,41 +135,24 @@ fn parse_value(tp: &Tp, s: &Sexp) -> Result<Value> {
             }
         }
         Tp::Vec(a, n) => {
-            let items = as_list(s, "a vec literal")?;
-            match items.split_first() {
-                Some((head, elems)) if as_atom(head, "a literal head")? == "vec" => {
-                    if elems.len() as u64 != *n {
-                        return err(format!(
-                            "vec literal has {} elements, type says {n}",
-                            elems.len()
-                        ));
-                    }
-                    let elems =
-                        elems.iter().map(|e| parse_value(a, e)).collect::<Result<Vec<_>>>()?;
-                    Ok(Value::Vec(elems))
-                }
-                _ => err(format!("expected `(vec …)`, got `{s}`")),
+            let elems = as_list(s, "a vec literal")?;
+            if elems.len() as u64 != *n {
+                return err(format!("vec literal has {} elements, type says {n}", elems.len()));
             }
+            Ok(Value::Vec(elems.iter().map(|e| parse_value(a, e)).collect::<Result<Vec<_>>>()?))
         }
         Tp::Array(a) => {
-            let items = as_list(s, "an array literal")?;
-            match items.split_first() {
-                Some((head, elems)) if as_atom(head, "a literal head")? == "array" => {
-                    let elems =
-                        elems.iter().map(|e| parse_value(a, e)).collect::<Result<Vec<_>>>()?;
-                    Ok(Value::Array(elems))
-                }
-                _ => err(format!("expected `(array …)`, got `{s}`")),
-            }
+            let elems = as_list(s, "an array literal")?;
+            Ok(Value::Array(elems.iter().map(|e| parse_value(a, e)).collect::<Result<Vec<_>>>()?))
         }
         Tp::Prod(a, b) => {
             let items = as_list(s, "a pair literal")?;
             match items {
-                [head, x, y] if as_atom(head, "a literal head")? == "pair" => Ok(Value::Pair(
+                [x, y] => Ok(Value::Pair(
                     Box::new(parse_value(a, x)?),
                     Box::new(parse_value(b, y)?),
                 )),
-                _ => err(format!("expected `(pair … …)`, got `{s}`")),
+                _ => err(format!("expected a two-element pair literal, got `{s}`")),
             }
         }
         Tp::Sum(a, b) => {

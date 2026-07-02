@@ -237,7 +237,7 @@ mod tests {
           (program
             (main () nat
               (block
-                (let v0 (prod nat nat) (lit (pair 0 42)))
+                (let v0 (prod nat nat) (lit (0 42)))
                 (let v1 unit (op set v0))
                 (let v2 nat (lit 0))
                 (let v3 nat (op get v2))
