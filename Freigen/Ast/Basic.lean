@@ -1,6 +1,6 @@
 import Freigen.Free
 import Freigen.Ast.Tp
-import Freigen.ITree
+import Freigen.ITree.Basic
 
 /-!
 # The AST: syntax and denotation

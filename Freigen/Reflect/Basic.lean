@@ -1,6 +1,6 @@
-import Freigen.Ast
+import Freigen.Ast.Basic
 import Freigen.Free
-import Freigen.ITree
+import Freigen.ITree.Eutt
 import Freigen.Reflect.Sound
 /-! ## The `reflect%` reflector — value arm
 

@@ -1,5 +1,5 @@
 import Freigen.Free
-import Freigen.Reflect
+import Freigen.Reflect.Recursion
 import Freigen.Compile
 
 /-!
@@ -14,6 +14,10 @@ predicate transformer, blocks erased to fresh existentials).  `reflect%` compile
 Every example is reflected with `reflect_def C := src` (named `C` / `C_sound`), and pins its
 `runCirc` result, its **soundness statement** (`#check C_sound`), and its serialized AST via
 `#guard_msgs`, so the comments can't drift from what the code actually produces.
+
+A *real* circuit built on this DSL — the Poseidon hash over BN254 `Fr` — lives in the downstream
+goldens project (`examples/client/Client/Poseidon.lean`), where it doubles as the `#compile`
+golden test.
 -/
 
 namespace Freigen
