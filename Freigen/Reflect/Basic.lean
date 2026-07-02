@@ -188,16 +188,6 @@ def mkVecOfAtoms (V aTp nExpr : Expr) (atoms : List Expr) : MetaM Expr := do
   let proof ← mkExpectedTypeHint (← mkEqRefl nExpr) (← mkEq (← mkAppM ``Array.size #[arrExpr]) nExpr)
   mkAppOptM ``Vector.mk #[elemTy, nExpr, arrExpr, proof]
 
-/-- Extract a `Nat` literal — raw (`.lit`), `OfNat.ofNat`-wrapped, or wrapping a raw literal. -/
-def natLitOf (e : Expr) : Option Nat :=
-  e.rawNatLit? <|> e.nat? <|> (match e.getAppFnArgs with
-    | (``OfNat.ofNat, #[_, n, _]) => n.rawNatLit? <|> n.nat?
-    | _                          => none)
-
-/-- The `Fin n` literal `⟨k, by decide⟩`. -/
-def mkFinLit (nExpr : Expr) (k : Nat) : MetaM Expr := do
-  mkAppOptM ``Fin.mk #[nExpr, mkNatLit k, ← mkDecideProof (← mkAppM ``LT.lt #[mkNatLit k, nExpr])]
-
 /-- Normalise a collection index to `(Nat-index, optional in-bounds proof)`: a `Fin n` index becomes
     `i.val` with `i.isLt`; a `Nat` index passes through unchanged. -/
 def finIndexToNat (i : Expr) : MetaM (Expr × Option Expr) := do
@@ -376,12 +366,9 @@ mutual
               (fun klam => mkAppOptM ``sc_aget #[env.Op, env.SOp, resTp, aTp, coll, natIdx, klam, hSrc]) k
         | _ => throwError "reflect%: get on a non-collection value{indentExpr coll}"
     | Vector.ofFn nExpr elemTy f =>
-        -- `Vector.ofFn f` : expand over the `n` `Fin` indices into a `#v[f 0, …, f (n-1)]`
-        let some n := natLitOf nExpr <|> natLitOf (← whnf nExpr)
-          | throwError "reflect%: `Vector.ofFn` non-literal length{indentExpr nExpr}"
+        -- the lane dimension is a **kept loop** (a `vgen` node), not unrolled
         let aTp ← reifyTpOrThrow elemTy
-        let elems ← (List.range n).mapM (fun kk => do pure (f.beta #[← mkFinLit nExpr kk]))
-        env.emitVec resTp aTp nExpr elems k
+        env.emitVgen resTp a aTp nExpr f k
     | Vector.set _ _ coll i x h =>
         match_expr ← reifyTpOrThrow (← inferType coll) with
         | Tp.vec aTp nExpr =>
@@ -528,6 +515,31 @@ mutual
         let some hb := hb? | throwError "reflect%: internal: missing fold body proof"
         let scStep ← mkAppOptM ``sc_fold
           #[env.Op, env.SOp, resTp, aTp, nExpr, init, f, bodyLam, klam, hb]
+        eqTransD scStep (kp.replaceFVar vc src)
+      return (node, pf?)
+
+  /-- A **bounded generator** (`Vector.ofFn f`): reflect the lane body **once** at a fresh `Fin`
+      index binder (ending in its own `ret`) and emit the `vgen` node — the lane dimension is kept
+      as a loop.  In proof mode `sc_vgen` consumes the body's pointwise equations. -/
+  partial def Env.emitVgen (env : Env) (resTp src aTp nExpr f : Expr)
+      (k : Expr → MetaM CodePf) : MetaM CodePf := do
+    let finTp := mkApp (.const ``Tp.fin []) nExpr
+    let finHostTy := mkApp (.const ``Fin []) nExpr
+    let (bodyLam, hb?) ←
+      withLocalDeclD `i (mkApp env.V finTp) fun vi =>
+      env.withHostVar finHostTy vi fun hi => do
+        let env' := { env with subst := (hi.fvarId!, vi) :: env.subst }
+        let (bcode, bpf?) ← env'.atom aTp (f.beta #[hi]) (env'.liftK (env'.mkRetT aTp))
+        pure (← mkLambdaFVars #[vi] bcode, ← bpf?.mapM (mkLambdaFVars #[vi] ·))
+    withLocalDeclD `v (mkApp env.V (mkApp2 (.const ``Tp.vec []) aTp nExpr)) fun vc => do
+      let (kcode, kpf?) ← k vc
+      let klam ← mkLambdaFVars #[vc] kcode
+      let node ← mkAppOptM ``Code.vgen
+        #[env.Op, env.SOp, env.F, env.V, none, aTp, nExpr, bodyLam, klam]
+      let pf? ← kpf?.mapM fun kp => do
+        let some hb := hb? | throwError "reflect%: internal: missing vgen body proof"
+        let scStep ← mkAppOptM ``sc_vgen
+          #[env.Op, env.SOp, resTp, aTp, nExpr, f, bodyLam, klam, hb]
         eqTransD scStep (kp.replaceFVar vc src)
       return (node, pf?)
 

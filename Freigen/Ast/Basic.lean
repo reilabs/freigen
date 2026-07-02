@@ -71,6 +71,11 @@ inductive Code (Op : Type → Type → Type 1) (SOp : Type → Type)
       `tau`-free. -/
   | fold  {α a n} : V a → (V (.fin n) → V a → Code Op SOp F V a) →
       (V a → Code Op SOp F V α) → Code Op SOp F V α
+  /-- A **bounded generator** (`Vector.ofFn`): build an `n`-vector by running the body block once
+      per index, in order — the lane dimension is a **kept loop**, not unrolled.  Body-agnostic
+      like `fold`. -/
+  | vgen  {α a n} : (V (.fin n) → Code Op SOp F V a) →
+      (V (.vec a n) → Code Op SOp F V α) → Code Op SOp F V α
   | op    {α I R} : Op I.denote R.denote → V I → (V R → Code Op SOp F V α) → Code Op SOp F V α
   | ite   {α} : V .bool → Code Op SOp F V α → Code Op SOp F V α → Code Op SOp F V α
   | call  {α as b} : F as b → HList V as → (V b → Code Op SOp F V α) → Code Op SOp F V α
@@ -111,6 +116,15 @@ def foldComp {Op : Type → Type → Type 1} {ι X : Type} (body : ι → X → 
   | [],      acc => ITree.ret acc
   | i :: is, acc => ITree.bind (body i acc) (fun acc' => foldComp body is acc')
 
+/-- Collect `n` sequential computations into a vector, in index order — the denotation of a bounded
+    generator.  Total structural recursion on the count: no `tau`s. -/
+def vgenComp {Op : Type → Type → Type 1} {X : Type} :
+    (n : Nat) → (Fin n → Comp Op X) → Comp Op (Vector X n)
+  | 0,     _    => ITree.ret #v[]
+  | n + 1, body =>
+      ITree.bind (vgenComp n (fun i => body i.castSucc)) fun v =>
+        ITree.bind (body (Fin.last n)) fun x => ITree.ret (v.push x)
+
 /-- **The AST's meaning** — denote a `Code` *uniformly* into the interaction-tree domain `Comp`
     (`V := Tp.denote`, `F := KC`).  A `call` binds a subroutine's result, a scoped block runs inline;
     nothing here knows or cares whether the program (or a callee) is recursive. -/
@@ -128,6 +142,8 @@ def denote {Op : Type → Type → Type 1} {SOp : Type → Type} :
   | _, @Code.fold _ _ _ _ _ _ n init body k =>
       ITree.bind (foldComp (fun i acc => denote (body i acc)) (List.finRange n) init)
         (fun r => denote (k r))
+  | _, @Code.vgen _ _ _ _ _ _ n body k =>
+      ITree.bind (vgenComp n (fun i => denote (body i))) (fun r => denote (k r))
   | _, .op o i k   => vis (Effect.mk o i) (fun r => denote (k r))
   | _, .ite c t e  => cond c (denote t) (denote e)
   | _, .call cf args k => ITree.bind (cf args) (fun r => denote (k r))
@@ -192,6 +208,11 @@ private def ppCode {Op : Type → Type → Type 1} {SOp : Type → Type} {α : T
       let (bs, j) := ppCode name sname (d+1) (i+2) (body iv av)
       let v := s!"v{j}"; let (r, l) := ppCode name sname d (j+1) (k v)
       (s!"{ppIndent d}let {v} := fold {n} from {init} with ({iv} : Fin<{n}>, {av}) =>\n{bs}\n{r}", l)
+  | d, i, @Code.vgen _ _ _ _ _ _ n body k =>
+      let iv := s!"i{i}"
+      let (bs, j) := ppCode name sname (d+1) (i+1) (body iv)
+      let v := s!"v{j}"; let (r, l) := ppCode name sname d (j+1) (k v)
+      (s!"{ppIndent d}let {v} := gen {n} with ({iv} : Fin<{n}>) =>\n{bs}\n{r}", l)
   | d, i, .op o inp k =>
       let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
       (s!"{ppIndent d}let {v} ← {name o}({inp})\n{r}", j)

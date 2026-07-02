@@ -34,16 +34,17 @@ Five top-level concerns:
   ops: total `Un`/`Bin` — arithmetic is a *typed op node*, not an opaque closure — and **partial**
   `POp` with `Option`-valued denotation: `vget`/`vset`/`aget`/`aset`/`arrToVec`/`natToFin`) and
   `Ast.Basic` (the dumb typed AST `Code`/`Prog`:
-  `ret`/`lit`/`un`/`bin`/`pop`/`vec`/`arr`/`fold`/`op`/`ite`/`call`/`scope`,
+  `ret`/`lit`/`un`/`bin`/`pop`/`vec`/`arr`/`fold`/`vgen`/`op`/`ite`/`call`/`scope`,
   top-level `def_` and recursive `rec_`, PHOAS over a function family `F` and values `V`; `denoteProg`
   **uniformly into `Comp`** — a function is a `Comp`-Kleisli subroutine, a `rec_` is tied by `mrec`;
   `ofFree`; a pretty-printer).  The single `pop` node carries every **proof-erased** partial
   primitive (a bare `Nat` index, no in-bounds proof), so its denotation is *partial* — a failing
   `POp.denote` (an out-of-range access, a size mismatch) is `fail`.  A
   `Prog` admits `rec_`, so it has no total map into a finite monad — the AST does not assume
-  termination.  `fold` is a **first-class bounded loop** (`Fin.foldl`: a static trip count, a
-  `Fin`-indexed body) — loops are *kept as control flow*, never unrolled, and their denotation is
-  total and `tau`-free (so a pure loop is *equal*, not merely `≈`, to its source fold).
+  termination.  `fold` (`Fin.foldl`/`Fin.foldlM`) and `vgen` (`Vector.ofFn`) are **first-class
+  bounded loops** (a static trip count, a `Fin`-indexed body block) — loops are *kept as control
+  flow*, never unrolled, and their denotations are total and `tau`-free (so a pure loop is *equal*,
+  not merely `≈`, to its source).
 - **Reflection** — `Freigen/Reflect/` — `reflect%` compiles a `Free` program into a `Prog` with its
   `≈`-soundness against `ofFree`.  `Reflect.Basic` reifies Lean types into `Tp`, A-normalises pure
   computation into `un`/`bin`/`lit` (and a source `coll[i]` / `coll.set i x` into proof-erased

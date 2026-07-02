@@ -144,6 +144,32 @@ theorem ofFree_foldlM {X ι : Type} (f : X → ι → Free Op SOp X) :
       rw [ofFree_bind]
       exact congrArg _ (funext fun a => ih a)
 
+/-- A pure-bodied `vgenComp` is the `ret` of `Vector.ofFn` (induction on the count, one
+    `Vector.ofFn_succ` per step). -/
+theorem vgenComp_pure {X : Type} :
+    ∀ (n : Nat) (body : Fin n → Comp Op X) (f : Fin n → X),
+      (∀ i, body i = ret (f i)) → vgenComp n body = ret (Vector.ofFn f) := by
+  intro n
+  induction n with
+  | zero => intro body f _; rfl
+  | succ n ih =>
+      intro body f hb
+      show ITree.bind (vgenComp n fun i => body i.castSucc) _ = _
+      rw [ih _ (fun i => f i.castSucc) (fun i => hb i.castSucc), bind_ret, hb (Fin.last n),
+          bind_ret, Vector.ofFn_succ]
+      rfl
+
+/-- **Bounded generator, pure body** (`Code.vgen` vs the source's `Vector.ofFn`, in atom position):
+    the lanes' own equations (`hb`) make the generator node's denotation *equal* to the source
+    vector. -/
+theorem sc_vgen {α a : Tp} {n : Nat} (f : Fin n → a.denote)
+    (body : Fin n → Code Op SOp (KC Op) Tp.denote a)
+    (kk : Vector a.denote n → Code Op SOp (KC Op) Tp.denote α)
+    (hb : ∀ i, denote (body i) = ret (f i)) :
+    denote (Code.vgen body kk) = denote (kk (Vector.ofFn f)) := by
+  show ITree.bind (vgenComp n (fun i => denote (body i))) (fun r => denote (kk r)) = _
+  rw [vgenComp_pure n _ f hb, bind_ret]
+
 /-- **Bounded fold, any body** (`Code.fold` vs the source's `Fin.foldlM`, in walk position — the
     loop construct is body-agnostic): each reflected body block `ofFree`-adequate pointwise (`hb`,
     the blocks' own `walkTop` equations) gives the node's (★) step against the monadic fold. -/

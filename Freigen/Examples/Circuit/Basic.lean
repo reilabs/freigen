@@ -431,9 +431,9 @@ def main(x5 : Vector<Nat, 3>, x6 : Nat) =>
 
 /-! ### Constructing collections
 
-`#v[…]` / `⟨#[…], _⟩` / `Vector.ofFn` build a `Vector` from *computed* elements — reflected into the
-`vec` construction node (`#[…]` → `arr`).  `Vector.ofFn (fun i : Fin n => …)` is expanded over the `n`
-`Fin` indices, and `Fin`-indexed access `v[i]` becomes `v[i.val]`. -/
+`#v[…]` / `⟨#[…], _⟩` literals build a `Vector` from *computed* elements — reflected into the
+`vec` construction node (`#[…]` → `arr`).  `Vector.ofFn (fun i : Fin n => …)` is a **kept lane
+loop** (a `vgen` node — never unrolled), and `Fin`-indexed access `v[i]` becomes `v[i.val]`. -/
 
 /-- Build a new vector by doubling each lane of the input (`Vector.ofFn` + `Fin`-indexed reads). -/
 def vdouble (v : Vector Nat 3) : Free CircOp HintS (Vector Nat 3) :=
@@ -447,23 +447,14 @@ reflect_def vdoubleC := vdouble
 
 /-- info:
 def main(x0 : Vector<Nat, 3>) =>
-  let v1 := 0
-  let v2 := x0[v1]
-  let v3 := 0
-  let v4 := x0[v3]
-  let v5 := v2 + v4
-  let v6 := 1
-  let v7 := x0[v6]
-  let v8 := 1
-  let v9 := x0[v8]
-  let v10 := v7 + v9
-  let v11 := 2
-  let v12 := x0[v11]
-  let v13 := 2
-  let v14 := x0[v13]
-  let v15 := v12 + v14
-  let v16 := #v[v5, v10, v15]
-  v16
+  let v7 := gen 3 with (i1 : Fin<3>) =>
+    let v2 := .val i1
+    let v3 := x0[v2]
+    let v4 := .val i1
+    let v5 := x0[v4]
+    let v6 := v3 + v5
+    v6
+  v7
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vdoubleC)
 
