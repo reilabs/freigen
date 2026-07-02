@@ -20,21 +20,26 @@ A minimal downstream project that depends on Freigen, writes a `Free` program, a
 lake build Client:prog
 ```
 
-This builds the library and writes both reflected ASTs under `out/`; `myProgram.prog` reads:
+This builds the library and writes both reflected ASTs under `out/`, in the uniform S-expression
+format (grammar pinned in `Freigen/Ast/Sexp.lean`); `myProgram.prog` reads:
 
 ```
-def main() =>
-  let v1 ← hint unconstrained
-    let v0 := 15
-    v0
-  let v4 ← hint unconstrained
-    let v2 := 2
-    let v3 := v1 * v2
-    v3
-  let v5 := 30
-  let v6 := v4 == v5
-  let v7 ← assert(v6)
-  v7
+(program
+  (main () unit
+    (block
+      (let v1 nat (scope hint
+        (block
+          (let v0 nat (lit 15))
+          (ret v0))))
+      (let v4 nat (scope hint
+        (block
+          (let v2 nat (lit 2))
+          (let v3 nat (bin mul v1 v2))
+          (ret v3))))
+      (let v5 nat (lit 30))
+      (let v6 bool (bin eq v4 v5))
+      (let v7 unit (op assert v6))
+      (ret v7))))
 ```
 
 The `prog` facet is provided by Freigen; it works on any library that depends on it, emitting exactly
@@ -43,3 +48,11 @@ the artifacts declared by that library's own `#compile` commands.
 Because `#compile` points at a `reflect%` result — a `{ Closed // denoteProg … ≈ ofFree … }` pair —
 the file is only produced if the soundness proof type-checks: **the emitted AST is certified `≈` its
 source program.**
+
+## Executed E2E by the Rust SDK
+
+The goldens are not just diffed — the Rust SDK (`rust/` at the repo root) parses and **executes**
+them on CI (`rust/tests/examples.rs`): `myProgram` runs its witness generation (hints run, the
+assert holds), and `poseidon` is evaluated against the same circomlib known-answer vectors that
+`Client/Poseidon.lean` pins with `#eval runCirc`.  One artifact, three checks: certified `≈` at
+emission, golden-diffed against this directory, and re-executed by an independent interpreter.

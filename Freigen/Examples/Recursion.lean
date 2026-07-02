@@ -32,24 +32,28 @@ example : Closed NoOp NoScope [.nat] .nat := countdownC
 #guard_msgs (whitespace := lax) in
 #check countdownC_sound
 
--- The recursion pretty-prints as a `rec` definition with a self-call, plus `main` calling it.
+-- The recursion serializes as a `rec` definition with a self-call, plus `main` calling it.
 /-- info:
-rec countdown(x0 : Nat) =>
-  let v1 := 0
-  let v2 := x0 == v1
-  if v2 then
-    let v3 := 0
-    v3
-  else
-    let v4 := 1
-    let v5 := x0 - v4
-    let v6 ← countdown (self-call)(v5)
-    v6
-def main(x7 : Nat) =>
-  let v8 := countdown(x7)
-  v8
+(program
+  (rec countdown ((x0 nat)) nat
+    (block
+      (let v1 nat (lit 0))
+      (let v2 bool (bin eq x0 v1))
+      (if v2
+        (block
+          (let v3 nat (lit 0))
+          (ret v3))
+        (block
+          (let v4 nat (lit 1))
+          (let v5 nat (bin sub x0 v4))
+          (let v6 nat (self v5))
+          (ret v6)))))
+  (main ((x7 nat)) nat
+    (block
+      (let v8 nat (call countdown x7))
+      (ret v8))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render countdownC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize countdownC)
 
 /-- **Non-tail** recursion (`sm n + 1`): the self-call sits under a `bind`.  `reflect%` handles
     it through the same path — `interp_bind` pushes the post-call `+1` through. -/
@@ -65,24 +69,28 @@ reflect_def smC := sm
 
 -- The post-call `+1` sits *after* the self-call — non-tail recursion in the reflected body.
 /-- info:
-rec sm(x0 : Nat) =>
-  let v1 := 0
-  let v2 := x0 == v1
-  if v2 then
-    let v3 := 0
-    v3
-  else
-    let v4 := 1
-    let v5 := x0 - v4
-    let v6 ← sm (self-call)(v5)
-    let v7 := 1
-    let v8 := v6 + v7
-    v8
-def main(x9 : Nat) =>
-  let v10 := sm(x9)
-  v10
+(program
+  (rec sm ((x0 nat)) nat
+    (block
+      (let v1 nat (lit 0))
+      (let v2 bool (bin eq x0 v1))
+      (if v2
+        (block
+          (let v3 nat (lit 0))
+          (ret v3))
+        (block
+          (let v4 nat (lit 1))
+          (let v5 nat (bin sub x0 v4))
+          (let v6 nat (self v5))
+          (let v7 nat (lit 1))
+          (let v8 nat (bin add v6 v7))
+          (ret v8)))))
+  (main ((x9 nat)) nat
+    (block
+      (let v10 nat (call sm x9))
+      (ret v10))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render smC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize smC)
 
 /-! ## Stateful recursion: extra `Tp`-typed arguments thread through the tupled `rec_` state
 
@@ -103,33 +111,37 @@ reflect_def sumAccC := sumAcc
 #check sumAccC_sound
 
 /-- info:
-rec sumAcc(x0 : (Nat × Nat)) =>
-  let v1 := .1 x0
-  let v2 := 0
-  let v3 := v1 == v2
-  if v3 then
-    let v4 := .2 x0
-    v4
-  else
-    let v5 := .1 x0
-    let v6 := 1
-    let v7 := v5 - v6
-    let v8 := .2 x0
-    let v9 := .1 x0
-    let v10 := 1
-    let v11 := v9 - v10
-    let v12 := 1
-    let v13 := v11 + v12
-    let v14 := v8 + v13
-    let v15 := (v7, v14)
-    let v16 ← sumAcc (self-call)(v15)
-    v16
-def main(x17 : Nat, x18 : Nat) =>
-  let v19 := (x17, x18)
-  let v20 := sumAcc(v19)
-  v20
+(program
+  (rec sumAcc ((x0 (prod nat nat))) nat
+    (block
+      (let v1 nat (un fst x0))
+      (let v2 nat (lit 0))
+      (let v3 bool (bin eq v1 v2))
+      (if v3
+        (block
+          (let v4 nat (un snd x0))
+          (ret v4))
+        (block
+          (let v5 nat (un fst x0))
+          (let v6 nat (lit 1))
+          (let v7 nat (bin sub v5 v6))
+          (let v8 nat (un snd x0))
+          (let v9 nat (un fst x0))
+          (let v10 nat (lit 1))
+          (let v11 nat (bin sub v9 v10))
+          (let v12 nat (lit 1))
+          (let v13 nat (bin add v11 v12))
+          (let v14 nat (bin add v8 v13))
+          (let v15 (prod nat nat) (bin pair v7 v14))
+          (let v16 nat (self v15))
+          (ret v16)))))
+  (main ((x17 nat) (x18 nat)) nat
+    (block
+      (let v19 (prod nat nat) (bin pair x17 x18))
+      (let v20 nat (call sumAcc v19))
+      (ret v20))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render sumAccC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize sumAccC)
 
 /-- **Effectful, non-tail, stateful**: an `assert` per unrolling (the `Bool` state rides along),
     and a `+1` *after* the self-call. -/
@@ -148,30 +160,34 @@ reflect_def countAssertsC := countAsserts
 #check countAssertsC_sound
 
 /-- info:
-rec countAsserts(x0 : (Nat × Bool)) =>
-  let v1 := .1 x0
-  let v2 := 0
-  let v3 := v1 == v2
-  if v3 then
-    let v4 := 0
-    v4
-  else
-    let v5 := .2 x0
-    let v6 ← assert(v5)
-    let v7 := .1 x0
-    let v8 := 1
-    let v9 := v7 - v8
-    let v10 := .2 x0
-    let v11 := (v9, v10)
-    let v12 ← countAsserts (self-call)(v11)
-    let v13 := 1
-    let v14 := v12 + v13
-    v14
-def main(x15 : Nat, x16 : Bool) =>
-  let v17 := (x15, x16)
-  let v18 := countAsserts(v17)
-  v18
+(program
+  (rec countAsserts ((x0 (prod nat bool))) nat
+    (block
+      (let v1 nat (un fst x0))
+      (let v2 nat (lit 0))
+      (let v3 bool (bin eq v1 v2))
+      (if v3
+        (block
+          (let v4 nat (lit 0))
+          (ret v4))
+        (block
+          (let v5 bool (un snd x0))
+          (let v6 unit (op assert v5))
+          (let v7 nat (un fst x0))
+          (let v8 nat (lit 1))
+          (let v9 nat (bin sub v7 v8))
+          (let v10 bool (un snd x0))
+          (let v11 (prod nat bool) (bin pair v9 v10))
+          (let v12 nat (self v11))
+          (let v13 nat (lit 1))
+          (let v14 nat (bin add v12 v13))
+          (ret v14)))))
+  (main ((x15 nat) (x16 bool)) nat
+    (block
+      (let v17 (prod nat bool) (bin pair x15 x16))
+      (let v18 nat (call countAsserts v17))
+      (ret v18))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render countAssertsC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize countAssertsC)
 
 end Freigen

@@ -15,16 +15,17 @@ lean_lib Freigen where
 @[default_target]
 lean_exe freigen where
   root := `Main
-  -- the emitter runs the pretty-printer over imported code via the interpreter
+  -- the emitter runs the serializer over imported code via the interpreter
   supportInterpreter := true
 
 /--
 `lake build <lib>:prog` — flush every `#compile` artifact recorded by the modules of `<lib>` to disk.
 
-Reflection + rendering happen at the library's *elaboration* time (each `#compile` records the
-rendered string into a persistent env extension); this facet just builds the library, then runs the
+Reflection happens at the library's *elaboration* time (each `#compile` records its reflected
+declaration in a persistent env extension); this facet just builds the library, then runs the
 `freigen` emitter over its modules with the workspace's augmented `LEAN_PATH` so the emitter can
-import them and write the files out.  Works on any downstream library that depends on Freigen.
+import them, serialize each recorded program, and write the files out.  Works on any downstream
+library that depends on Freigen.
 -/
 library_facet prog (lib : LeanLib) : Unit := do
   let ws ← getWorkspace

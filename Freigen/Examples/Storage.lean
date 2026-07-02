@@ -28,7 +28,7 @@ def runStore {α} (p : Free StoreOp NoScope α) : StateM (Nat → Nat) α :=
     | .set, (a, v) => fun s => ((), fun x => if x == a then v else s x))
     (fun s _ => s.elim)
 
-/-- Op names for the pretty-printer. -/
+/-- Op names for the serializer. -/
 def storeName {I R : Type} : StoreOp I R → String | .get => "get" | .set => "set"
 
 /-- The DSL instance: `NoScope` has no scoped constructs, so `scopeName` is vacuous. -/
@@ -50,13 +50,15 @@ reflect_def storeC := storeProg
 #check storeC_sound
 
 /-- info:
-def main() =>
-  let v0 := (0, 42)
-  let v1 ← set(v0)
-  let v2 := 0
-  let v3 ← get(v2)
-  v3
+(program
+  (main () nat
+    (block
+      (let v0 (prod nat nat) (lit (pair 0 42)))
+      (let v1 unit (op set v0))
+      (let v2 nat (lit 0))
+      (let v3 nat (op get v2))
+      (ret v3))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render storeC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize storeC)
 
 end Freigen

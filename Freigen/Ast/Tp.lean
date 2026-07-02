@@ -122,7 +122,7 @@ def Bin.denote {a b c : Tp} : Bin a b c → a.denote → b.denote → c.denote
     counterparts require a proof (an in-bounds index, a size equality) that the AST drops.  Their
     denotation is `Option`-valued (`none` = the erased obligation fails); the single `Code.pop`
     node turns `none` into a failing computation.  Adding a partial primitive = one constructor
-    here + one `denote` arm + one `render` arm + one `sc_*` bridging lemma. -/
+    here + one `denote` arm + one `sexpName` arm + one `sc_*` bridging lemma. -/
 inductive POp : List Tp → Tp → Type
   /-- **Vector get** `v[i]` (erased: `i < n`). -/
   | vget {a : Tp} {n : Nat} : POp [.vec a n, .nat] a
@@ -156,57 +156,5 @@ def POp.denote : {as : List Tp} → {b : Tp} → POp as b → HList Tp.denote as
       if h : m < n then some ⟨m, h⟩ else none
   | _, _, .select, .cons c (.cons x (.cons y .nil)) =>
       some (bif c then x else y)
-
-/-! ## Pretty-printing helpers -/
-
-/-- Render a host literal of object type `α` (scalars print their value; functions print a
-    placeholder). -/
-def Tp.toStr : (α : Tp) → α.denote → String
-  | .bool,     b => toString b
-  | .nat,      n => toString n
-  | .zmod n,   x => s!"{x.val}#{n}"
-  | .unit,     _ => "()"
-  | .prod a b, p => s!"({Tp.toStr a p.1}, {Tp.toStr b p.2})"
-  | .fn _ _,   _ => "<fn>"
-  | .vec a _,  v => "#v[" ++ String.intercalate ", " (v.toList.map (Tp.toStr a)) ++ "]"
-  | .array a,  v => "#[" ++ String.intercalate ", " (v.toList.map (Tp.toStr a)) ++ "]"
-  | .sum a b,  x => match x with
-                    | .inl y => s!"inl {Tp.toStr a y}"
-                    | .inr y => s!"inr {Tp.toStr b y}"
-  | .fin _,    i => toString i.val
-
-/-- Render an object *type* (`ZMod n` prints as `Field<n>`). -/
-def Tp.toTypeStr : Tp → String
-  | .bool     => "Bool"
-  | .nat      => "Nat"
-  | .zmod n   => s!"Field<{n}>"
-  | .unit     => "Unit"
-  | .prod a b => s!"({a.toTypeStr} × {b.toTypeStr})"
-  | .fn a b   => s!"({a.toTypeStr} → {b.toTypeStr})"
-  | .vec a n  => s!"Vector<{a.toTypeStr}, {n}>"
-  | .array a  => s!"Array<{a.toTypeStr}>"
-  | .sum a b  => s!"({a.toTypeStr} ⊕ {b.toTypeStr})"
-  | .fin n    => s!"Fin<{n}>"
-
-/-- Symbol for a unary primitive. -/
-def Un.sym {a b : Tp} : Un a b → String
-  | .not => "!" | .fst => ".1 " | .snd => ".2 " | .inl => "inl " | .inr => "inr "
-  | .toArray => ".toArray " | .finVal => ".val "
-
-/-- Symbol for a binary primitive. -/
-def Bin.sym {a b c : Tp} : Bin a b c → String
-  | .add => "+" | .sub => "-" | .mul => "*" | .pow => "^" | .eq => "==" | .lt => "<" | .ble => "≤"
-  | .and => "&&" | .or => "||"
-  | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .powZ => "^" | .pair => ","
-
-/-- Render a partial primitive applied to (already pretty-printed) argument strings. -/
-def POp.render : {as : List Tp} → {b : Tp} → POp as b → HList (fun _ => String) as → String
-  | _, _, .vget, .cons v (.cons i .nil)             => s!"{v}[{i}]"
-  | _, _, .vset, .cons v (.cons i (.cons x .nil))   => s!"{v} with [{i}] := {x}"
-  | _, _, .aget, .cons v (.cons i .nil)             => s!"{v}[{i}]"
-  | _, _, .aset, .cons v (.cons i (.cons x .nil))   => s!"{v} with [{i}] := {x}"
-  | _, _, @POp.arrToVec _ n, .cons arr .nil         => s!"{arr} as Vector<_, {n}>"
-  | _, _, @POp.natToFin n, .cons m .nil             => s!"{m} as Fin<{n}>"
-  | _, _, .select, .cons c (.cons x (.cons y .nil)) => s!"{c} ? {x} : {y}"
 
 end Freigen

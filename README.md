@@ -37,7 +37,10 @@ Six top-level concerns:
   `ret`/`lit`/`un`/`bin`/`pop`/`vec`/`arr`/`fold`/`vgen`/`op`/`ite`/`call`/`scope`,
   top-level `def_` and recursive `rec_`, PHOAS over a function family `F` and values `V`; `denoteProg`
   **uniformly into `Comp`** — a function is a `Comp`-Kleisli subroutine, a `rec_` is tied by `mrec`;
-  `ofFree`; a pretty-printer).  The single `pop` node carries every **proof-erased** partial
+  `ofFree`) and `Ast.Sexp` (**the** printer: a uniform, machine-parseable S-expression
+  serialization of a closed `Prog` — fully parenthesized, prefix, every binder type-annotated;
+  the grammar is pinned in its module docstring, and it is the format `#compile` emits, the
+  examples pin, and the Rust SDK parses).  The single `pop` node carries every **proof-erased** partial
   primitive (a bare `Nat` index, no in-bounds proof), so its denotation is *partial* — a failing
   `POp.denote` (an out-of-range access, a size mismatch) is `fail`.  A
   `Prog` admits `rec_`, so it has no total map into a finite monad — the AST does not assume
@@ -74,14 +77,22 @@ Six top-level concerns:
   schedule), reflected with kept loops and folded definitions and pinned against the circomlib
   test vectors — lives in the downstream client (`examples/client/`), doubling as the `#compile`
   golden test.
-- **Compilation** — `Freigen/Compile.lean` — turns the reflect-and-pretty-print capability into a
-  usable tool: a `DSL` type-class carrying each signature's op/scope naming (so `render` is the
-  argument-free `pp`), and a `#compile foo => "path"` command recording *which reflected program to
-  emit where*.  A Lake `library_facet prog` (in `lakefile.lean`) does the writing: `lake build
-  <lib>:prog` renders every `#compile`'d program of `<lib>` and writes the `.prog` files.  It works
+- **Compilation** — `Freigen/Compile.lean` — turns the reflect-and-serialize capability into a
+  usable tool: a `DSL` type-class carrying each signature's op/scope naming (so `render`/`serialize`
+  are the argument-free `pp`/`sexp`), and a `#compile foo => "path"` command recording *which
+  reflected program to emit where*.  A Lake `library_facet prog` (in `lakefile.lean`) does the
+  writing: `lake build <lib>:prog` serializes every `#compile`'d program of `<lib>` and writes the
+  `.prog` files (the uniform S-expression format of `Ast.Sexp`).  It works
   on **any downstream library that `require`s Freigen** — see `examples/client/`.  Since
   `#compile` points at a `reflect%` result, an artifact only exists if its `≈`-soundness proof
   type-checks: **every emitted file is certified against its source.**
+- **Rust SDK** — `rust/` — the consumer side of the `.prog` format: a dependency-light crate
+  (`freigen`) with an S-expression reader, a typed Rust AST mirroring `Prog`/`Code` one-to-one
+  (ready for a client compiler to walk), and a **canonical interpreter** mirroring `denoteProg` —
+  the DSL's two extension slots stay client-injectable through a `Handler` trait (a custom op is a
+  named callback; a scoped block arrives as a runnable closure, run inline by default).  Its test
+  suite parses and *executes* the goldens project's artifacts E2E on CI — `myProgram`'s witness
+  generation and the Poseidon circuit against the circomlib known-answer vectors.
 
 ## One line
 

@@ -1,12 +1,16 @@
-def main() =>
-  let v1 ← hint unconstrained
-    let v0 := 15
-    v0
-  let v4 ← hint unconstrained
-    let v2 := 2
-    let v3 := v1 * v2
-    v3
-  let v5 := 30
-  let v6 := v4 == v5
-  let v7 ← assert(v6)
-  v7
+(program
+  (main () unit
+    (block
+      (let v1 nat (scope hint
+        (block
+          (let v0 nat (lit 15))
+          (ret v0))))
+      (let v4 nat (scope hint
+        (block
+          (let v2 nat (lit 2))
+          (let v3 nat (bin mul v1 v2))
+          (ret v3))))
+      (let v5 nat (lit 30))
+      (let v6 bool (bin eq v4 v5))
+      (let v7 unit (op assert v6))
+      (ret v7))))

@@ -3,15 +3,15 @@ import Lean
 
 open Lean Meta
 
-/-- Render one recorded artifact: evaluate `Freigen.render decl.1` (a `String`) and write it to
-    `path`, creating parent directories.  Runs in `MetaM` so instance synthesis picks up the
-    declaration's `[DSL]` instance; `evalExpr` runs the pretty-printer over the imported code.  Also
-    prints the `≈`-soundness statement the reflection proved (`decl`'s subtype predicate at `decl.1`)
-    for inspection during the build. -/
+/-- Render one recorded artifact: evaluate `Freigen.serialize decl.1` (a `String` — the uniform
+    S-expression format of `Freigen.Ast.Sexp`) and write it to `path`, creating parent directories.
+    Runs in `MetaM` so instance synthesis picks up the declaration's `[DSL]` instance; `evalExpr`
+    runs the serializer over the imported code.  Also prints the `≈`-soundness statement the
+    reflection proved (`decl`'s subtype predicate at `decl.1`) for inspection during the build. -/
 unsafe def emitEntry (path : String) (decl : Name) : MetaM Unit := do
   let c ← mkConstWithFreshMVarLevels decl
   let closed ← mkAppM ``Subtype.val #[c]                   -- decl.1 : the `Closed` program
-  let e ← mkAppM ``Freigen.render #[closed]                -- render decl.1 : String
+  let e ← mkAppM ``Freigen.serialize #[closed]             -- serialize decl.1 : String
   let contents ← evalExpr String (mkConst ``String) e
   let p : System.FilePath := path
   if let some dir := p.parent then IO.FS.createDirAll dir

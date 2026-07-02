@@ -6,7 +6,7 @@ import Freigen.Examples.Recursion
 # Examples
 
 Each example is reflected with `reflect_def` and pins its runtime result, its soundness statement,
-and its pretty-printed AST with `#guard_msgs`, so the shown output can't drift from the code.
+and its serialized AST with `#guard_msgs`, so the shown output cannot drift from the code.
 
 - `Freigen.Examples.Circuit` — a **folder** of circuit examples over the `CircOp` DSL (first-order
   `assert` + scoped `hint`, `runCirc`/`conCirc` semantics): `Circuit.Basic` exercises the features
@@ -17,4 +17,8 @@ and its pretty-printed AST with `#guard_msgs`, so the shown output can't drift f
   scoped slot empty, and an operational `runStore`.
 - `Freigen.Examples.Recursion` — recursive sources (`countdown`, `sm`, stateful `sumAcc` /
   `countAsserts`), reflected into `rec_` programs.
+
+This suite is the Lean-side unit tests.  The end-to-end path — `#compile` → `.prog` artifact →
+parsed and executed by the Rust SDK — is exercised by the separate goldens project
+(`examples/client/`) on CI.
 -/

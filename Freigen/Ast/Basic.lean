@@ -13,8 +13,8 @@ with the effect signatures `Op`/`SOp` opaque.
 `denoteProg` gives it meaning **uniformly in the interaction-tree domain `Comp`**: a function denotes
 as a `Comp`-Kleisli subroutine, and a recursive definition is tied by `mrec` — so a `Prog` cannot be
 mapped into a finite monad (the AST does not assume termination).  `ofFree` embeds the *source* `Free`
-program into `Comp`, which is what a reflected `Prog` is compared against.  A pretty-printer renders a
-closed `Prog` for inspection.
+program into `Comp`, which is what a reflected `Prog` is compared against.  The serializer for a
+closed `Prog` (the uniform S-expression `.prog` format) lives in `Freigen.Ast.Sexp`.
 -/
 
 namespace Freigen
@@ -84,7 +84,7 @@ inductive Code (Op : Type → Type → Type 1) (SOp : Type → Type)
 /-- A whole program: a telescope of pulled-out function **definitions** (`def_`) ending in `main`.
     Each `def_` binds a function name `F as b` the rest may `call`.  The `String` is the
     **display name** (the source definition's name, uniquified across monomorphisations) — consumed
-    only by the pretty-printer; semantically the binder is the PHOAS `F`-name. -/
+    only by the serializer; semantically the binder is the PHOAS `F`-name. -/
 inductive Prog (Op : Type → Type → Type 1) (SOp : Type → Type)
     (F : List Tp → Tp → Type 1) (V : Tp → Type) (mainArgs : List Tp) (α : Tp) : Type 2
   | main : (HList V mainArgs → Code Op SOp F V α) → Prog Op SOp F V mainArgs α
@@ -160,97 +160,5 @@ def denoteProg {Op : Type → Type → Type 1} {SOp : Type → Type} {mainArgs :
   | @Prog.rec_ _ _ _ _ _ _ arg res _ body k =>
       denoteProg (k (fun args =>
         mrec (fun s => denote (body (KC (CallOp Op arg.denote res.denote)) s)) (HList.head args)))
-
-/-! ## A pretty-printer -/
-
-abbrev PpV : Tp → Type := fun _ => String
-abbrev PpF : List Tp → Tp → Type 1 := fun _ _ => ULift String
-private def ppIndent (d : Nat) : String := String.join (List.replicate d "  ")
-
-private def hlistStrings : {as : List Tp} → HList PpV as → List String
-  | [],    .nil       => []
-  | _::_,  .cons x xs => x :: hlistStrings xs
-
-private def freshHList : (as : List Tp) → Nat → HList PpV as × Nat
-  | [],    i => (.nil, i)
-  | _::as, i => let (xs, j) := freshHList as (i + 1); (.cons s!"x{i}" xs, j)
-
-private def ppBinders (as : List Tp) (argv : HList PpV as) : String :=
-  String.intercalate ", " ((hlistStrings argv).zip (as.map Tp.toTypeStr) |>.map
-    (fun (n, t) => s!"{n} : {t}"))
-
-private def ppCode {Op : Type → Type → Type 1} {SOp : Type → Type} {α : Tp}
-    (name : {I R : Type} → Op I R → String) (sname : {β : Type} → SOp β → String) :
-    Nat → Nat → Code Op SOp PpF PpV α → (String × Nat)
-  | d, i, .ret v      => (s!"{ppIndent d}{v}", i)
-  | d, i, @Code.lit _ _ _ _ α _ a k =>
-      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} := {Tp.toStr α a}\n{r}", j)
-  | d, i, .un o a k =>
-      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} := {Un.sym o}{a}\n{r}", j)
-  | d, i, .bin o a b k =>
-      let v := s!"v{i}"
-      let rhs := if Bin.sym o == "," then s!"({a}, {b})" else s!"{a} {Bin.sym o} {b}"
-      let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} := {rhs}\n{r}", j)
-  | d, i, .pop o args k =>
-      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} := {POp.render o args}\n{r}", j)
-  | d, i, .vec elems k =>
-      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} := #v[{String.intercalate ", " elems.toList}]\n{r}", j)
-  | d, i, .arr elems k =>
-      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} := #[{String.intercalate ", " elems}]\n{r}", j)
-  | d, i, @Code.fold _ _ _ _ _ _ n init body k =>
-      let iv := s!"i{i}"; let av := s!"a{i+1}"
-      let (bs, j) := ppCode name sname (d+1) (i+2) (body iv av)
-      let v := s!"v{j}"; let (r, l) := ppCode name sname d (j+1) (k v)
-      (s!"{ppIndent d}let {v} := fold {n} from {init} with ({iv} : Fin<{n}>, {av}) =>\n{bs}\n{r}", l)
-  | d, i, @Code.vgen _ _ _ _ _ _ n body k =>
-      let iv := s!"i{i}"
-      let (bs, j) := ppCode name sname (d+1) (i+1) (body iv)
-      let v := s!"v{j}"; let (r, l) := ppCode name sname d (j+1) (k v)
-      (s!"{ppIndent d}let {v} := gen {n} with ({iv} : Fin<{n}>) =>\n{bs}\n{r}", l)
-  | d, i, .op o inp k =>
-      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} ← {name o}({inp})\n{r}", j)
-  | d, i, .ite c t e =>
-      let (ts, j) := ppCode name sname (d+1) i t; let (es, j) := ppCode name sname (d+1) j e
-      (s!"{ppIndent d}if {c} then\n{ts}\n{ppIndent d}else\n{es}", j)
-  | d, i, .call cf args k =>
-      let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
-      (s!"{ppIndent d}let {v} := {cf.down}({String.intercalate ", " (hlistStrings args)})\n{r}", j)
-  | d, i, .scope s b k =>
-      let (bs, j) := ppCode name sname (d+1) i b
-      let v := s!"v{j}"; let (r, l) := ppCode name sname d (j+1) (k v)
-      (s!"{ppIndent d}let {v} ← {sname s} unconstrained\n{bs}\n{r}", l)
-
-private def ppProg {Op : Type → Type → Type 1} {SOp : Type → Type} {mainArgs : List Tp} {α : Tp}
-    (name : {I R : Type} → Op I R → String) (sname : {β : Type} → SOp β → String) :
-    Nat → Prog Op SOp PpF PpV mainArgs α → (String × Nat)
-  | i, @Prog.main _ _ _ _ mainArgs _ body =>
-      let (argv, i) := freshHList mainArgs i
-      let (b, i) := ppCode name sname 1 i (body argv)
-      (s!"def main({ppBinders mainArgs argv}) =>\n{b}", i)
-  | i, @Prog.def_ _ _ _ _ _ _ as _ nm body k =>
-      let (argv, i) := freshHList as i
-      let (b, i) := ppCode name sname 1 i (body argv)
-      let (rest, i) := ppProg name sname i (k (ULift.up nm))
-      (s!"def {nm}({ppBinders as argv}) =>\n{b}\n{rest}", i)
-  | i, @Prog.rec_ _ _ _ _ _ _ arg res nm body k =>
-      let x := s!"x{i}"; let i := i + 1
-      let callName : {I R : Type} → Freigen.ITree.CallOp Op arg.denote res.denote I R → String :=
-        fun o => match o with | .base o' => name o' | .call => s!"{nm} (self-call)"
-      let (b, i) := ppCode callName sname 1 i (body PpF x)
-      let (rest, i) := ppProg name sname i (k (ULift.up nm))
-      (s!"rec {nm}({x} : {arg.toTypeStr}) =>\n{b}\n{rest}", i)
-
-/-- Pretty-print a closed program. -/
-def pp {Op : Type → Type → Type 1} {SOp : Type → Type}
-    (name : {I R : Type} → Op I R → String) (sname : {β : Type} → SOp β → String)
-    {mainArgs : List Tp} {α : Tp} (c : Closed Op SOp mainArgs α) : String :=
-  (ppProg name sname 0 (c PpF PpV)).1
 
 end Freigen

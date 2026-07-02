@@ -12,7 +12,7 @@ predicate transformer, blocks erased to fresh existentials).  `reflect%` compile
 `Prog` AST, sound against `ofFree` by `≈`.
 
 Every example is reflected with `reflect_def C := src` (named `C` / `C_sound`), and pins its
-`runCirc` result, its **soundness statement** (`#check C_sound`), and its pretty-printed AST via
+`runCirc` result, its **soundness statement** (`#check C_sound`), and its serialized AST via
 `#guard_msgs`, so the comments can't drift from what the code actually produces.
 -/
 
@@ -50,10 +50,10 @@ def conCirc {α} (p : Free CircOp HintS α) : (α → Prop) → Prop :=
   p.run (M := PredT) (fun o i => match o, i with | .assert, b => fun c => b = true ∧ c ())
         (fun _ _ c => ∃ x, c x)                  -- hint: fresh existential, block erased
 
-/-- Op names for the pretty-printer. -/
+/-- Op names for the serializer. -/
 def circName {I R : Type} : CircOp I R → String | .assert => "assert"
 
-/-- The DSL instance: op/scope naming for `render` and `#compile`. -/
+/-- The DSL instance: op/scope naming for `serialize` and `#compile`. -/
 instance : DSL CircOp HintS where
   opName := circName
   scopeName _ := "hint"
@@ -79,16 +79,19 @@ example : Closed CircOp HintS [] .unit := circC
 
 -- The reified AST — arithmetic is a real `Bin.eq` node, the `hint` an out-of-circuit scope.
 /-- info:
-def main() =>
-  let v1 ← hint unconstrained
-    let v0 := 7
-    v0
-  let v2 := 7
-  let v3 := v1 == v2
-  let v4 ← assert(v3)
-  v4
+(program
+  (main () unit
+    (block
+      (let v1 nat (scope hint
+        (block
+          (let v0 nat (lit 7))
+          (ret v0))))
+      (let v2 nat (lit 7))
+      (let v3 bool (bin eq v1 v2))
+      (let v4 unit (op assert v3))
+      (ret v4))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render circC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize circC)
 
 /-! ## First-order functions: `main` calling helper subroutines
 
@@ -110,24 +113,29 @@ reflect_def circ2C := circ2
 
 -- `double` and `quad` each spill under their own names — helper bodies may call earlier helpers.
 /-- info:
-def double(x0 : Nat) =>
-  let v1 := x0 + x0
-  v1
-def quad(x2 : Nat) =>
-  let v3 := double(x2)
-  let v4 := double(v3)
-  v4
-def main() =>
-  let v6 ← hint unconstrained
-    let v5 := 3
-    v5
-  let v7 := quad(v6)
-  let v8 := 12
-  let v9 := v7 == v8
-  let v10 ← assert(v9)
-  v10
+(program
+  (def double ((x0 nat)) nat
+    (block
+      (let v1 nat (bin add x0 x0))
+      (ret v1)))
+  (def quad ((x2 nat)) nat
+    (block
+      (let v3 nat (call double x2))
+      (let v4 nat (call double v3))
+      (ret v4)))
+  (main () unit
+    (block
+      (let v6 nat (scope hint
+        (block
+          (let v5 nat (lit 3))
+          (ret v5))))
+      (let v7 nat (call quad v6))
+      (let v8 nat (lit 12))
+      (let v9 bool (bin eq v7 v8))
+      (let v10 unit (op assert v9))
+      (ret v10))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render circ2C)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize circ2C)
 
 /-! ## A `main` with inputs
 
@@ -144,16 +152,19 @@ reflect_def checkSquareC := checkSquare
 #check checkSquareC_sound
 
 /-- info:
-def main(x0 : Nat) =>
-  let v2 ← hint unconstrained
-    let v1 := x0 * x0
-    v1
-  let v3 := x0 * x0
-  let v4 := v2 == v3
-  let v5 ← assert(v4)
-  v5
+(program
+  (main ((x0 nat)) unit
+    (block
+      (let v2 nat (scope hint
+        (block
+          (let v1 nat (bin mul x0 x0))
+          (ret v1))))
+      (let v3 nat (bin mul x0 x0))
+      (let v4 bool (bin eq v2 v3))
+      (let v5 unit (op assert v4))
+      (ret v5))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render checkSquareC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize checkSquareC)
 
 /-! ## Monomorphising a polymorphic helper
 
@@ -177,20 +188,24 @@ reflect_def monoC := monoExample
 
 -- Two spilled defs (`dbl` at 5, `dbl_2` at 7 — monomorphisations uniquify); the third call reuses `dbl`.
 /-- info:
-def dbl(x0 : Field<5>) =>
-  let v1 := x0 + x0
-  v1
-def dbl_2(x2 : Field<7>) =>
-  let v3 := x2 + x2
-  v3
-def main(x4 : Field<5>, x5 : Field<7>, x6 : Field<5>) =>
-  let v7 := dbl(x4)
-  let v8 := dbl_2(x5)
-  let v9 := dbl(x6)
-  let v10 := v7 + v9
-  v10
+(program
+  (def dbl ((x0 (zmod 5))) (zmod 5)
+    (block
+      (let v1 (zmod 5) (bin addf x0 x0))
+      (ret v1)))
+  (def dbl_2 ((x2 (zmod 7))) (zmod 7)
+    (block
+      (let v3 (zmod 7) (bin addf x2 x2))
+      (ret v3)))
+  (main ((x4 (zmod 5)) (x5 (zmod 7)) (x6 (zmod 5))) (zmod 5)
+    (block
+      (let v7 (zmod 5) (call dbl x4))
+      (let v8 (zmod 7) (call dbl_2 x5))
+      (let v9 (zmod 5) (call dbl x6))
+      (let v10 (zmod 5) (bin addf v7 v9))
+      (ret v10))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render monoC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize monoC)
 
 /-! ## A multi-argument helper -/
 
@@ -210,17 +225,20 @@ reflect_def multiC := multiExample
 
 -- One two-argument def (`muladd` at 5), called twice.
 /-- info:
-def muladd(x0 : Field<5>, x1 : Field<5>) =>
-  let v2 := x0 * x1
-  let v3 := v2 + x0
-  v3
-def main(x4 : Field<5>, x5 : Field<5>) =>
-  let v6 := muladd(x4, x5)
-  let v7 := muladd(x5, x4)
-  let v8 := v6 + v7
-  v8
+(program
+  (def muladd ((x0 (zmod 5)) (x1 (zmod 5))) (zmod 5)
+    (block
+      (let v2 (zmod 5) (bin mulf x0 x1))
+      (let v3 (zmod 5) (bin addf v2 x0))
+      (ret v3)))
+  (main ((x4 (zmod 5)) (x5 (zmod 5))) (zmod 5)
+    (block
+      (let v6 (zmod 5) (call muladd x4 x5))
+      (let v7 (zmod 5) (call muladd x5 x4))
+      (let v8 (zmod 5) (bin addf v6 v7))
+      (ret v8))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render multiC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize multiC)
 
 /-! ## A vector-valued result
 
@@ -233,13 +251,15 @@ reflect_def vecC := vecConst
 #guard_msgs (whitespace := lax) in
 #check vecC_sound
 
--- The vector prints as `#v[…]`.
+-- The vector literal is a single `lit` value node.
 /-- info:
-def main() =>
-  let v0 := #v[1, 2, 3]
-  v0
+(program
+  (main () (vec nat 3)
+    (block
+      (let v0 (vec nat 3) (lit (vec 1 2 3)))
+      (ret v0))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render vecC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize vecC)
 
 /-! ## Proof-erased collection get / set
 
@@ -268,14 +288,16 @@ reflect_def vgetSymC := vgetSym
 
 -- `main` takes only the vector and the index — no proof argument.
 /-- info:
-def main(x0 : Vector<Nat, 3>, x1 : Nat) =>
-  let v2 := x0[x1]
-  let v3 := 0
-  let v4 := x0[v3]
-  let v5 := v2 + v4
-  v5
+(program
+  (main ((x0 (vec nat 3)) (x1 nat)) nat
+    (block
+      (let v2 nat (pop vget x0 x1))
+      (let v3 nat (lit 0))
+      (let v4 nat (pop vget x0 v3))
+      (let v5 nat (bin add v2 v4))
+      (ret v5))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render vgetSymC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize vgetSymC)
 
 /-- Write a value into symbolic slot `j` (`vset`), then read the same slot back (`vget`). -/
 def vsetSym (v : Vector Nat 3) (j : Nat) (h : j < 3) (x : Nat) : Free CircOp HintS Nat := do
@@ -290,12 +312,14 @@ reflect_def vsetSymC := vsetSym
 #check vsetSymC_sound
 
 /-- info:
-def main(x0 : Vector<Nat, 3>, x1 : Nat, x2 : Nat) =>
-  let v3 := x0 with [x1] := x2
-  let v4 := v3[x1]
-  v4
+(program
+  (main ((x0 (vec nat 3)) (x1 nat) (x2 nat)) nat
+    (block
+      (let v3 (vec nat 3) (pop vset x0 x1 x2))
+      (let v4 nat (pop vget v3 x1))
+      (ret v4))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render vsetSymC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize vsetSymC)
 
 /-- A **dynamically-sized** `Array` read: the bound `j < a.size` is itself symbolic, yet the erased
     `aget` is still sound because the source proof `h` rules the failure out. -/
@@ -309,11 +333,13 @@ reflect_def agetSymC := agetSym
 #check agetSymC_sound
 
 /-- info:
-def main(x0 : Array<Nat>, x1 : Nat) =>
-  let v2 := x0[x1]
-  v2
+(program
+  (main ((x0 (array nat)) (x1 nat)) nat
+    (block
+      (let v2 nat (pop aget x0 x1))
+      (ret v2))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render agetSymC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize agetSymC)
 
 /-- **Read-after-write on a dynamic array**: `(a.set i x)[i]` — the get's collection is itself the
     `aset` node.  The array bound `i < (a.set i x).size` references that compound collection; soundness
@@ -331,12 +357,14 @@ reflect_def arrRWC := arrRW
 #check arrRWC_sound
 
 /-- info:
-def main(x0 : Array<Nat>, x1 : Nat, x2 : Nat) =>
-  let v3 := x0 with [x1] := x2
-  let v4 := v3[x1]
-  v4
+(program
+  (main ((x0 (array nat)) (x1 nat) (x2 nat)) nat
+    (block
+      (let v3 (array nat) (pop aset x0 x1 x2))
+      (let v4 nat (pop aget v3 x1))
+      (ret v4))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render arrRWC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize arrRWC)
 
 /-! ### Deeper in the tree
 
@@ -359,20 +387,23 @@ reflect_def twiceC := twice
 #check twiceC_sound
 
 /-- info:
-def firstPlusLast(x0 : Vector<Nat, 4>) =>
-  let v1 := 0
-  let v2 := x0[v1]
-  let v3 := 3
-  let v4 := x0[v3]
-  let v5 := v2 + v4
-  v5
-def main(x6 : Vector<Nat, 4>) =>
-  let v7 := firstPlusLast(x6)
-  let v8 := firstPlusLast(x6)
-  let v9 := v7 + v8
-  v9
+(program
+  (def firstPlusLast ((x0 (vec nat 4))) nat
+    (block
+      (let v1 nat (lit 0))
+      (let v2 nat (pop vget x0 v1))
+      (let v3 nat (lit 3))
+      (let v4 nat (pop vget x0 v3))
+      (let v5 nat (bin add v2 v4))
+      (ret v5)))
+  (main ((x6 (vec nat 4))) nat
+    (block
+      (let v7 nat (call firstPlusLast x6))
+      (let v8 nat (call firstPlusLast x6))
+      (let v9 nat (bin add v7 v8))
+      (ret v9))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render twiceC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize twiceC)
 
 /-- A **symbolic-bound array** get buried under an effect *and* inside a `bif` branch: the main-level
     proof `h : j < a.size` still rules the failure out, through the `assert`'s `vis` and the branch. -/
@@ -388,16 +419,19 @@ reflect_def deepArrC := deepArr
 #check deepArrC_sound
 
 /-- info:
-def main(x0 : Array<Nat>, x1 : Nat, x2 : Bool) =>
-  let v3 ← assert(x2)
-  if x2 then
-    let v4 := x0[x1]
-    v4
-  else
-    let v5 := 0
-    v5
+(program
+  (main ((x0 (array nat)) (x1 nat) (x2 bool)) nat
+    (block
+      (let v3 unit (op assert x2))
+      (if x2
+        (block
+          (let v4 nat (pop aget x0 x1))
+          (ret v4))
+        (block
+          (let v5 nat (lit 0))
+          (ret v5))))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render deepArrC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize deepArrC)
 
 /-- A **symbolic get flowing as the argument of a helper call** (`quad (v[j]'h)`): the get is reflected
     at the call site and its bound is discharged there, while `quad` spills as `f0` — the compositional
@@ -414,22 +448,26 @@ reflect_def viaHelperC := viaHelper
 #check viaHelperC_sound
 
 /-- info:
-def double(x0 : Nat) =>
-  let v1 := x0 + x0
-  v1
-def quad(x2 : Nat) =>
-  let v3 := double(x2)
-  let v4 := double(v3)
-  v4
-def main(x5 : Vector<Nat, 3>, x6 : Nat) =>
-  let v7 := x5[x6]
-  let v8 := quad(v7)
-  let v9 := 0
-  let v10 := v8 == v9
-  let v11 ← assert(v10)
-  v11
+(program
+  (def double ((x0 nat)) nat
+    (block
+      (let v1 nat (bin add x0 x0))
+      (ret v1)))
+  (def quad ((x2 nat)) nat
+    (block
+      (let v3 nat (call double x2))
+      (let v4 nat (call double v3))
+      (ret v4)))
+  (main ((x5 (vec nat 3)) (x6 nat)) unit
+    (block
+      (let v7 nat (pop vget x5 x6))
+      (let v8 nat (call quad v7))
+      (let v9 nat (lit 0))
+      (let v10 bool (bin eq v8 v9))
+      (let v11 unit (op assert v10))
+      (ret v11))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render viaHelperC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize viaHelperC)
 
 /-! ### Constructing collections
 
@@ -448,17 +486,20 @@ reflect_def vdoubleC := vdouble
 #check vdoubleC_sound
 
 /-- info:
-def main(x0 : Vector<Nat, 3>) =>
-  let v7 := gen 3 with (i1 : Fin<3>) =>
-    let v2 := .val i1
-    let v3 := x0[v2]
-    let v4 := .val i1
-    let v5 := x0[v4]
-    let v6 := v3 + v5
-    v6
-  v7
+(program
+  (main ((x0 (vec nat 3))) (vec nat 3)
+    (block
+      (let v7 (vec nat 3) (vgen 3 (i1)
+        (block
+          (let v2 nat (un fin-val i1))
+          (let v3 nat (pop vget x0 v2))
+          (let v4 nat (un fin-val i1))
+          (let v5 nat (pop vget x0 v4))
+          (let v6 nat (bin add v3 v5))
+          (ret v6))))
+      (ret v7))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render vdoubleC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize vdoubleC)
 
 /-! ### Casts between representations
 
@@ -478,11 +519,13 @@ reflect_def castAVC := castAV
 #check castAVC_sound
 
 /-- info:
-def main(x0 : Array<Nat>) =>
-  let v1 := x0 as Vector<_, 3>
-  v1
+(program
+  (main ((x0 (array nat))) (vec nat 3)
+    (block
+      (let v1 (vec nat 3) (pop (arr-to-vec 3) x0))
+      (ret v1))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render castAVC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize castAVC)
 
 /-- `nat → fin` upcast, and a `Fin` **input** downcast back to `Nat` (`i.val`). -/
 def castNF (k : Nat) (h : k < 5) (i : Fin 5) : Free CircOp HintS (Fin 5 × Nat) :=
@@ -496,13 +539,15 @@ reflect_def castNFC := castNF
 #check castNFC_sound
 
 /-- info:
-def main(x0 : Nat, x1 : Fin<5>) =>
-  let v2 := x0 as Fin<5>
-  let v3 := .val x1
-  let v4 := (v2, v3)
-  v4
+(program
+  (main ((x0 nat) (x1 (fin 5))) (prod (fin 5) nat)
+    (block
+      (let v2 (fin 5) (pop (nat-to-fin 5) x0))
+      (let v3 nat (un fin-val x1))
+      (let v4 (prod (fin 5) nat) (bin pair v2 v3))
+      (ret v4))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render castNFC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize castNFC)
 
 open Freigen.ITree in
 /-- The partial upcasts fail on a mismatch, directly. -/
@@ -556,21 +601,24 @@ reflect_def sumCheckedC := sumChecked
 #check sumCheckedC_sound
 
 /-- info:
-def main(x0 : Vector<Nat, 3>) =>
-  let v1 := 0
-  let v12 := fold 3 from v1 with (i2 : Fin<3>, a3) =>
-    let v4 := .val i2
-    let v5 := x0[v4]
-    let v6 := .val i2
-    let v7 := v5 == v6
-    let v8 ← assert(v7)
-    let v9 := .val i2
-    let v10 := x0[v9]
-    let v11 := a3 + v10
-    v11
-  v12
+(program
+  (main ((x0 (vec nat 3))) nat
+    (block
+      (let v1 nat (lit 0))
+      (let v12 nat (fold 3 v1 (i2 a3)
+        (block
+          (let v4 nat (un fin-val i2))
+          (let v5 nat (pop vget x0 v4))
+          (let v6 nat (un fin-val i2))
+          (let v7 bool (bin eq v5 v6))
+          (let v8 unit (op assert v7))
+          (let v9 nat (un fin-val i2))
+          (let v10 nat (pop vget x0 v9))
+          (let v11 nat (bin add a3 v10))
+          (ret v11))))
+      (ret v12))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render sumCheckedC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize sumCheckedC)
 
 /-- A **scoped `hint` block inside the loop body**, its witness constrained each iteration. -/
 def hintLoop : Free CircOp HintS Nat :=
@@ -589,20 +637,24 @@ reflect_def hintLoopC := hintLoop
 #guard_msgs in #eval runCirc hintLoop
 
 /-- info:
-def main() =>
-  let v0 := 0
-  let v10 := fold 4 from v0 with (i1 : Fin<4>, a2) =>
-    let v5 ← hint unconstrained
-      let v3 := 1
-      let v4 := a2 + v3
-      v4
-    let v6 := 1
-    let v7 := a2 + v6
-    let v8 := v5 == v7
-    let v9 ← assert(v8)
-    v5
-  v10
+(program
+  (main () nat
+    (block
+      (let v0 nat (lit 0))
+      (let v10 nat (fold 4 v0 (i1 a2)
+        (block
+          (let v5 nat (scope hint
+            (block
+              (let v3 nat (lit 1))
+              (let v4 nat (bin add a2 v3))
+              (ret v4))))
+          (let v6 nat (lit 1))
+          (let v7 nat (bin add a2 v6))
+          (let v8 bool (bin eq v5 v7))
+          (let v9 unit (op assert v8))
+          (ret v5))))
+      (ret v10))))
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (render hintLoopC)
+#guard_msgs (whitespace := lax) in #eval IO.println (serialize hintLoopC)
 
 end Freigen

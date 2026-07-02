@@ -1,0 +1,10 @@
+[package]
+name = "freigen"
+version = "0.1.0"
+edition = "2021"
+description = "Rust SDK for Freigen-compiled programs: parse the uniform `.prog` S-expression artifacts into a typed AST, and run them with a canonical interpreter with client-injectable op denotations."
+license = "MIT"
+
+[dependencies]
+num-bigint = "0.4"
+num-traits = "0.2"
