@@ -34,10 +34,10 @@
 //!          (block
 //!            (let v1 nat (scope hint
 //!              (block
-//!                (let v0 nat (bin add x0 x0))
+//!                (let v0 nat (add x0 x0))
 //!                (ret v0))))
-//!            (let v2 nat (bin add x0 x0))
-//!            (let v3 bool (bin eq v1 v2))
+//!            (let v2 nat (add x0 x0))
+//!            (let v3 bool (eq v1 v2))
 //!            (let v4 unit (op assert v3))
 //!            (ret v4))))",
 //! ).unwrap();
@@ -72,7 +72,7 @@ mod tests {
           (program
             (def double ((x0 nat)) nat
               (block
-                (let v1 nat (bin add x0 x0))
+                (let v1 nat (add x0 x0))
                 (ret v1)))
             (main ((x2 nat)) nat
               (block
@@ -88,7 +88,7 @@ mod tests {
           (program
             (main ((x0 nat) (x1 nat)) nat
               (block
-                (let v2 nat (bin sub x0 x1))
+                (let v2 nat (sub x0 x1))
                 (ret v2))))"#;
         assert_eq!(
             run(src, vec![Value::nat(2u32), Value::nat(5u32)]).unwrap(),
@@ -103,7 +103,7 @@ mod tests {
           (program
             (main ((x0 (zmod 5))) (zmod 5)
               (block
-                (let v1 (zmod 5) (bin addf x0 x0))
+                (let v1 (zmod 5) (addf x0 x0))
                 (ret v1))))"#;
         assert_eq!(
             run(src, vec![Value::field(4u32, 5u32)]).unwrap(),
@@ -120,16 +120,16 @@ mod tests {
               (block
                 (let v0 (vec nat 4) (vgen 4 (i1)
                   (block
-                    (let v2 nat (un fin-val i1))
+                    (let v2 nat (fin-val i1))
                     (let v3 nat (lit 1))
-                    (let v4 nat (bin add v2 v3))
+                    (let v4 nat (add v2 v3))
                     (ret v4))))
                 (let v5 nat (lit 0))
                 (let v6 nat (fold 4 v5 (i7 a8)
                   (block
-                    (let v9 nat (un fin-val i7))
-                    (let v10 nat (pop vget v0 v9))
-                    (let v11 nat (bin add a8 v10))
+                    (let v9 nat (fin-val i7))
+                    (let v10 nat (vget v0 v9))
+                    (let v11 nat (add a8 v10))
                     (ret v11))))
                 (ret v6))))"#;
         assert_eq!(run(src, vec![]).unwrap(), Value::nat(10u32));
@@ -141,7 +141,7 @@ mod tests {
           (program
             (main ((x0 (vec nat 3)) (x1 nat)) nat
               (block
-                (let v2 nat (pop vget x0 x1))
+                (let v2 nat (vget x0 x1))
                 (ret v2))))"#;
         let v = Value::Vec(vec![Value::nat(10u32), Value::nat(20u32), Value::nat(30u32)]);
         assert_eq!(run(src, vec![v.clone(), Value::nat(1u32)]).unwrap(), Value::nat(20u32));
@@ -154,7 +154,7 @@ mod tests {
           (program
             (main ((x0 (array nat))) (vec nat 3)
               (block
-                (let v1 (vec nat 3) (pop (arr-to-vec 3) x0))
+                (let v1 (vec nat 3) (arr-to-vec 3 x0))
                 (ret v1))))"#;
         let ok = Value::Array(vec![Value::nat(1u32), Value::nat(2u32), Value::nat(3u32)]);
         let bad = Value::Array(vec![Value::nat(1u32)]);
@@ -171,13 +171,13 @@ mod tests {
           (program
             (main ((x0 bool) (x1 nat) (x2 nat)) nat
               (block
-                (let v3 nat (pop select x0 x1 x2))
+                (let v3 nat (select x0 x1 x2))
                 (if x0
                   (block
                     (ret v3))
                   (block
                     (let v4 nat (lit 100))
-                    (let v5 nat (bin add v3 v4))
+                    (let v5 nat (add v3 v4))
                     (ret v5))))))"#;
         let args = |b| vec![Value::Bool(b), Value::nat(1u32), Value::nat(2u32)];
         assert_eq!(run(src, args(true)).unwrap(), Value::nat(1u32));
@@ -192,17 +192,17 @@ mod tests {
             (rec sm ((x0 nat)) nat
               (block
                 (let v1 nat (lit 0))
-                (let v2 bool (bin eq x0 v1))
+                (let v2 bool (eq x0 v1))
                 (if v2
                   (block
                     (let v3 nat (lit 0))
                     (ret v3))
                   (block
                     (let v4 nat (lit 1))
-                    (let v5 nat (bin sub x0 v4))
+                    (let v5 nat (sub x0 v4))
                     (let v6 nat (self v5))
                     (let v7 nat (lit 1))
-                    (let v8 nat (bin add v6 v7))
+                    (let v8 nat (add v6 v7))
                     (ret v8)))))
             (main ((x9 nat)) nat
               (block

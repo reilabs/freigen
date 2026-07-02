@@ -10,8 +10,9 @@ SDK (`rust/`) parses back into a client-side AST.
 
 Design rules that make it trivial to parse:
 
-* every construct is a parenthesized list with a fixed keyword head — no infix syntax, no
-  significant whitespace (indentation is cosmetic);
+* every construct is a parenthesized list with a fixed keyword head (a primitive op *is* its own
+  head — the op names are disjoint from the structural keywords, so no class tag is needed) — no
+  infix syntax, no significant whitespace (indentation is cosmetic);
 * every `let` binder is annotated with its object type, so a consumer can type every value without
   inference;
 * everything is a bare token — variables, keywords, numbers, and names (`def` names, custom
@@ -32,9 +33,11 @@ stmt    ::= (let VAR TYPE expr)
 term    ::= (ret VAR)
           | (if VAR block block)               ; branch in tail position
 expr    ::= (lit VALUE)                        ; a host literal
-          | (un UNOP VAR)                      ; total unary primitive
-          | (bin BINOP VAR VAR)                ; total binary primitive
-          | (pop POP VAR*)                     ; partial (proof-erased) primitive — may fail
+          | (UNOP VAR)                         ; total unary primitive
+          | (BINOP VAR VAR)                    ; total binary primitive
+          | (POP VAR*)                         ; partial (proof-erased) primitive — may fail
+          | (arr-to-vec NAT VAR)               ; partial upcast (fails unless size = NAT)
+          | (nat-to-fin NAT VAR)               ; partial upcast (fails unless value < NAT)
           | (vec VAR*)                         ; vector construction
           | (arr VAR*)                         ; array construction
           | (fold NAT VAR (IVAR AVAR) block)   ; bounded fold: trip count, init, (index, acc) block
@@ -51,7 +54,7 @@ VALUE   ::= true | false | NAT | unit | opaque
 UNOP    ::= not | fst | snd | inl | inr | to-array | fin-val
 BINOP   ::= add | sub | mul | pow | eq | lt | le | and | or
           | addf | subf | mulf | powf | pair
-POP     ::= vget | vset | aget | aset | select | (arr-to-vec NAT) | (nat-to-fin NAT)
+POP     ::= vget | vset | aget | aset | select
 ```
 
 `VALUE`s are parsed *type-directed* from the annotation on their binder, so they carry no
@@ -108,12 +111,13 @@ def Bin.sexpName {a b c : Tp} : Bin a b c → String
   | .addZ => "addf" | .subZ => "subf" | .mulZ => "mulf" | .powZ => "powf"
   | .pair => "pair"
 
-/-- S-expression head for a partial primitive — the upcasts carry their target bound. -/
+/-- S-expression head for a partial primitive — the upcasts carry their target bound as their
+    first argument. -/
 def POp.sexpName : {as : List Tp} → {b : Tp} → POp as b → String
   | _, _, .vget => "vget" | _, _, .vset => "vset"
   | _, _, .aget => "aget" | _, _, .aset => "aset"
-  | _, _, @POp.arrToVec _ n => s!"(arr-to-vec {n})"
-  | _, _, @POp.natToFin n  => s!"(nat-to-fin {n})"
+  | _, _, @POp.arrToVec _ n => s!"arr-to-vec {n}"
+  | _, _, @POp.natToFin n  => s!"nat-to-fin {n}"
   | _, _, .select => "select"
 
 /-- Value representation for serialization: every atom is its variable name. -/
@@ -153,14 +157,14 @@ private def sCode {Op : Type → Type → Type 1} {SOp : Type → Type} {α : Tp
       (s!"{ind d}(let {v} {β.toSexp} (lit {β.toSexpVal a}))\n{r}", j)
   | d, i, @Code.un _ _ _ _ _ _ b o a k =>
       let v := s!"v{i}"; let (r, j) := sCode opE sname d (i+1) (k v)
-      (s!"{ind d}(let {v} {b.toSexp} (un {o.sexpName} {a}))\n{r}", j)
+      (s!"{ind d}(let {v} {b.toSexp} ({o.sexpName} {a}))\n{r}", j)
   | d, i, @Code.bin _ _ _ _ _ _ _ c o a b k =>
       let v := s!"v{i}"; let (r, j) := sCode opE sname d (i+1) (k v)
-      (s!"{ind d}(let {v} {c.toSexp} (bin {o.sexpName} {a} {b}))\n{r}", j)
+      (s!"{ind d}(let {v} {c.toSexp} ({o.sexpName} {a} {b}))\n{r}", j)
   | d, i, @Code.pop _ _ _ _ _ _ b o args k =>
       let v := s!"v{i}"; let (r, j) := sCode opE sname d (i+1) (k v)
       let argStr := String.join ((hlistStrings args).map (" " ++ ·))
-      (s!"{ind d}(let {v} {b.toSexp} (pop {o.sexpName}{argStr}))\n{r}", j)
+      (s!"{ind d}(let {v} {b.toSexp} ({o.sexpName}{argStr}))\n{r}", j)
   | d, i, @Code.vec _ _ _ _ _ a n elems k =>
       let v := s!"v{i}"; let (r, j) := sCode opE sname d (i+1) (k v)
       let argStr := String.join (elems.toList.map (" " ++ ·))

@@ -174,8 +174,10 @@ fn parse_value(tp: &Tp, s: &Sexp) -> Result<Value> {
     }
 }
 
-fn parse_unop(s: &Sexp) -> Result<UnOp> {
-    Ok(match as_atom(s, "a unary op")? {
+/// A primitive op is its own expression head — the names are disjoint from the structural
+/// keywords (`lit`, `call`, `fold`, …), so no `un`/`bin`/`pop` class tag is needed.
+fn un_op(head: &str) -> Option<UnOp> {
+    Some(match head {
         "not" => UnOp::Not,
         "fst" => UnOp::Fst,
         "snd" => UnOp::Snd,
@@ -183,12 +185,12 @@ fn parse_unop(s: &Sexp) -> Result<UnOp> {
         "inr" => UnOp::Inr,
         "to-array" => UnOp::ToArray,
         "fin-val" => UnOp::FinVal,
-        other => return err(format!("unknown unary op `{other}`")),
+        _ => return None,
     })
 }
 
-fn parse_binop(s: &Sexp) -> Result<BinOp> {
-    Ok(match as_atom(s, "a binary op")? {
+fn bin_op(head: &str) -> Option<BinOp> {
+    Some(match head {
         "add" => BinOp::Add,
         "sub" => BinOp::Sub,
         "mul" => BinOp::Mul,
@@ -203,31 +205,19 @@ fn parse_binop(s: &Sexp) -> Result<BinOp> {
         "mulf" => BinOp::MulF,
         "powf" => BinOp::PowF,
         "pair" => BinOp::Pair,
-        other => return err(format!("unknown binary op `{other}`")),
+        _ => return None,
     })
 }
 
-fn parse_pop(s: &Sexp) -> Result<POp> {
-    match s {
-        Sexp::Atom(a) => Ok(match a.as_str() {
-            "vget" => POp::VGet,
-            "vset" => POp::VSet,
-            "aget" => POp::AGet,
-            "aset" => POp::ASet,
-            "select" => POp::Select,
-            other => return err(format!("unknown partial op `{other}`")),
-        }),
-        Sexp::List(items) => match &items[..] {
-            [head, n] if as_atom(head, "a partial-op head")? == "arr-to-vec" => {
-                Ok(POp::ArrToVec(as_u64(n, "a vector length")?))
-            }
-            [head, n] if as_atom(head, "a partial-op head")? == "nat-to-fin" => {
-                Ok(POp::NatToFin(as_u64(n, "a Fin bound")?))
-            }
-            _ => err(format!("malformed partial op `{s}`")),
-        },
-        Sexp::Str(_) => err(format!("expected a partial op, got string `{s}`")),
-    }
+fn pop_op(head: &str) -> Option<POp> {
+    Some(match head {
+        "vget" => POp::VGet,
+        "vset" => POp::VSet,
+        "aget" => POp::AGet,
+        "aset" => POp::ASet,
+        "select" => POp::Select,
+        _ => return None,
+    })
 }
 
 /// Parse an expression; `tp` is the binder annotation (needed for type-directed literals).
@@ -239,11 +229,13 @@ fn parse_expr(tp: &Tp, s: &Sexp) -> Result<Expr> {
     )?;
     match (head, &items[1..]) {
         ("lit", [v]) => Ok(Expr::Lit(parse_value(tp, v)?)),
-        ("un", [o, a]) => Ok(Expr::Un(parse_unop(o)?, as_var(a)?)),
-        ("bin", [o, a, b]) => Ok(Expr::Bin(parse_binop(o)?, as_var(a)?, as_var(b)?)),
-        ("pop", [o, args @ ..]) => Ok(Expr::Pop(
-            parse_pop(o)?,
-            args.iter().map(as_var).collect::<Result<Vec<_>>>()?,
+        ("arr-to-vec", [n, a]) => Ok(Expr::Pop(
+            POp::ArrToVec(as_u64(n, "a vector length")?),
+            vec![as_var(a)?],
+        )),
+        ("nat-to-fin", [n, a]) => Ok(Expr::Pop(
+            POp::NatToFin(as_u64(n, "a Fin bound")?),
+            vec![as_var(a)?],
         )),
         ("vec", args) => Ok(Expr::MkVec(args.iter().map(as_var).collect::<Result<Vec<_>>>()?)),
         ("arr", args) => Ok(Expr::MkArr(args.iter().map(as_var).collect::<Result<Vec<_>>>()?)),
@@ -284,7 +276,23 @@ fn parse_expr(tp: &Tp, s: &Sexp) -> Result<Expr> {
             name: as_name(name, "a scope name")?.to_owned(),
             body: parse_block(body)?,
         }),
-        _ => err(format!("malformed expression `{s}`")),
+        (head, args) => {
+            if let Some(o) = un_op(head) {
+                let [a] = args else {
+                    return err(format!("unary op `{head}` expects one argument, got `{s}`"));
+                };
+                Ok(Expr::Un(o, as_var(a)?))
+            } else if let Some(o) = bin_op(head) {
+                let [a, b] = args else {
+                    return err(format!("binary op `{head}` expects two arguments, got `{s}`"));
+                };
+                Ok(Expr::Bin(o, as_var(a)?, as_var(b)?))
+            } else if let Some(o) = pop_op(head) {
+                Ok(Expr::Pop(o, args.iter().map(as_var).collect::<Result<Vec<_>>>()?))
+            } else {
+                err(format!("malformed expression `{s}`"))
+            }
+        }
     }
 }
 

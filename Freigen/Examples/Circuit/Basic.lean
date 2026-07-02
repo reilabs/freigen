@@ -87,7 +87,7 @@ example : Closed CircOp HintS [] .unit := circC
           (let v0 nat (lit 7))
           (ret v0))))
       (let v2 nat (lit 7))
-      (let v3 bool (bin eq v1 v2))
+      (let v3 bool (eq v1 v2))
       (let v4 unit (op assert v3))
       (ret v4))))
 -/
@@ -116,7 +116,7 @@ reflect_def circ2C := circ2
 (program
   (def double ((x0 nat)) nat
     (block
-      (let v1 nat (bin add x0 x0))
+      (let v1 nat (add x0 x0))
       (ret v1)))
   (def quad ((x2 nat)) nat
     (block
@@ -131,7 +131,7 @@ reflect_def circ2C := circ2
           (ret v5))))
       (let v7 nat (call quad v6))
       (let v8 nat (lit 12))
-      (let v9 bool (bin eq v7 v8))
+      (let v9 bool (eq v7 v8))
       (let v10 unit (op assert v9))
       (ret v10))))
 -/
@@ -157,10 +157,10 @@ reflect_def checkSquareC := checkSquare
     (block
       (let v2 nat (scope hint
         (block
-          (let v1 nat (bin mul x0 x0))
+          (let v1 nat (mul x0 x0))
           (ret v1))))
-      (let v3 nat (bin mul x0 x0))
-      (let v4 bool (bin eq v2 v3))
+      (let v3 nat (mul x0 x0))
+      (let v4 bool (eq v2 v3))
       (let v5 unit (op assert v4))
       (ret v5))))
 -/
@@ -191,18 +191,18 @@ reflect_def monoC := monoExample
 (program
   (def dbl ((x0 (zmod 5))) (zmod 5)
     (block
-      (let v1 (zmod 5) (bin addf x0 x0))
+      (let v1 (zmod 5) (addf x0 x0))
       (ret v1)))
   (def dbl_2 ((x2 (zmod 7))) (zmod 7)
     (block
-      (let v3 (zmod 7) (bin addf x2 x2))
+      (let v3 (zmod 7) (addf x2 x2))
       (ret v3)))
   (main ((x4 (zmod 5)) (x5 (zmod 7)) (x6 (zmod 5))) (zmod 5)
     (block
       (let v7 (zmod 5) (call dbl x4))
       (let v8 (zmod 7) (call dbl_2 x5))
       (let v9 (zmod 5) (call dbl x6))
-      (let v10 (zmod 5) (bin addf v7 v9))
+      (let v10 (zmod 5) (addf v7 v9))
       (ret v10))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize monoC)
@@ -228,14 +228,14 @@ reflect_def multiC := multiExample
 (program
   (def muladd ((x0 (zmod 5)) (x1 (zmod 5))) (zmod 5)
     (block
-      (let v2 (zmod 5) (bin mulf x0 x1))
-      (let v3 (zmod 5) (bin addf v2 x0))
+      (let v2 (zmod 5) (mulf x0 x1))
+      (let v3 (zmod 5) (addf v2 x0))
       (ret v3)))
   (main ((x4 (zmod 5)) (x5 (zmod 5))) (zmod 5)
     (block
       (let v6 (zmod 5) (call muladd x4 x5))
       (let v7 (zmod 5) (call muladd x5 x4))
-      (let v8 (zmod 5) (bin addf v6 v7))
+      (let v8 (zmod 5) (addf v6 v7))
       (ret v8))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize multiC)
@@ -291,10 +291,10 @@ reflect_def vgetSymC := vgetSym
 (program
   (main ((x0 (vec nat 3)) (x1 nat)) nat
     (block
-      (let v2 nat (pop vget x0 x1))
+      (let v2 nat (vget x0 x1))
       (let v3 nat (lit 0))
-      (let v4 nat (pop vget x0 v3))
-      (let v5 nat (bin add v2 v4))
+      (let v4 nat (vget x0 v3))
+      (let v5 nat (add v2 v4))
       (ret v5))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize vgetSymC)
@@ -315,8 +315,8 @@ reflect_def vsetSymC := vsetSym
 (program
   (main ((x0 (vec nat 3)) (x1 nat) (x2 nat)) nat
     (block
-      (let v3 (vec nat 3) (pop vset x0 x1 x2))
-      (let v4 nat (pop vget v3 x1))
+      (let v3 (vec nat 3) (vset x0 x1 x2))
+      (let v4 nat (vget v3 x1))
       (ret v4))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize vsetSymC)
@@ -336,7 +336,7 @@ reflect_def agetSymC := agetSym
 (program
   (main ((x0 (array nat)) (x1 nat)) nat
     (block
-      (let v2 nat (pop aget x0 x1))
+      (let v2 nat (aget x0 x1))
       (ret v2))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize agetSymC)
@@ -360,8 +360,8 @@ reflect_def arrRWC := arrRW
 (program
   (main ((x0 (array nat)) (x1 nat) (x2 nat)) nat
     (block
-      (let v3 (array nat) (pop aset x0 x1 x2))
-      (let v4 nat (pop aget v3 x1))
+      (let v3 (array nat) (aset x0 x1 x2))
+      (let v4 nat (aget v3 x1))
       (ret v4))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize arrRWC)
@@ -391,16 +391,16 @@ reflect_def twiceC := twice
   (def firstPlusLast ((x0 (vec nat 4))) nat
     (block
       (let v1 nat (lit 0))
-      (let v2 nat (pop vget x0 v1))
+      (let v2 nat (vget x0 v1))
       (let v3 nat (lit 3))
-      (let v4 nat (pop vget x0 v3))
-      (let v5 nat (bin add v2 v4))
+      (let v4 nat (vget x0 v3))
+      (let v5 nat (add v2 v4))
       (ret v5)))
   (main ((x6 (vec nat 4))) nat
     (block
       (let v7 nat (call firstPlusLast x6))
       (let v8 nat (call firstPlusLast x6))
-      (let v9 nat (bin add v7 v8))
+      (let v9 nat (add v7 v8))
       (ret v9))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize twiceC)
@@ -425,7 +425,7 @@ reflect_def deepArrC := deepArr
       (let v3 unit (op assert x2))
       (if x2
         (block
-          (let v4 nat (pop aget x0 x1))
+          (let v4 nat (aget x0 x1))
           (ret v4))
         (block
           (let v5 nat (lit 0))
@@ -451,7 +451,7 @@ reflect_def viaHelperC := viaHelper
 (program
   (def double ((x0 nat)) nat
     (block
-      (let v1 nat (bin add x0 x0))
+      (let v1 nat (add x0 x0))
       (ret v1)))
   (def quad ((x2 nat)) nat
     (block
@@ -460,10 +460,10 @@ reflect_def viaHelperC := viaHelper
       (ret v4)))
   (main ((x5 (vec nat 3)) (x6 nat)) unit
     (block
-      (let v7 nat (pop vget x5 x6))
+      (let v7 nat (vget x5 x6))
       (let v8 nat (call quad v7))
       (let v9 nat (lit 0))
-      (let v10 bool (bin eq v8 v9))
+      (let v10 bool (eq v8 v9))
       (let v11 unit (op assert v10))
       (ret v11))))
 -/
@@ -491,11 +491,11 @@ reflect_def vdoubleC := vdouble
     (block
       (let v7 (vec nat 3) (vgen 3 (i1)
         (block
-          (let v2 nat (un fin-val i1))
-          (let v3 nat (pop vget x0 v2))
-          (let v4 nat (un fin-val i1))
-          (let v5 nat (pop vget x0 v4))
-          (let v6 nat (bin add v3 v5))
+          (let v2 nat (fin-val i1))
+          (let v3 nat (vget x0 v2))
+          (let v4 nat (fin-val i1))
+          (let v5 nat (vget x0 v4))
+          (let v6 nat (add v3 v5))
           (ret v6))))
       (ret v7))))
 -/
@@ -522,7 +522,7 @@ reflect_def castAVC := castAV
 (program
   (main ((x0 (array nat))) (vec nat 3)
     (block
-      (let v1 (vec nat 3) (pop (arr-to-vec 3) x0))
+      (let v1 (vec nat 3) (arr-to-vec 3 x0))
       (ret v1))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize castAVC)
@@ -542,9 +542,9 @@ reflect_def castNFC := castNF
 (program
   (main ((x0 nat) (x1 (fin 5))) (prod (fin 5) nat)
     (block
-      (let v2 (fin 5) (pop (nat-to-fin 5) x0))
-      (let v3 nat (un fin-val x1))
-      (let v4 (prod (fin 5) nat) (bin pair v2 v3))
+      (let v2 (fin 5) (nat-to-fin 5 x0))
+      (let v3 nat (fin-val x1))
+      (let v4 (prod (fin 5) nat) (pair v2 v3))
       (ret v4))))
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (serialize castNFC)
@@ -607,14 +607,14 @@ reflect_def sumCheckedC := sumChecked
       (let v1 nat (lit 0))
       (let v12 nat (fold 3 v1 (i2 a3)
         (block
-          (let v4 nat (un fin-val i2))
-          (let v5 nat (pop vget x0 v4))
-          (let v6 nat (un fin-val i2))
-          (let v7 bool (bin eq v5 v6))
+          (let v4 nat (fin-val i2))
+          (let v5 nat (vget x0 v4))
+          (let v6 nat (fin-val i2))
+          (let v7 bool (eq v5 v6))
           (let v8 unit (op assert v7))
-          (let v9 nat (un fin-val i2))
-          (let v10 nat (pop vget x0 v9))
-          (let v11 nat (bin add a3 v10))
+          (let v9 nat (fin-val i2))
+          (let v10 nat (vget x0 v9))
+          (let v11 nat (add a3 v10))
           (ret v11))))
       (ret v12))))
 -/
@@ -646,11 +646,11 @@ reflect_def hintLoopC := hintLoop
           (let v5 nat (scope hint
             (block
               (let v3 nat (lit 1))
-              (let v4 nat (bin add a2 v3))
+              (let v4 nat (add a2 v3))
               (ret v4))))
           (let v6 nat (lit 1))
-          (let v7 nat (bin add a2 v6))
-          (let v8 bool (bin eq v5 v7))
+          (let v7 nat (add a2 v6))
+          (let v8 bool (eq v5 v7))
           (let v9 unit (op assert v8))
           (ret v5))))
       (ret v10))))

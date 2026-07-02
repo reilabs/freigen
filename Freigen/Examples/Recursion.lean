@@ -38,14 +38,14 @@ example : Closed NoOp NoScope [.nat] .nat := countdownC
   (rec countdown ((x0 nat)) nat
     (block
       (let v1 nat (lit 0))
-      (let v2 bool (bin eq x0 v1))
+      (let v2 bool (eq x0 v1))
       (if v2
         (block
           (let v3 nat (lit 0))
           (ret v3))
         (block
           (let v4 nat (lit 1))
-          (let v5 nat (bin sub x0 v4))
+          (let v5 nat (sub x0 v4))
           (let v6 nat (self v5))
           (ret v6)))))
   (main ((x7 nat)) nat
@@ -73,17 +73,17 @@ reflect_def smC := sm
   (rec sm ((x0 nat)) nat
     (block
       (let v1 nat (lit 0))
-      (let v2 bool (bin eq x0 v1))
+      (let v2 bool (eq x0 v1))
       (if v2
         (block
           (let v3 nat (lit 0))
           (ret v3))
         (block
           (let v4 nat (lit 1))
-          (let v5 nat (bin sub x0 v4))
+          (let v5 nat (sub x0 v4))
           (let v6 nat (self v5))
           (let v7 nat (lit 1))
-          (let v8 nat (bin add v6 v7))
+          (let v8 nat (add v6 v7))
           (ret v8)))))
   (main ((x9 nat)) nat
     (block
@@ -114,30 +114,30 @@ reflect_def sumAccC := sumAcc
 (program
   (rec sumAcc ((x0 (prod nat nat))) nat
     (block
-      (let v1 nat (un fst x0))
+      (let v1 nat (fst x0))
       (let v2 nat (lit 0))
-      (let v3 bool (bin eq v1 v2))
+      (let v3 bool (eq v1 v2))
       (if v3
         (block
-          (let v4 nat (un snd x0))
+          (let v4 nat (snd x0))
           (ret v4))
         (block
-          (let v5 nat (un fst x0))
+          (let v5 nat (fst x0))
           (let v6 nat (lit 1))
-          (let v7 nat (bin sub v5 v6))
-          (let v8 nat (un snd x0))
-          (let v9 nat (un fst x0))
+          (let v7 nat (sub v5 v6))
+          (let v8 nat (snd x0))
+          (let v9 nat (fst x0))
           (let v10 nat (lit 1))
-          (let v11 nat (bin sub v9 v10))
+          (let v11 nat (sub v9 v10))
           (let v12 nat (lit 1))
-          (let v13 nat (bin add v11 v12))
-          (let v14 nat (bin add v8 v13))
-          (let v15 (prod nat nat) (bin pair v7 v14))
+          (let v13 nat (add v11 v12))
+          (let v14 nat (add v8 v13))
+          (let v15 (prod nat nat) (pair v7 v14))
           (let v16 nat (self v15))
           (ret v16)))))
   (main ((x17 nat) (x18 nat)) nat
     (block
-      (let v19 (prod nat nat) (bin pair x17 x18))
+      (let v19 (prod nat nat) (pair x17 x18))
       (let v20 nat (call sumAcc v19))
       (ret v20))))
 -/
@@ -163,28 +163,28 @@ reflect_def countAssertsC := countAsserts
 (program
   (rec countAsserts ((x0 (prod nat bool))) nat
     (block
-      (let v1 nat (un fst x0))
+      (let v1 nat (fst x0))
       (let v2 nat (lit 0))
-      (let v3 bool (bin eq v1 v2))
+      (let v3 bool (eq v1 v2))
       (if v3
         (block
           (let v4 nat (lit 0))
           (ret v4))
         (block
-          (let v5 bool (un snd x0))
+          (let v5 bool (snd x0))
           (let v6 unit (op assert v5))
-          (let v7 nat (un fst x0))
+          (let v7 nat (fst x0))
           (let v8 nat (lit 1))
-          (let v9 nat (bin sub v7 v8))
-          (let v10 bool (un snd x0))
-          (let v11 (prod nat bool) (bin pair v9 v10))
+          (let v9 nat (sub v7 v8))
+          (let v10 bool (snd x0))
+          (let v11 (prod nat bool) (pair v9 v10))
           (let v12 nat (self v11))
           (let v13 nat (lit 1))
-          (let v14 nat (bin add v12 v13))
+          (let v14 nat (add v12 v13))
           (ret v14)))))
   (main ((x15 nat) (x16 bool)) nat
     (block
-      (let v17 (prod nat bool) (bin pair x15 x16))
+      (let v17 (prod nat bool) (pair x15 x16))
       (let v18 nat (call countAsserts v17))
       (ret v18))))
 -/
