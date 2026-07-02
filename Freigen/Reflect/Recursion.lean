@@ -365,8 +365,12 @@ def reflectRec (F recTy : Expr) (tps : Array Expr) (cName : Name) : TermElabM Ex
           mkAppOptM ``Code.call #[Op, SOp, Fp, Vp, ρTp, recArgsList, ρTp, frec, hl, cont]
         mkLambdaFVars #[hargs] body
       mkLambdaFVars #[frec] (← mkAppOptM ``Prog.main #[Op, SOp, Fp, Vp, mainArgsList, ρTp, mainLam])
+    let dispName := match cName with
+      | .str _ s => s
+      | n        => n.toString
     mkLambdaFVars #[Fp, Vp]
-      (← mkAppOptM ``Prog.rec_ #[Op, SOp, Fp, Vp, mainArgsList, ρTp, σTp, ρTp, recBodyG, mainK])
+      (← mkAppOptM ``Prog.rec_ #[Op, SOp, Fp, Vp, mainArgsList, ρTp, σTp, ρTp,
+                                 Lean.mkStrLit dispName, recBodyG, mainK])
   let closedTy ← mkAppOptM ``Closed #[Op, SOp, mainArgsList, ρTp]
   let kc ← mkAppM ``KC #[Op]
   let ofFreeFn ← mkAppOptM ``ofFree #[Op, SOp, ρT]

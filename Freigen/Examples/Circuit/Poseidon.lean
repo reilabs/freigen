@@ -1,5 +1,5 @@
 import Freigen.Reflect
-import Freigen.Examples.Circuit
+import Freigen.Examples.Circuit.Basic
 
 /-! # Poseidon hash over BN254 Fr (width t=3, x^5 S-box), implemented normally. -/
 

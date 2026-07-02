@@ -51,7 +51,6 @@ def main() =>
   let v3 ← get(v2)
   v3
 -/
-#guard_msgs (whitespace := lax) in
-  #eval IO.println (pp storeName (fun _ => "?") storeC)
+#guard_msgs (whitespace := lax) in #eval IO.println (pp storeName (fun _ => "?") storeC)
 
 end Freigen

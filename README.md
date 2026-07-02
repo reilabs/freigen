@@ -64,12 +64,14 @@ Five top-level concerns:
   a **symbolic** index at **any depth** (buried under effects, branches, or a helper call), including
   dynamically-sized `Array` reads.  A non-reifiable argument (an in-bounds proof `j < n`) is erased
   from the program inputs and instead quantifies the soundness statement.
-- **Examples** — `Freigen/Examples/` — `Circuit` (`CircOp` + scoped `hint`, `runCirc`/`conCirc`;
-  hints, helper-calling and input-taking circuits, monomorphisation, multi-argument helpers, a
-  `Vector` result, proof-erased vector get/set), `Storage` (hint-less `StoreOp`, operational
-  `runStore`), and `Recursion`
-  (`countdown`/`sm`).  Every example proves its `≈`-soundness and pins its result/AST with
-  `#guard_msgs`.
+- **Examples** — `Freigen/Examples/` — the `Circuit/` folder (`CircOp` + scoped `hint`,
+  `runCirc`/`conCirc`): `Circuit.Basic` exercises the features one by one (hints, helpers, inputs,
+  monomorphisation, collections, casts, pure and effectful loops) and `Circuit.Poseidon` is a real
+  circuit — the Poseidon hash over BN254 `Fr` (reference constants, static round schedule),
+  reflected with kept loops and folded definitions and pinned against the circomlib test vectors;
+  `Storage` (hint-less `StoreOp`, operational `runStore`); and `Recursion`
+  (`countdown`/`sm`, stateful `sumAcc`/`countAsserts`).  Every example proves its `≈`-soundness and
+  pins its statement/result/AST with `#guard_msgs`.
 
 ## One line
 

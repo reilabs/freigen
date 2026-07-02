@@ -1,6 +1,6 @@
 import Freigen.Reflect
 import Freigen.Free
-import Freigen.Examples.Circuit
+import Freigen.Examples.Circuit.Basic
 
 /-! # Recursion examples: `countdown` (tail), `sm` (non-tail), and stateful recursion
 (`sumAcc`, `countAsserts`), reflected into `rec_` programs. -/
@@ -28,23 +28,22 @@ example : Closed NoOp NoScope [.nat] .nat := countdownC
 
 -- The recursion pretty-prints as a `rec` definition with a self-call, plus `main` calling it.
 /-- info:
-rec f0(x1 : Nat) =>
-  let v2 := 0
-  let v3 := x1 == v2
-  if v3 then
-    let v4 := 0
-    v4
+rec countdown(x0 : Nat) =>
+  let v1 := 0
+  let v2 := x0 == v1
+  if v2 then
+    let v3 := 0
+    v3
   else
-    let v5 := 1
-    let v6 := x1 - v5
-    let v7 ← f0 (self-call)(v6)
-    v7
-def main(x8 : Nat) =>
-  let v9 := f0(x8)
-  v9
+    let v4 := 1
+    let v5 := x0 - v4
+    let v6 ← countdown (self-call)(v5)
+    v6
+def main(x7 : Nat) =>
+  let v8 := countdown(x7)
+  v8
 -/
-#guard_msgs (whitespace := lax) in
-  #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) countdownC)
+#guard_msgs (whitespace := lax) in #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) countdownC)
 
 /-- **Non-tail** recursion (`sm n + 1`): the self-call sits under a `bind`.  `reflect%` handles
     it through the same path — `interp_bind` pushes the post-call `+1` through. -/
@@ -60,25 +59,24 @@ reflect_def smC := sm
 
 -- The post-call `+1` sits *after* the self-call — non-tail recursion in the reflected body.
 /-- info:
-rec f0(x1 : Nat) =>
-  let v2 := 0
-  let v3 := x1 == v2
-  if v3 then
-    let v4 := 0
-    v4
+rec sm(x0 : Nat) =>
+  let v1 := 0
+  let v2 := x0 == v1
+  if v2 then
+    let v3 := 0
+    v3
   else
-    let v5 := 1
-    let v6 := x1 - v5
-    let v7 ← f0 (self-call)(v6)
-    let v8 := 1
-    let v9 := v7 + v8
-    v9
-def main(x10 : Nat) =>
-  let v11 := f0(x10)
-  v11
+    let v4 := 1
+    let v5 := x0 - v4
+    let v6 ← sm (self-call)(v5)
+    let v7 := 1
+    let v8 := v6 + v7
+    v8
+def main(x9 : Nat) =>
+  let v10 := sm(x9)
+  v10
 -/
-#guard_msgs (whitespace := lax) in
-  #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) smC)
+#guard_msgs (whitespace := lax) in #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) smC)
 
 /-! ## Stateful recursion: extra `Tp`-typed arguments thread through the tupled `rec_` state
 
@@ -99,34 +97,33 @@ reflect_def sumAccC := sumAcc
 #check sumAccC_sound
 
 /-- info:
-rec f0(x1 : (Nat × Nat)) =>
-  let v2 := .1 x1
-  let v3 := 0
-  let v4 := v2 == v3
-  if v4 then
-    let v5 := .2 x1
-    v5
+rec sumAcc(x0 : (Nat × Nat)) =>
+  let v1 := .1 x0
+  let v2 := 0
+  let v3 := v1 == v2
+  if v3 then
+    let v4 := .2 x0
+    v4
   else
-    let v6 := .1 x1
-    let v7 := 1
-    let v8 := v6 - v7
-    let v9 := .2 x1
-    let v10 := .1 x1
-    let v11 := 1
-    let v12 := v10 - v11
-    let v13 := 1
-    let v14 := v12 + v13
-    let v15 := v9 + v14
-    let v16 := (v8, v15)
-    let v17 ← f0 (self-call)(v16)
-    v17
-def main(x18 : Nat, x19 : Nat) =>
-  let v20 := (x18, x19)
-  let v21 := f0(v20)
-  v21
+    let v5 := .1 x0
+    let v6 := 1
+    let v7 := v5 - v6
+    let v8 := .2 x0
+    let v9 := .1 x0
+    let v10 := 1
+    let v11 := v9 - v10
+    let v12 := 1
+    let v13 := v11 + v12
+    let v14 := v8 + v13
+    let v15 := (v7, v14)
+    let v16 ← sumAcc (self-call)(v15)
+    v16
+def main(x17 : Nat, x18 : Nat) =>
+  let v19 := (x17, x18)
+  let v20 := sumAcc(v19)
+  v20
 -/
-#guard_msgs (whitespace := lax) in
-  #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) sumAccC)
+#guard_msgs (whitespace := lax) in #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) sumAccC)
 
 /-- **Effectful, non-tail, stateful**: an `assert` per unrolling (the `Bool` state rides along),
     and a `+1` *after* the self-call. -/
@@ -145,29 +142,29 @@ reflect_def countAssertsC := countAsserts
 #check countAssertsC_sound
 
 /-- info:
-rec f0(x1 : (Nat × Bool)) =>
-  let v2 := .1 x1
-  let v3 := 0
-  let v4 := v2 == v3
-  if v4 then
-    let v5 := 0
-    v5
+rec countAsserts(x0 : (Nat × Bool)) =>
+  let v1 := .1 x0
+  let v2 := 0
+  let v3 := v1 == v2
+  if v3 then
+    let v4 := 0
+    v4
   else
-    let v6 := .2 x1
-    let v7 ← assert(v6)
-    let v8 := .1 x1
-    let v9 := 1
-    let v10 := v8 - v9
-    let v11 := .2 x1
-    let v12 := (v10, v11)
-    let v13 ← f0 (self-call)(v12)
-    let v14 := 1
-    let v15 := v13 + v14
-    v15
-def main(x16 : Nat, x17 : Bool) =>
-  let v18 := (x16, x17)
-  let v19 := f0(v18)
-  v19
+    let v5 := .2 x0
+    let v6 ← assert(v5)
+    let v7 := .1 x0
+    let v8 := 1
+    let v9 := v7 - v8
+    let v10 := .2 x0
+    let v11 := (v9, v10)
+    let v12 ← countAsserts (self-call)(v11)
+    let v13 := 1
+    let v14 := v12 + v13
+    v14
+def main(x15 : Nat, x16 : Bool) =>
+  let v17 := (x15, x16)
+  let v18 := countAsserts(v17)
+  v18
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (ppCirc countAssertsC)
 

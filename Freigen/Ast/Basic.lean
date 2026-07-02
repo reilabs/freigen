@@ -77,11 +77,13 @@ inductive Code (Op : Type → Type → Type 1) (SOp : Type → Type)
   | scope {α β} : SOp β.denote → Code Op SOp F V β → (V β → Code Op SOp F V α) → Code Op SOp F V α
 
 /-- A whole program: a telescope of pulled-out function **definitions** (`def_`) ending in `main`.
-    Each `def_` binds a function name `F as b` the rest may `call`. -/
+    Each `def_` binds a function name `F as b` the rest may `call`.  The `String` is the
+    **display name** (the source definition's name, uniquified across monomorphisations) — consumed
+    only by the pretty-printer; semantically the binder is the PHOAS `F`-name. -/
 inductive Prog (Op : Type → Type → Type 1) (SOp : Type → Type)
     (F : List Tp → Tp → Type 1) (V : Tp → Type) (mainArgs : List Tp) (α : Tp) : Type 2
   | main : (HList V mainArgs → Code Op SOp F V α) → Prog Op SOp F V mainArgs α
-  | def_ {as b} : (HList V as → Code Op SOp F V b) →
+  | def_ {as b} : String → (HList V as → Code Op SOp F V b) →
       (F as b → Prog Op SOp F V mainArgs α) → Prog Op SOp F V mainArgs α
   /-- A **recursive** function definition `arg → res`.  Its body lives over the **call-extended
       signature** `CallOp Op` — a self-call is the `CallOp.call` operation — so it may recur in any
@@ -89,7 +91,7 @@ inductive Prog (Op : Type → Type → Type 1) (SOp : Type → Type)
       knot through `call`, not through a name).  This node's very existence makes a total `Prog →
       Free` map **impossible to define** (no `mrec` in an inductive monad): the AST can't promise
       termination. -/
-  | rec_ {arg res} :
+  | rec_ {arg res} : String →
       (∀ F', V arg → Code (CallOp Op arg.denote res.denote) SOp F' V res) →
       (F [arg] res → Prog Op SOp F V mainArgs α) → Prog Op SOp F V mainArgs α
 
@@ -137,9 +139,9 @@ def denote {Op : Type → Type → Type 1} {SOp : Type → Type} :
     cannot be denoted into a finite monad — the AST does not (and cannot) assume termination. -/
 def denoteProg {Op : Type → Type → Type 1} {SOp : Type → Type} {mainArgs : List Tp} {α : Tp} :
     Prog Op SOp (KC Op) Tp.denote mainArgs α → HList Tp.denote mainArgs → Comp Op α.denote
-  | .main body   => fun args => denote (body args)
-  | .def_ body k => denoteProg (k (fun a => denote (body a)))
-  | @Prog.rec_ _ _ _ _ _ _ arg res body k =>
+  | .main body     => fun args => denote (body args)
+  | .def_ _ body k => denoteProg (k (fun a => denote (body a)))
+  | @Prog.rec_ _ _ _ _ _ _ arg res _ body k =>
       denoteProg (k (fun args =>
         mrec (fun s => denote (body (KC (CallOp Op arg.denote res.denote)) s)) (HList.head args)))
 
@@ -211,19 +213,18 @@ private def ppProg {Op : Type → Type → Type 1} {SOp : Type → Type} {mainAr
       let (argv, i) := freshHList mainArgs i
       let (b, i) := ppCode name sname 1 i (body argv)
       (s!"def main({ppBinders mainArgs argv}) =>\n{b}", i)
-  | i, @Prog.def_ _ _ _ _ _ _ as _ body k =>
-      let f := s!"f{i}"; let i := i + 1
+  | i, @Prog.def_ _ _ _ _ _ _ as _ nm body k =>
       let (argv, i) := freshHList as i
       let (b, i) := ppCode name sname 1 i (body argv)
-      let (rest, i) := ppProg name sname i (k (ULift.up f))
-      (s!"def {f}({ppBinders as argv}) =>\n{b}\n{rest}", i)
-  | i, @Prog.rec_ _ _ _ _ _ _ arg res body k =>
-      let f := s!"f{i}"; let x := s!"x{i+1}"; let i := i + 2
+      let (rest, i) := ppProg name sname i (k (ULift.up nm))
+      (s!"def {nm}({ppBinders as argv}) =>\n{b}\n{rest}", i)
+  | i, @Prog.rec_ _ _ _ _ _ _ arg res nm body k =>
+      let x := s!"x{i}"; let i := i + 1
       let callName : {I R : Type} → Freigen.ITree.CallOp Op arg.denote res.denote I R → String :=
-        fun o => match o with | .base o' => name o' | .call => s!"{f} (self-call)"
+        fun o => match o with | .base o' => name o' | .call => s!"{nm} (self-call)"
       let (b, i) := ppCode callName sname 1 i (body PpF x)
-      let (rest, i) := ppProg name sname i (k (ULift.up f))
-      (s!"rec {f}({x} : {arg.toTypeStr}) =>\n{b}\n{rest}", i)
+      let (rest, i) := ppProg name sname i (k (ULift.up nm))
+      (s!"rec {nm}({x} : {arg.toTypeStr}) =>\n{b}\n{rest}", i)
 
 /-- Pretty-print a closed program. -/
 def pp {Op : Type → Type → Type 1} {SOp : Type → Type}

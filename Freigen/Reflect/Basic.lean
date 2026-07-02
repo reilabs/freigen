@@ -998,6 +998,17 @@ partial def reflectMain (foo : Expr) : TermElabM Expr := do
         Prod.fst <$> env.walk XTp topBody (env.mkRetT XTp)
       let _ ← withLocalDeclD `args hlistTy fun h => walkMain none h    -- pass 1: discovery
       let entries ← defs.get
+      -- display names: the source definition's name, uniquified across monomorphisations
+      let mut bases : Array String := #[]
+      let mut dispNames : Array String := #[]
+      for sig in entries do
+        let base := match sig.cName with
+          | .str _ s => s
+          | n        => n.toString
+        let dups := (bases.filter (· == base)).size
+        bases := bases.push base
+        dispNames := dispNames.push (if dups == 0 then base else s!"{base}_{dups + 1}")
+      let names := dispNames
       -- pass 2: rebuild each helper body under only the *earlier* `def_` binders (discovery is
       -- post-order, so callees precede callers), then `main` under all of them
       let rec buildTele (i : Nat) (resolved : Array (CallSig × Expr)) : MetaM Expr := do
@@ -1007,7 +1018,7 @@ partial def reflectMain (foo : Expr) : TermElabM Expr := do
           withLocalDeclD `f (mkApp2 F sig.asList sig.retTp) fun cf => do
             let rest ← buildTele (i + 1) (resolved.push (sig, cf))
             mkAppOptM ``Prog.def_ #[Op, SOp, F, V, mainArgsList, none, sig.asList, sig.retTp,
-                                    bodyLam, ← mkLambdaFVars #[cf] rest]
+                                    Lean.mkStrLit names[i]!, bodyLam, ← mkLambdaFVars #[cf] rest]
         else
           let mainLam ← withLocalDeclD `args hlistTy fun h => do
             mkLambdaFVars #[h] (← walkMain (some resolved) h)

@@ -5,15 +5,16 @@ import Freigen.Examples.Recursion
 /-!
 # Examples
 
-Each example bundles its `reflect%` soundness proof (`… ≈ ofFree …`) and pins its runtime result
-and pretty-printed AST with `#guard_msgs`, so the shown output can't drift from the code.
+Each example is reflected with `reflect_def` and pins its runtime result, its soundness statement,
+and its pretty-printed AST with `#guard_msgs`, so the shown output can't drift from the code.
 
-- `Freigen.Examples.Circuit` — the `CircOp` circuit DSL (first-order `assert` + scoped `hint`), with
-  `runCirc`/`conCirc` semantics.  Exercises: a hint + constraint, `main` calling helper `def_`s,
-  `main` taking inputs, a monomorphised polymorphic helper (`dbl {N} : ZMod N → …`, shared between
-  equal `N`s), a multi-argument helper, and a `Vector`-valued result.
+- `Freigen.Examples.Circuit` — a **folder** of circuit examples over the `CircOp` DSL (first-order
+  `assert` + scoped `hint`, `runCirc`/`conCirc` semantics): `Circuit.Basic` exercises the features
+  one by one (hints, helpers, inputs, monomorphisation, collections, casts, loops);
+  `Circuit.Poseidon` is a real circuit — the Poseidon hash over BN254 `Fr`, pinned against the
+  circomlib test vectors.
 - `Freigen.Examples.Storage` — the hint-less `StoreOp` DSL (`NoScope`): the same pipeline with the
   scoped slot empty, and an operational `runStore`.
-
-Recursion is exercised in `Freigen/Recursion.lean` (`countdown`, `sm`).
+- `Freigen.Examples.Recursion` — recursive sources (`countdown`, `sm`, stateful `sumAcc` /
+  `countAsserts`), reflected into `rec_` programs.
 -/
