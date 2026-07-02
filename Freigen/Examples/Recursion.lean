@@ -1,5 +1,6 @@
 import Freigen.Reflect
 import Freigen.Free
+import Freigen.Compile
 import Freigen.Examples.Circuit.Basic
 
 /-! # Recursion examples: `countdown` (tail), `sm` (non-tail), and stateful recursion
@@ -8,6 +9,11 @@ import Freigen.Examples.Circuit.Basic
 namespace Freigen
 
 inductive NoOp : Type → Type → Type 1
+
+/-- The DSL instance: both `NoOp` and `NoScope` are empty, so both namers are vacuous. -/
+instance : DSL NoOp NoScope where
+  opName o := nomatch o
+  scopeName s := s.elim
 
 /-- A tail-recursive `Free` function. -/
 def countdown : Nat → Free NoOp NoScope Nat
@@ -43,7 +49,7 @@ def main(x7 : Nat) =>
   let v8 := countdown(x7)
   v8
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) countdownC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render countdownC)
 
 /-- **Non-tail** recursion (`sm n + 1`): the self-call sits under a `bind`.  `reflect%` handles
     it through the same path — `interp_bind` pushes the post-call `+1` through. -/
@@ -76,7 +82,7 @@ def main(x9 : Nat) =>
   let v10 := sm(x9)
   v10
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) smC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render smC)
 
 /-! ## Stateful recursion: extra `Tp`-typed arguments thread through the tupled `rec_` state
 
@@ -123,7 +129,7 @@ def main(x17 : Nat, x18 : Nat) =>
   let v20 := sumAcc(v19)
   v20
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (pp (fun o => nomatch o) (fun s => nomatch s) sumAccC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render sumAccC)
 
 /-- **Effectful, non-tail, stateful**: an `assert` per unrolling (the `Bool` state rides along),
     and a `+1` *after* the self-call. -/
@@ -166,6 +172,6 @@ def main(x15 : Nat, x16 : Bool) =>
   let v18 := countAsserts(v17)
   v18
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc countAssertsC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render countAssertsC)
 
 end Freigen

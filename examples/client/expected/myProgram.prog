@@ -1,0 +1,12 @@
+def main() =>
+  let v1 ← hint unconstrained
+    let v0 := 15
+    v0
+  let v4 ← hint unconstrained
+    let v2 := 2
+    let v3 := v1 * v2
+    v3
+  let v5 := 30
+  let v6 := v4 == v5
+  let v7 ← assert(v6)
+  v7

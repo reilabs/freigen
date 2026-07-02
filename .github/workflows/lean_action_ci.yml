@@ -12,3 +12,34 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
+
+  # Build the downstream example client and assert the compiled artifacts.
+  # Exercises the whole `#compile` -> `lake build <lib>:prog` path (multi-artifact) from a
+  # plain-TOML consumer.
+  emit-example:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: "examples/client"
+          build-args: "Client:prog"
+
+      - name: Assert emitted artifacts match the golden files
+        working-directory: examples/client
+        run: |
+          status=0
+          for golden in expected/*.prog; do
+            name=$(basename "$golden")
+            if [ ! -f "out/$name" ]; then
+              echo "::error::out/$name was not emitted by 'lake build Client:prog'"
+              status=1
+            elif ! diff -u "$golden" "out/$name"; then
+              echo "::error::out/$name differs from $golden"
+              status=1
+            else
+              echo "OK: out/$name matches $golden"
+            fi
+          done
+          exit $status

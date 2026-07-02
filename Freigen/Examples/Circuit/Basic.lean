@@ -1,5 +1,6 @@
 import Freigen.Free
 import Freigen.Reflect
+import Freigen.Compile
 
 /-!
 # The `CircOp` circuit DSL
@@ -52,9 +53,10 @@ def conCirc {α} (p : Free CircOp HintS α) : (α → Prop) → Prop :=
 /-- Op names for the pretty-printer. -/
 def circName {I R : Type} : CircOp I R → String | .assert => "assert"
 
-/-- Pretty-print a closed `CircOp`/`HintS` program. -/
-def ppCirc {mainArgs α} (c : Closed CircOp HintS mainArgs α) : String :=
-  pp circName (fun _ => "hint") c
+/-- The DSL instance: op/scope naming for `render` and `#compile`. -/
+instance : DSL CircOp HintS where
+  opName := circName
+  scopeName _ := "hint"
 
 /-! ## A hint + a constraint -/
 
@@ -86,7 +88,7 @@ def main() =>
   let v4 ← assert(v3)
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render circC)
 
 /-! ## First-order functions: `main` calling helper subroutines
 
@@ -125,7 +127,7 @@ def main() =>
   let v10 ← assert(v9)
   v10
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circ2C)
+#guard_msgs (whitespace := lax) in #eval IO.println (render circ2C)
 
 /-! ## A `main` with inputs
 
@@ -151,7 +153,7 @@ def main(x0 : Nat) =>
   let v5 ← assert(v4)
   v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc checkSquareC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render checkSquareC)
 
 /-! ## Monomorphising a polymorphic helper
 
@@ -188,7 +190,7 @@ def main(x4 : Field<5>, x5 : Field<7>, x6 : Field<5>) =>
   let v10 := v7 + v9
   v10
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc monoC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render monoC)
 
 /-! ## A multi-argument helper -/
 
@@ -218,7 +220,7 @@ def main(x4 : Field<5>, x5 : Field<5>) =>
   let v8 := v6 + v7
   v8
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc multiC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render multiC)
 
 /-! ## A vector-valued result
 
@@ -237,7 +239,7 @@ def main() =>
   let v0 := #v[1, 2, 3]
   v0
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vecC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render vecC)
 
 /-! ## Proof-erased collection get / set
 
@@ -273,7 +275,7 @@ def main(x0 : Vector<Nat, 3>, x1 : Nat) =>
   let v5 := v2 + v4
   v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vgetSymC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render vgetSymC)
 
 /-- Write a value into symbolic slot `j` (`vset`), then read the same slot back (`vget`). -/
 def vsetSym (v : Vector Nat 3) (j : Nat) (h : j < 3) (x : Nat) : Free CircOp HintS Nat := do
@@ -293,7 +295,7 @@ def main(x0 : Vector<Nat, 3>, x1 : Nat, x2 : Nat) =>
   let v4 := v3[x1]
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vsetSymC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render vsetSymC)
 
 /-- A **dynamically-sized** `Array` read: the bound `j < a.size` is itself symbolic, yet the erased
     `aget` is still sound because the source proof `h` rules the failure out. -/
@@ -311,7 +313,7 @@ def main(x0 : Array<Nat>, x1 : Nat) =>
   let v2 := x0[x1]
   v2
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc agetSymC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render agetSymC)
 
 /-- **Read-after-write on a dynamic array**: `(a.set i x)[i]` — the get's collection is itself the
     `aset` node.  The array bound `i < (a.set i x).size` references that compound collection; soundness
@@ -334,7 +336,7 @@ def main(x0 : Array<Nat>, x1 : Nat, x2 : Nat) =>
   let v4 := v3[x1]
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc arrRWC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render arrRWC)
 
 /-! ### Deeper in the tree
 
@@ -370,7 +372,7 @@ def main(x6 : Vector<Nat, 4>) =>
   let v9 := v7 + v8
   v9
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc twiceC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render twiceC)
 
 /-- A **symbolic-bound array** get buried under an effect *and* inside a `bif` branch: the main-level
     proof `h : j < a.size` still rules the failure out, through the `assert`'s `vis` and the branch. -/
@@ -395,7 +397,7 @@ def main(x0 : Array<Nat>, x1 : Nat, x2 : Bool) =>
     let v5 := 0
     v5
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc deepArrC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render deepArrC)
 
 /-- A **symbolic get flowing as the argument of a helper call** (`quad (v[j]'h)`): the get is reflected
     at the call site and its bound is discharged there, while `quad` spills as `f0` — the compositional
@@ -427,7 +429,7 @@ def main(x5 : Vector<Nat, 3>, x6 : Nat) =>
   let v11 ← assert(v10)
   v11
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc viaHelperC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render viaHelperC)
 
 /-! ### Constructing collections
 
@@ -456,7 +458,7 @@ def main(x0 : Vector<Nat, 3>) =>
     v6
   v7
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc vdoubleC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render vdoubleC)
 
 /-! ### Casts between representations
 
@@ -480,7 +482,7 @@ def main(x0 : Array<Nat>) =>
   let v1 := x0 as Vector<_, 3>
   v1
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castAVC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render castAVC)
 
 /-- `nat → fin` upcast, and a `Fin` **input** downcast back to `Nat` (`i.val`). -/
 def castNF (k : Nat) (h : k < 5) (i : Fin 5) : Free CircOp HintS (Fin 5 × Nat) :=
@@ -500,7 +502,7 @@ def main(x0 : Nat, x1 : Fin<5>) =>
   let v4 := (v2, v3)
   v4
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc castNFC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render castNFC)
 
 open Freigen.ITree in
 /-- The partial upcasts fail on a mismatch, directly. -/
@@ -568,7 +570,7 @@ def main(x0 : Vector<Nat, 3>) =>
     v11
   v12
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc sumCheckedC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render sumCheckedC)
 
 /-- A **scoped `hint` block inside the loop body**, its witness constrained each iteration. -/
 def hintLoop : Free CircOp HintS Nat :=
@@ -601,6 +603,6 @@ def main() =>
     v5
   v10
 -/
-#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc hintLoopC)
+#guard_msgs (whitespace := lax) in #eval IO.println (render hintLoopC)
 
 end Freigen
