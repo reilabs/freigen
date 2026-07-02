@@ -63,6 +63,14 @@ inductive Code (Op : Type → Type → Type 1) (SOp : Type → Type)
   | vec   {α a n} : Vector (V a) n → (V (.vec a n) → Code Op SOp F V α) → Code Op SOp F V α
   /-- **Array construction** `#[e₀, …, eₙ₋₁]` from element atoms (a `List (V a)`). -/
   | arr   {α a} : List (V a) → (V (.array a) → Code Op SOp F V α) → Code Op SOp F V α
+  /-- A **bounded fold**: `n` iterations over an accumulator of type `a`, the body a full `Code`
+      block (ending in its own `ret`) indexed by `Fin n` — a **first-class loop**, kept as control
+      flow rather than unrolled, and **body-agnostic**: the block may contain anything (effects,
+      scopes, calls — reflected from `Fin.foldlM`) or be pure (from `Fin.foldl`).  The trip count
+      is static (a type index, like a vector length), so iteration is total and the denotation is
+      `tau`-free. -/
+  | fold  {α a n} : V a → (V (.fin n) → V a → Code Op SOp F V a) →
+      (V a → Code Op SOp F V α) → Code Op SOp F V α
   | op    {α I R} : Op I.denote R.denote → V I → (V R → Code Op SOp F V α) → Code Op SOp F V α
   | ite   {α} : V .bool → Code Op SOp F V α → Code Op SOp F V α → Code Op SOp F V α
   | call  {α as b} : F as b → HList V as → (V b → Code Op SOp F V α) → Code Op SOp F V α
@@ -93,6 +101,14 @@ def Closed (Op : Type → Type → Type 1) (SOp : Type → Type) (mainArgs : Lis
 abbrev KC (Op : Type → Type → Type 1) : List Tp → Tp → Type 1 :=
   fun as b => HList Tp.denote as → Comp Op b.denote
 
+/-- Effect-sequencing fold of a `Comp`-valued body over a list of indices — the denotation of a
+    bounded loop.  Total structural recursion on the index list: no `tau`s, so a pure body's fold
+    is *equal* (not merely `≈`) to the source's fold. -/
+def foldComp {Op : Type → Type → Type 1} {ι X : Type} (body : ι → X → Comp Op X) :
+    List ι → X → Comp Op X
+  | [],      acc => ITree.ret acc
+  | i :: is, acc => ITree.bind (body i acc) (fun acc' => foldComp body is acc')
+
 /-- **The AST's meaning** — denote a `Code` *uniformly* into the interaction-tree domain `Comp`
     (`V := Tp.denote`, `F := KC`).  A `call` binds a subroutine's result, a scoped block runs inline;
     nothing here knows or cares whether the program (or a callee) is recursive. -/
@@ -107,6 +123,9 @@ def denote {Op : Type → Type → Type 1} {SOp : Type → Type} :
       | none   => fail
   | _, .vec elems k => denote (k elems)
   | _, .arr elems k => denote (k elems.toArray)
+  | _, @Code.fold _ _ _ _ _ _ n init body k =>
+      ITree.bind (foldComp (fun i acc => denote (body i acc)) (List.finRange n) init)
+        (fun r => denote (k r))
   | _, .op o i k   => vis (Effect.mk o i) (fun r => denote (k r))
   | _, .ite c t e  => cond c (denote t) (denote e)
   | _, .call cf args k => ITree.bind (cf args) (fun r => denote (k r))
@@ -166,6 +185,11 @@ private def ppCode {Op : Type → Type → Type 1} {SOp : Type → Type} {α : T
   | d, i, .arr elems k =>
       let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
       (s!"{ppIndent d}let {v} := #[{String.intercalate ", " elems}]\n{r}", j)
+  | d, i, @Code.fold _ _ _ _ _ _ n init body k =>
+      let iv := s!"i{i}"; let av := s!"a{i+1}"
+      let (bs, j) := ppCode name sname (d+1) (i+2) (body iv av)
+      let v := s!"v{j}"; let (r, l) := ppCode name sname d (j+1) (k v)
+      (s!"{ppIndent d}let {v} := fold {n} from {init} with ({iv} : Fin<{n}>, {av}) =>\n{bs}\n{r}", l)
   | d, i, .op o inp k =>
       let v := s!"v{i}"; let (r, j) := ppCode name sname d (i+1) (k v)
       (s!"{ppIndent d}let {v} ← {name o}({inp})\n{r}", j)

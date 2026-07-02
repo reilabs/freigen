@@ -1,3 +1,4 @@
+import Batteries.Data.Fin.Fold
 import Freigen.Ast
 import Freigen.Free
 import Freigen.ITree
@@ -80,6 +81,85 @@ theorem sc_natToFin {α : Tp} {n : Nat} (m : Nat)
     denote (Code.pop .natToFin (.cons m .nil) kk) = denote (kk ⟨m, h⟩) :=
   sc_pop .natToFin (.cons m .nil) kk (by exact dif_pos h)
 
+/-- **Strict select** — total (`POp.denote` is always `some`), so no source proof is needed. -/
+theorem sc_select {α a : Tp} (c : Bool) (x y : a.denote)
+    (kk : a.denote → Code Op SOp (KC Op) Tp.denote α) :
+    denote (Code.pop .select (.cons c (.cons x (.cons y .nil))) kk)
+      = denote (kk (bif c then x else y)) :=
+  sc_pop .select (.cons c (.cons x (.cons y .nil))) kk rfl
+
+/-! ## Pure `if` bridges — a decidable `ite` equals a strict boolean select -/
+
+/-- A decidable `if` is the `bif` of its `decide` — bridges a source `ite` to the reflected
+    `select`'s boolean (whose `Bin.denote` is `decide`-shaped). -/
+theorem ite_decide {p : Prop} [Decidable p] {X : Type} (t e : X) :
+    (if p then t else e) = bif decide p then t else e := by
+  by_cases h : p <;> simp [h]
+
+/-- `Nat` equality: the source's `decide (x = y)` is bridged to the reflected `==` (`Nat.beq`). -/
+theorem ite_nat_eq (x y : Nat) {X : Type} (t e : X) :
+    (if x = y then t else e) = bif x == y then t else e := by
+  cases hb : x == y with
+  | true  => rw [cond_true, if_pos (eq_of_beq hb)]
+  | false => rw [cond_false, if_neg (ne_of_beq_false hb)]
+
+/-- A `Bool`-coerced `if` (`if b then …` elaborating to `ite (b = true)`) is its own `bif`. -/
+theorem ite_bool (b : Bool) {X : Type} (t e : X) :
+    (if b = true then t else e) = bif b then t else e := by cases b <;> rfl
+
+/-! ## Bounded folds — the loop node's step, by induction over the index list -/
+
+/-- A pure-bodied `foldComp` is the `ret` of the plain list fold. -/
+theorem foldComp_pure {ι X : Type} (body : ι → X → Comp Op X) (f : X → ι → X)
+    (hb : ∀ i acc, body i acc = ret (f acc i)) :
+    ∀ (is : List ι) (acc : X), foldComp body is acc = ret (is.foldl f acc) := by
+  intro is
+  induction is with
+  | nil => intro acc; rfl
+  | cons i is ih => intro acc; simp only [foldComp, List.foldl, hb, bind_ret, ih]
+
+/-- **Bounded fold, pure body** (`Code.fold` vs the source's `Fin.foldl`, in atom position): a pure
+    loop body (its denotation is `ret` of the source's step, pointwise — `hb`, the reflected body's
+    own equations) makes the loop node's denotation *equal* to the source fold. -/
+theorem sc_fold {α a : Tp} {n : Nat} (init : a.denote) (f : a.denote → Fin n → a.denote)
+    (body : Fin n → a.denote → Code Op SOp (KC Op) Tp.denote a)
+    (kk : a.denote → Code Op SOp (KC Op) Tp.denote α)
+    (hb : ∀ i acc, denote (body i acc) = ret (f acc i)) :
+    denote (Code.fold init body kk) = denote (kk (Fin.foldl n f init)) := by
+  show ITree.bind (foldComp (fun i acc => denote (body i acc)) (List.finRange n) init)
+        (fun r => denote (kk r)) = _
+  rw [foldComp_pure _ f hb, bind_ret, ← Fin.foldl_eq_foldl_finRange]
+
+/-- `ofFree` of a `List.foldlM` over `Free` is the effect-sequencing `foldComp` (a monad-morphism
+    fold, by induction on the index list). -/
+theorem ofFree_foldlM {X ι : Type} (f : X → ι → Free Op SOp X) :
+    ∀ (is : List ι) (acc : X),
+      ofFree (List.foldlM f acc is) = foldComp (fun i a => ofFree (f a i)) is acc := by
+  intro is
+  induction is with
+  | nil => intro acc; rfl
+  | cons i is ih =>
+      intro acc
+      show ofFree (Free.bind (f acc i) (fun a => List.foldlM f a is)) = _
+      rw [ofFree_bind]
+      exact congrArg _ (funext fun a => ih a)
+
+/-- **Bounded fold, any body** (`Code.fold` vs the source's `Fin.foldlM`, in walk position — the
+    loop construct is body-agnostic): each reflected body block `ofFree`-adequate pointwise (`hb`,
+    the blocks' own `walkTop` equations) gives the node's (★) step against the monadic fold. -/
+theorem sc_foldM {α a : Tp} {n : Nat} (init : a.denote)
+    (f : a.denote → Fin n → Free Op SOp a.denote)
+    (body : Fin n → a.denote → Code Op SOp (KC Op) Tp.denote a)
+    (K' : a.denote → Code Op SOp (KC Op) Tp.denote α)
+    (hb : ∀ i acc, denote (body i acc) = ofFree (f acc i)) :
+    denote (Code.fold init body K')
+      = ITree.bind (ofFree (Fin.foldlM n f init)) (fun r => denote (K' r)) := by
+  show ITree.bind (foldComp (fun i acc => denote (body i acc)) (List.finRange n) init)
+        (fun r => denote (K' r)) = _
+  rw [show (fun i acc => denote (body i acc)) = (fun i acc => ofFree (f acc i)) from
+        funext fun i => funext fun acc => hb i acc,
+      Fin.foldlM_eq_foldlM_finRange, ofFree_foldlM]
+
 /-! ## Node steps of the invariant (★) -/
 
 /-- A `pure a` reflected via its continuation: `Kf a`, un-bound by `bind_ret`. -/
@@ -134,5 +214,15 @@ theorem sc_call {as : List Tp} {b α : Tp}
     denote (Code.call cf args K') = ITree.bind m (fun r => denote (K' r)) := by
   show ITree.bind (cf args) (fun r => denote (K' r)) = ITree.bind m (fun r => denote (K' r))
   rw [hcf]
+
+/-- A call to a **pure** helper (spilled as a `def_` to keep definitions folded): its subroutine
+    returns (`hcf : cf args = ret v`, the helper's own memoized equation), so the call node steps
+    straight to its continuation at the value. -/
+theorem sc_callPure {as : List Tp} {b α : Tp}
+    (cf : HList Tp.denote as → Comp Op b.denote) (args : HList Tp.denote as) {v : b.denote}
+    (kk : b.denote → Code Op SOp (KC Op) Tp.denote α) (hcf : cf args = ret v) :
+    denote (Code.call cf args kk) = denote (kk v) := by
+  show ITree.bind (cf args) (fun r => denote (kk r)) = denote (kk v)
+  rw [hcf, bind_ret]
 
 end Freigen

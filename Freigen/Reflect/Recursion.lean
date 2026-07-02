@@ -291,8 +291,9 @@ def reflectRec (F recTy : Expr) (tps : Array Expr) (cName : Name) : TermElabM Ex
   let mainArgsList ← mkListLit tpTy mainTps.toList
   let fTy ← mkArrow (← mkAppM ``List #[tpTy]) (← mkArrow tpTy (mkSort (.succ (.succ .zero))))
   let vTy ← mkArrow tpTy (mkSort (.succ .zero))
-  let defs ← IO.mkRef (#[] : Array DefEntry)
+  let defs ← IO.mkRef (#[] : Array CallSig)
   let pfDefs ← IO.mkRef (#[] : Array PfDefEntry)
+  let inFlight ← IO.mkRef (#[] : Array Name)
   let fFn := .const cName []
   -- `fW` : the source over the tupled state; `μE` : the structural measure (the `Nat` component)
   let (fW, μE) ← withLocalDeclD `s σT fun s => do
@@ -309,7 +310,7 @@ def reflectRec (F recTy : Expr) (tps : Array Expr) (cName : Name) : TermElabM Ex
       let codeT ← withLocalDeclD `s σT fun s => withLocalDeclD `rec recTy fun rec => do
         let cbT ← toCallBody rec.fvarId! Op SOp σT ρT ((F.beta #[rec]).beta #[s])
         let env : Env := { Op := callOp, SOp, F := F', V := Vp0, subst := [(s.fvarId!, argAtom)],
-                           defs, pfDefs }
+                           defs, pfDefs, inFlight, noSpill := true }
         Prod.fst <$> env.walk ρTp cbT (env.mkRetT ρTp)
       mkLambdaFVars #[Vp0, F', argAtom] codeT
   -- `bodyCode` : `recBody` at `V := Tp.denote`, `F := KC callOp` — what `recSound`/`denoteProg` see
@@ -319,7 +320,8 @@ def reflectRec (F recTy : Expr) (tps : Array Expr) (cName : Name) : TermElabM Ex
   -- **compositionally** (`walkTop` in proof mode), no `simp`.
   let hspecPrf ← withLocalDeclD `N σT fun N => do
     let penv : Env := { Op := callOp, SOp, F := kcCallOp, V := denoteV,
-                        subst := [(N.fvarId!, N)], defs, pfDefs, pf := true }
+                        subst := [(N.fvarId!, N)], defs, pfDefs, inFlight, noSpill := true,
+                        pf := true }
     let (_, pf?) ← penv.walkTop ρTp (cb.beta #[N])
     let some proof := pf? | throwError "reflect%: internal: recursion proof mode produced no proof"
     let want ← mkEq (← mkAppM ``denote #[bodyCode.beta #[N]]) (← mkAppM ``ofFree #[cb.beta #[N]])

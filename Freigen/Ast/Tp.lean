@@ -79,11 +79,15 @@ inductive Bin : Tp → Tp → Tp → Type
   | mul : Bin .nat .nat .nat
   | pow : Bin .nat .nat .nat
   | eq  : Bin .nat .nat .bool
+  | lt  : Bin .nat .nat .bool
+  | ble : Bin .nat .nat .bool
   | and : Bin .bool .bool .bool
   | or  : Bin .bool .bool .bool
   | addZ {n : Nat} : Bin (.zmod n) (.zmod n) (.zmod n)
   | subZ {n : Nat} : Bin (.zmod n) (.zmod n) (.zmod n)
   | mulZ {n : Nat} : Bin (.zmod n) (.zmod n) (.zmod n)
+  /-- Field power with a `Nat` exponent. -/
+  | powZ {n : Nat} : Bin (.zmod n) .nat (.zmod n)
   | pair {a b : Tp} : Bin a b (.prod a b)
 
 /-- Denote a unary primitive to its Lean operation. -/
@@ -103,11 +107,14 @@ def Bin.denote {a b c : Tp} : Bin a b c → a.denote → b.denote → c.denote
   | .mul,  x, y => x * y
   | .pow,  x, y => x ^ y
   | .eq,   x, y => x == y
+  | .lt,   x, y => decide (x < y)
+  | .ble,  x, y => decide (x ≤ y)
   | .and,  x, y => x && y
   | .or,   x, y => x || y
   | .addZ, x, y => x + y
   | .subZ, x, y => x - y
   | .mulZ, x, y => x * y
+  | .powZ, x, y => x ^ y
   | .pair, x, y => (x, y)
 
 /-- **Partial** primitive operations, indexed by (argument list, result) object types.  These are
@@ -129,6 +136,9 @@ inductive POp : List Tp → Tp → Type
   | arrToVec {a : Tp} {n : Nat} : POp [.array a] (.vec a n)
   /-- **Upcast** `nat → fin n` (erased: `m < n`). -/
   | natToFin {n : Nat} : POp [.nat] (.fin n)
+  /-- **Strict select** `c ? x : y` — both branches evaluated, the boolean picks.  Total (its
+      denotation is always `some`); lives here so pure `if` needs no continuation duplication. -/
+  | select {a : Tp} : POp [.bool, a, a] a
 
 /-- Denote a partial primitive; `none` is the erased proof obligation failing. -/
 def POp.denote : {as : List Tp} → {b : Tp} → POp as b → HList Tp.denote as → Option b.denote
@@ -144,6 +154,8 @@ def POp.denote : {as : List Tp} → {b : Tp} → POp as b → HList Tp.denote as
       if h : arr.size = n then some ⟨arr, h⟩ else none
   | _, _, @POp.natToFin n, .cons m .nil =>
       if h : m < n then some ⟨m, h⟩ else none
+  | _, _, .select, .cons c (.cons x (.cons y .nil)) =>
+      some (bif c then x else y)
 
 /-! ## Pretty-printing helpers -/
 
@@ -183,8 +195,9 @@ def Un.sym {a b : Tp} : Un a b → String
 
 /-- Symbol for a binary primitive. -/
 def Bin.sym {a b c : Tp} : Bin a b c → String
-  | .add => "+" | .sub => "-" | .mul => "*" | .pow => "^" | .eq => "==" | .and => "&&" | .or => "||"
-  | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .pair => ","
+  | .add => "+" | .sub => "-" | .mul => "*" | .pow => "^" | .eq => "==" | .lt => "<" | .ble => "≤"
+  | .and => "&&" | .or => "||"
+  | .addZ => "+" | .subZ => "-" | .mulZ => "*" | .powZ => "^" | .pair => ","
 
 /-- Render a partial primitive applied to (already pretty-printed) argument strings. -/
 def POp.render : {as : List Tp} → {b : Tp} → POp as b → HList (fun _ => String) as → String
@@ -194,5 +207,6 @@ def POp.render : {as : List Tp} → {b : Tp} → POp as b → HList (fun _ => St
   | _, _, .aset, .cons v (.cons i (.cons x .nil))   => s!"{v} with [{i}] := {x}"
   | _, _, @POp.arrToVec _ n, .cons arr .nil         => s!"{arr} as Vector<_, {n}>"
   | _, _, @POp.natToFin n, .cons m .nil             => s!"{m} as Fin<{n}>"
+  | _, _, .select, .cons c (.cons x (.cons y .nil)) => s!"{c} ? {x} : {y}"
 
 end Freigen

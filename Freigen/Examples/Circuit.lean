@@ -106,21 +106,24 @@ reflect_def circ2C := circ2
 #guard_msgs (whitespace := lax) in
 #check circ2C_sound
 
--- `quad` is spilled as `f0` (with `double` inlined), and `main` calls it.
+-- `double` and `quad` each spill (`f0`, `f3`) — helper bodies may call earlier helpers.
 /-- info:
 def f0(x1 : Nat) =>
   let v2 := x1 + x1
-  let v3 := v2 + v2
-  v3
-def main() =>
-  let v5 ← hint unconstrained
-    let v4 := 3
-    v4
+  v2
+def f3(x4 : Nat) =>
+  let v5 := f0(x4)
   let v6 := f0(v5)
-  let v7 := 12
-  let v8 := v6 == v7
-  let v9 ← assert(v8)
-  v9
+  v6
+def main() =>
+  let v8 ← hint unconstrained
+    let v7 := 3
+    v7
+  let v9 := f3(v8)
+  let v10 := 12
+  let v11 := v9 == v10
+  let v12 ← assert(v11)
+  v12
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (ppCirc circ2C)
 
@@ -411,15 +414,18 @@ reflect_def viaHelperC := viaHelper
 /-- info:
 def f0(x1 : Nat) =>
   let v2 := x1 + x1
-  let v3 := v2 + v2
-  v3
-def main(x4 : Vector<Nat, 3>, x5 : Nat) =>
-  let v6 := x4[x5]
-  let v7 := f0(v6)
-  let v8 := 0
-  let v9 := v7 == v8
-  let v10 ← assert(v9)
-  v10
+  v2
+def f3(x4 : Nat) =>
+  let v5 := f0(x4)
+  let v6 := f0(v5)
+  v6
+def main(x7 : Vector<Nat, 3>, x8 : Nat) =>
+  let v9 := x7[x8]
+  let v10 := f3(v9)
+  let v11 := 0
+  let v12 := v10 == v11
+  let v13 ← assert(v12)
+  v13
 -/
 #guard_msgs (whitespace := lax) in #eval IO.println (ppCirc viaHelperC)
 
@@ -537,5 +543,73 @@ open Freigen.ITree in
 example : denote (Op := CircOp) (SOp := HintS)
     (Code.pop (.aget (a := .nat)) (.cons (#[10, 20, 30] : Array Nat) (.cons 7 .nil))
       (fun x => .ret x)) = fail := rfl
+
+/-! ### Loops with effectful bodies
+
+The `fold` node is **body-agnostic**: `Fin.foldlM` over the `Free` monad reflects to the *same*
+loop node with effects inside the body — an `assert` per iteration, or even a scoped `hint`
+block.  The loop is kept as control flow either way; nothing is unrolled. -/
+
+/-- Assert every lane equals its index while summing the lanes — an `assert` per iteration. -/
+def sumChecked (v : Vector Nat 3) : Free CircOp HintS Nat :=
+  Fin.foldlM 3 (fun acc i => do
+    let _ ← assert (v[i] == i.val)
+    pure (acc + v[i])) 0
+
+reflect_def sumCheckedC := sumChecked
+/-- info: Freigen.sumCheckedC_sound (v : Vector ℕ 3) :
+  ITree.Eutt (denoteProg (sumCheckedC (KC CircOp) Tp.denote) (HList.cons v HList.nil)) (ofFree (sumChecked v)) -/
+#guard_msgs (whitespace := lax) in
+#check sumCheckedC_sound
+
+/-- info:
+def main(x0 : Vector<Nat, 3>) =>
+  let v1 := 0
+  let v12 := fold 3 from v1 with (i2 : Fin<3>, a3) =>
+    let v4 := .val i2
+    let v5 := x0[v4]
+    let v6 := .val i2
+    let v7 := v5 == v6
+    let v8 ← assert(v7)
+    let v9 := .val i2
+    let v10 := x0[v9]
+    let v11 := a3 + v10
+    v11
+  v12
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc sumCheckedC)
+
+/-- A **scoped `hint` block inside the loop body**, its witness constrained each iteration. -/
+def hintLoop : Free CircOp HintS Nat :=
+  Fin.foldlM 4 (fun acc _ => do
+    let h ← hint (pure (acc + 1))
+    let _ ← assert (h == acc + 1)
+    pure h) 0
+
+reflect_def hintLoopC := hintLoop
+/-- info: Freigen.hintLoopC_sound :
+  ITree.Eutt (denoteProg (hintLoopC (KC CircOp) Tp.denote) HList.nil) (ofFree hintLoop) -/
+#guard_msgs (whitespace := lax) in
+#check hintLoopC_sound
+
+/-- info: some 4 -/
+#guard_msgs in #eval runCirc hintLoop
+
+/-- info:
+def main() =>
+  let v0 := 0
+  let v10 := fold 4 from v0 with (i1 : Fin<4>, a2) =>
+    let v5 ← hint unconstrained
+      let v3 := 1
+      let v4 := a2 + v3
+      v4
+    let v6 := 1
+    let v7 := a2 + v6
+    let v8 := v5 == v7
+    let v9 ← assert(v8)
+    v5
+  v10
+-/
+#guard_msgs (whitespace := lax) in #eval IO.println (ppCirc hintLoopC)
 
 end Freigen
