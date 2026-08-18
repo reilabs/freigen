@@ -1,5 +1,6 @@
 import Freigen.F2Z.Examples.Sha256.Model
 import Freigen.F2Z.Examples.Sha256.Proofs
+import Freigen.F2Z.Examples.Sha256.FastWitgenCorrectness.Output
 
 namespace Freigen.F2Z.Examples
 
@@ -82,5 +83,24 @@ theorem permCirc'_sound (input : Vector Bool 768) (wit : Nat → Bool)
     exact ht True.intro
   · exact fun i => (hWit i).symm
   · exact hsatisfies
+
+namespace Sha256FastWitgen
+
+open Freigen.F2Z.Semantics
+
+/-- The directly callable optimized witgen agrees with
+`Witgen.runWithInputs sha2562KBCircuit`, up to the explicit
+least-significant-bit-first embedding of its packed `UInt64` output. -/
+theorem sha2562KBFastWitgenFromBits_eq_runWithInputs_upToEmbedding
+    (message : Vector Bool sha2562KBMessageBits) :
+    ∃ bits : Array Bool,
+      Witgen.runWithInputs sha2562KBCircuit message = some bits ∧
+      Sha2562KBPackedWitness.Embeds
+        (sha2562KBFastWitgenFromBits message) bits.toList := by
+  unfold sha2562KBFastWitgenFromBits
+  exact sha2562KBFastWitgen_eq_runWithInputs_upToEmbedding
+    (packSha2562KBMessage_rel message)
+
+end Sha256FastWitgen
 
 end Freigen.F2Z.Examples

@@ -26,19 +26,18 @@ def witnessWords : Nat := (witnessBits + 63) / 64
 #guard witnessBits = 226792
 #guard witnessWords = 3544
 
-private structure WitnessBuilder where
+structure WitnessBuilder where
   words : Array UInt64
   pending : UInt64
   pendingBits : Nat
 
-private def WitnessBuilder.withInput
-    (message : Sha2562KBPackedMessage) : WitnessBuilder := Id.run do
-  let mut words := Array.mkEmpty witnessWords
-  for word in message do
-    words := words.push word
-  return { words, pending := 0, pendingBits := 0 }
+def WitnessBuilder.withInput
+    (message : Sha2562KBPackedMessage) : WitnessBuilder :=
+  { words := (Array.mkEmpty witnessWords).append message.toArray
+    pending := 0
+    pendingBits := 0 }
 
-private structure HashState where
+structure HashState where
   s0 : UInt32
   s1 : UInt32
   s2 : UInt32
@@ -48,7 +47,7 @@ private structure HashState where
   s6 : UInt32
   s7 : UInt32
 
-private def initialState : HashState where
+def initialState : HashState where
   s0 := 0x6a09e667
   s1 := 0xbb67ae85
   s2 := 0x3c6ef372
@@ -58,7 +57,7 @@ private def initialState : HashState where
   s6 := 0x1f83d9ab
   s7 := 0x5be0cd19
 
-private def roundConstants : Vector UInt32 64 := #v[
+def roundConstants : Vector UInt32 64 := #v[
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
   0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -77,29 +76,29 @@ private def roundConstants : Vector UInt32 64 := #v[
   0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 ]
 
-@[inline] private def rotateRight (x : UInt32) (n : UInt32) : UInt32 :=
+@[inline] def rotateRight (x : UInt32) (n : UInt32) : UInt32 :=
   (x >>> n) ||| (x <<< (32 - n))
 
-@[inline] private def smallSigma0 (x : UInt32) : UInt32 :=
+@[inline] def smallSigma0 (x : UInt32) : UInt32 :=
   rotateRight x 7 ^^^ rotateRight x 18 ^^^ (x >>> 3)
 
-@[inline] private def smallSigma1 (x : UInt32) : UInt32 :=
+@[inline] def smallSigma1 (x : UInt32) : UInt32 :=
   rotateRight x 17 ^^^ rotateRight x 19 ^^^ (x >>> 10)
 
-@[inline] private def bigSigma0 (x : UInt32) : UInt32 :=
+@[inline] def bigSigma0 (x : UInt32) : UInt32 :=
   rotateRight x 2 ^^^ rotateRight x 13 ^^^ rotateRight x 22
 
-@[inline] private def bigSigma1 (x : UInt32) : UInt32 :=
+@[inline] def bigSigma1 (x : UInt32) : UInt32 :=
   rotateRight x 6 ^^^ rotateRight x 11 ^^^ rotateRight x 25
 
-@[inline] private def choose (e f g : UInt32) : UInt32 :=
+@[inline] def choose (e f g : UInt32) : UInt32 :=
   (e &&& f) ^^^ ((~~~e) &&& g)
 
-@[inline] private def majority (a b c : UInt32) : UInt32 :=
+@[inline] def majority (a b c : UInt32) : UInt32 :=
   (a &&& b) ^^^ (a &&& c) ^^^ (b &&& c)
 
 /-- Reverse all 32 bits using five mask-and-swap stages. -/
-@[inline] private def reverseBits32 (x : UInt32) : UInt32 :=
+@[inline] def reverseBits32 (x : UInt32) : UInt32 :=
   let x : UInt32 := ((x >>> 1) &&& (0x55555555 : UInt32)) |||
     ((x &&& (0x55555555 : UInt32)) <<< 1)
   let x : UInt32 := ((x >>> 2) &&& (0x33333333 : UInt32)) |||
@@ -113,7 +112,7 @@ private def roundConstants : Vector UInt32 64 := #v[
 /-- Append the little-endian bit decomposition used by `U.fromInt` and
 `U.fromDoubledInt35`. Since every appended value is at most 35 bits wide, at
 most one packed word is completed per call. -/
-@[inline] private def appendBitsLE
+@[inline] def appendBitsLE
     (builder : WitnessBuilder) (value : UInt64) (width : Nat) :
     WitnessBuilder :=
   let totalBits := builder.pendingBits + width
@@ -129,96 +128,149 @@ most one packed word is completed per call. -/
 
 /-- Derive the SHA-256 words from packed circuit inputs and append the fixed
 padding block. The resulting array contains exactly 33 blocks. -/
-private def preparePackedInput
+def preparePackedInput
     (message : Sha2562KBPackedMessage) :
-    Array UInt32 × WitnessBuilder := Id.run do
-  let mut blocks := Array.mkEmpty (33 * 16)
-  let builder := WitnessBuilder.withInput message
-  for packed in message do
-    blocks := blocks.push (reverseBits32 packed.toUInt32)
-    blocks := blocks.push (reverseBits32 (packed >>> 32).toUInt32)
-  blocks := blocks.push 0x80000000
-  for _ in [0:14] do
-    blocks := blocks.push 0
-  blocks := blocks.push 0x00004000
-  return (blocks, builder)
+    Array UInt32 × WitnessBuilder :=
+  let blocks := Array.ofFn fun i : Fin (33 * 16) =>
+    if i.val < 32 * 16 then
+      let packed := message[i.val / 2]!
+      if i.val % 2 = 0 then reverseBits32 packed.toUInt32
+      else reverseBits32 (packed >>> 32).toUInt32
+    else if i.val = 32 * 16 then 0x80000000
+    else if i.val = 33 * 16 - 1 then 0x00004000
+    else 0
+  (blocks, WitnessBuilder.withInput message)
 
-/-- Emit one compression block's hints in precisely the allocation order of
-`permCircuit`, returning the next chaining state. -/
-private def compress
-    (blocks : Array UInt32) (block : Nat) (state : HashState)
-    (builder : WitnessBuilder) : HashState × WitnessBuilder := Id.run do
-  let mut builder := builder
+@[inline] def initialScheduleWordsLoop (blocks : Array UInt32) (block : Nat) :
+    (i remaining : Nat) → Array UInt32 → Array UInt32
+  | _, 0, schedule => schedule
+  | i, remaining + 1, schedule =>
+      initialScheduleWordsLoop blocks block (i + 1) remaining
+        (schedule.push blocks[block * 16 + i]!)
 
-  -- Message schedule: the first 16 words allocate no Boolean witnesses.
-  let mut schedule := Array.mkEmpty 64
-  for i in [0:16] do
-    schedule := schedule.push blocks[block * 16 + i]!
-  for i in [16:64] do
+@[inline] def initialScheduleWords
+    (blocks : Array UInt32) (block : Nat) : Array UInt32 :=
+  initialScheduleWordsLoop blocks block 0 16 (Array.mkEmpty 64)
+
+@[inline] def extendScheduleWordsLoop :
+    (i remaining : Nat) → Array UInt32 → WitnessBuilder →
+      Array UInt32 × WitnessBuilder
+  | _, 0, schedule, builder => (schedule, builder)
+  | i, remaining + 1, schedule, builder =>
     let wide := schedule[i - 16]!.toUInt64 +
       (smallSigma0 schedule[i - 15]!).toUInt64 +
       schedule[i - 7]!.toUInt64 +
       (smallSigma1 schedule[i - 2]!).toUInt64
-    builder := appendBitsLE builder wide 34
-    schedule := schedule.push wide.toUInt32
+    extendScheduleWordsLoop (i + 1) remaining
+      (schedule.push wide.toUInt32) (appendBitsLE builder wide 34)
 
-  let mut a := state.s0
-  let mut b := state.s1
-  let mut c := state.s2
-  let mut d := state.s3
-  let mut e := state.s4
-  let mut f := state.s5
-  let mut g := state.s6
-  let mut h := state.s7
+@[inline] def extendScheduleWords
+    (schedule : Array UInt32) (builder : WitnessBuilder) :
+    Array UInt32 × WitnessBuilder :=
+  extendScheduleWordsLoop 16 48 schedule builder
 
-  for hi:i in [0:64] do
-    let s1 := bigSigma1 e
-    let ch := choose e f g
-    let s0 := bigSigma0 a
-    let maj := majority a b c
-    let ki := roundConstants[i]
-    let wi := schedule[i]!
+structure WorkingState where
+  a : UInt32
+  b : UInt32
+  c : UInt32
+  d : UInt32
+  e : UInt32
+  f : UInt32
+  g : UInt32
+  h : UInt32
 
-    -- These are the quotients witnessed by the two doubled-sum gadgets.
-    let newEWide := d.toUInt64 + h.toUInt64 + s1.toUInt64 +
-      ki.toUInt64 + wi.toUInt64 + ch.toUInt64
-    builder := appendBitsLE builder newEWide 35
+@[inline] def WorkingState.ofHashState (state : HashState) : WorkingState :=
+  ⟨state.s0, state.s1, state.s2, state.s3,
+    state.s4, state.s5, state.s6, state.s7⟩
+
+@[inline] def roundEWideUInt64 (schedule : Array UInt32) (i : Nat)
+    (working : WorkingState) : UInt64 :=
+  working.d.toUInt64 + working.h.toUInt64 +
+    (bigSigma1 working.e).toUInt64 + roundConstants[i]!.toUInt64 +
+    schedule[i]!.toUInt64 +
+    (choose working.e working.f working.g).toUInt64
+
+@[inline] def roundAWideUInt64 (schedule : Array UInt32) (i : Nat)
+    (working : WorkingState) : UInt64 :=
+  working.h.toUInt64 + (bigSigma1 working.e).toUInt64 +
+    roundConstants[i]!.toUInt64 + schedule[i]!.toUInt64 +
+    (bigSigma0 working.a).toUInt64 +
+    (choose working.e working.f working.g).toUInt64 +
+    (majority working.a working.b working.c).toUInt64
+
+@[inline] def WorkingState.next (working : WorkingState)
+    (newA newE : UInt32) : WorkingState :=
+  ⟨newA, working.a, working.b, working.c,
+    newE, working.e, working.f, working.g⟩
+
+@[inline] def runRoundsLoop (schedule : Array UInt32) :
+    (i remaining : Nat) → WorkingState → WitnessBuilder →
+      WorkingState × WitnessBuilder
+  | _, 0, working, builder => (working, builder)
+  | i, remaining + 1, working, builder =>
+    let newEWide := roundEWideUInt64 schedule i working
+    let builder := appendBitsLE builder newEWide 35
     let newE := newEWide.toUInt32
-
-    let newAWide := h.toUInt64 + s1.toUInt64 + ki.toUInt64 +
-      wi.toUInt64 + s0.toUInt64 + ch.toUInt64 + maj.toUInt64
-    builder := appendBitsLE builder newAWide 35
+    let newAWide := roundAWideUInt64 schedule i working
+    let builder := appendBitsLE builder newAWide 35
     let newA := newAWide.toUInt32
+    let working := working.next newA newE
+    runRoundsLoop schedule (i + 1) remaining working builder
 
-    h := g
-    g := f
-    f := e
-    e := newE
-    d := c
-    c := b
-    b := a
-    a := newA
+@[inline] def runRounds (schedule : Array UInt32) (working : WorkingState)
+    (builder : WitnessBuilder) : WorkingState × WitnessBuilder :=
+  runRoundsLoop schedule 0 64 working builder
 
-  -- The final additions use 33-bit `U.fromInt` witnesses.
-  let r0 := state.s0.toUInt64 + a.toUInt64
-  builder := appendBitsLE builder r0 33
-  let r1 := state.s1.toUInt64 + b.toUInt64
-  builder := appendBitsLE builder r1 33
-  let r2 := state.s2.toUInt64 + c.toUInt64
-  builder := appendBitsLE builder r2 33
-  let r3 := state.s3.toUInt64 + d.toUInt64
-  builder := appendBitsLE builder r3 33
-  let r4 := state.s4.toUInt64 + e.toUInt64
-  builder := appendBitsLE builder r4 33
-  let r5 := state.s5.toUInt64 + f.toUInt64
-  builder := appendBitsLE builder r5 33
-  let r6 := state.s6.toUInt64 + g.toUInt64
-  builder := appendBitsLE builder r6 33
-  let r7 := state.s7.toUInt64 + h.toUInt64
-  builder := appendBitsLE builder r7 33
+@[inline] def finishWideUInt64 (state : HashState) (working : WorkingState) :
+    Nat → UInt64
+  | 0 => state.s0.toUInt64 + working.a.toUInt64
+  | 1 => state.s1.toUInt64 + working.b.toUInt64
+  | 2 => state.s2.toUInt64 + working.c.toUInt64
+  | 3 => state.s3.toUInt64 + working.d.toUInt64
+  | 4 => state.s4.toUInt64 + working.e.toUInt64
+  | 5 => state.s5.toUInt64 + working.f.toUInt64
+  | 6 => state.s6.toUInt64 + working.g.toUInt64
+  | 7 => state.s7.toUInt64 + working.h.toUInt64
+  | _ => 0
 
-  return (⟨r0.toUInt32, r1.toUInt32, r2.toUInt32, r3.toUInt32,
-    r4.toUInt32, r5.toUInt32, r6.toUInt32, r7.toUInt32⟩, builder)
+@[inline] def finishBuilder (state : HashState) (working : WorkingState) :
+    Nat → WitnessBuilder → WitnessBuilder
+  | 0, builder => builder
+  | count + 1, builder =>
+      appendBitsLE (finishBuilder state working count builder)
+        (finishWideUInt64 state working count) 33
+
+@[inline] def finishCompression (state : HashState) (working : WorkingState)
+    (builder : WitnessBuilder) : HashState × WitnessBuilder :=
+  (⟨(state.s0.toUInt64 + working.a.toUInt64).toUInt32,
+    (state.s1.toUInt64 + working.b.toUInt64).toUInt32,
+    (state.s2.toUInt64 + working.c.toUInt64).toUInt32,
+    (state.s3.toUInt64 + working.d.toUInt64).toUInt32,
+    (state.s4.toUInt64 + working.e.toUInt64).toUInt32,
+    (state.s5.toUInt64 + working.f.toUInt64).toUInt32,
+    (state.s6.toUInt64 + working.g.toUInt64).toUInt32,
+    (state.s7.toUInt64 + working.h.toUInt64).toUInt32⟩,
+    finishBuilder state working 8 builder)
+
+/-- Emit one compression block's hints in precisely the allocation order of
+`permCircuit`, returning the next chaining state. -/
+@[inline] def compress
+    (blocks : Array UInt32) (block : Nat) (state : HashState)
+    (builder : WitnessBuilder) : HashState × WitnessBuilder :=
+  let schedule := initialScheduleWords blocks block
+  let extended := extendScheduleWords schedule builder
+  let rounded := runRounds extended.1 (WorkingState.ofHashState state) extended.2
+  finishCompression state rounded.1 rounded.2
+
+@[inline] def packMessageWordLoop
+    (message : Vector Bool sha2562KBMessageBits) (base : Nat) :
+    (bit remaining : Nat) → UInt64 → UInt64
+  | _, 0, packed => packed
+  | bit, remaining + 1, packed =>
+      let packed := if message[base + bit]! then
+        packed ||| (1 <<< UInt64.ofNat bit)
+      else packed
+      packMessageWordLoop message base (bit + 1) remaining packed
 
 end Sha256FastWitgen
 
@@ -226,29 +278,34 @@ end Sha256FastWitgen
 words. This adapter is not needed when the caller already has packed input. -/
 def packSha2562KBMessage
     (message : Vector Bool sha2562KBMessageBits) :
-    Sha2562KBPackedMessage := Vector.ofFn fun word => Id.run do
-  let mut packed : UInt64 := 0
-  for bit in [0:64] do
-    if message[word.val * 64 + bit]! then
-      packed := packed ||| (1 <<< UInt64.ofNat bit)
-  return packed
+    Sha2562KBPackedMessage := Vector.ofFn fun word =>
+  Sha256FastWitgen.packMessageWordLoop message (word.val * 64) 0 64 0
+
+namespace Sha256FastWitgen
+
+@[inline] def compressBlocksLoop (blocks : Array UInt32) :
+    (block remaining : Nat) → HashState → WitnessBuilder →
+      HashState × WitnessBuilder
+  | _, 0, state, builder => (state, builder)
+  | block, remaining + 1, state, builder =>
+      let result := compress blocks block state builder
+      compressBlocksLoop blocks (block + 1) remaining result.1 result.2
+
+end Sha256FastWitgen
 
 /-- Packed-input/packed-output fast path. This avoids all Boolean-array
 materialization and is the intended high-performance API. -/
 def sha2562KBFastWitgen
     (message : Sha2562KBPackedMessage) :
-    Sha2562KBPackedWitness := Id.run do
+    Sha2562KBPackedWitness :=
   let prepared := Sha256FastWitgen.preparePackedInput message
   let blocks := prepared.1
-  let mut builder := prepared.2
-  let mut state := Sha256FastWitgen.initialState
-  for block in [0:33] do
-    let result := Sha256FastWitgen.compress blocks block state builder
-    state := result.1
-    builder := result.2
+  let result := Sha256FastWitgen.compressBlocksLoop blocks 0 33
+    Sha256FastWitgen.initialState prepared.2
+  let builder := result.2
   let words := if builder.pendingBits = 0 then builder.words
     else builder.words.push builder.pending
-  return { words }
+  { words }
 
 /-- A specialized, safe, word-packed witness generator for
 `sha2562KBCircuit`.

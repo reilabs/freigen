@@ -3,8 +3,8 @@ import Freigen.F2Z.Examples.Sha256.Parameters
 
 namespace Freigen.F2Z.Examples
 
-private def sha256Word (value : BitVec 32) : Word 32 :=
-  { bitsLE := Vector.ofFn fun i => value[i] }
+def sha256Word (value : BitVec 32) : Word 32 :=
+  { bitsLE := Vector.ofFn fun i => LC.ofConst value[i] }
 
 /-- The initial hash value from FIPS 180-4, section 5.3.3. -/
 def sha256InitialState : Vector (Word 32) 8 := #v[
