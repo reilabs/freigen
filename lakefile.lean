@@ -14,3 +14,6 @@ lean_lib Freigen where
 @[default_target]
 lean_exe freigen where
   root := `Main
+
+lean_exe sha2562kb_bench where
+  root := `BenchSha2562KB
