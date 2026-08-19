@@ -489,6 +489,13 @@ theorem fastFinishWide_toNat (state : HashState) (working : WorkingState)
       finishWide i state.toVector working.toRoundState := by
   fin_cases i <;> exact uint64Sum2_toNat _ _
 
+theorem finishBuilder_succ (state : HashState) (working : WorkingState)
+    (count : Nat) (hcount : count < 8) (builder : WitnessBuilder) :
+    finishBuilder state working (count + 1) builder =
+      appendBitsLE (finishBuilder state working count builder)
+        (finishWideUInt64 state working count) 33 := by
+  interval_cases count <;> rfl
+
 theorem finishBuilder_refines (state : HashState) (working : WorkingState)
     (count : Nat) (hcount : count ≤ 8)
     (hbuilder : BuilderRefines builder witState.bools.toList) :
@@ -498,7 +505,8 @@ theorem finishBuilder_refines (state : HashState) (working : WorkingState)
   induction count with
   | zero => exact hbuilder
   | succ count ih =>
-      unfold finishBuilder finishState
+      rw [finishBuilder_succ state working count (by omega) builder]
+      unfold finishState
       let priorState := finishState count (by omega) witState state.toVector
         working.toRoundState
       have hprior : BuilderRefines

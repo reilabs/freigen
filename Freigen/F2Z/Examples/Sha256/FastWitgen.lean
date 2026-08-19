@@ -233,12 +233,20 @@ structure WorkingState where
   | 7 => state.s7.toUInt64 + working.h.toUInt64
   | _ => 0
 
-@[inline] def finishBuilder (state : HashState) (working : WorkingState) :
-    Nat → WitnessBuilder → WitnessBuilder
-  | 0, builder => builder
-  | count + 1, builder =>
-      appendBitsLE (finishBuilder state working count builder)
-        (finishWideUInt64 state working count) 33
+@[inline] def finishBuilderLoop (state : HashState) (working : WorkingState) :
+    (index remaining : Nat) → WitnessBuilder → WitnessBuilder
+  | _, 0, builder => builder
+  | index, remaining + 1, builder =>
+      finishBuilderLoop state working (index + 1) remaining
+        (appendBitsLE builder (finishWideUInt64 state working index) 33)
+
+/-- Append the eight final-state sums without retaining an old reference to
+the growing witness array. Keeping this loop tail-recursive is important:
+otherwise Lean's copy-on-write array implementation copies the accumulated
+witness once per compression block. -/
+@[inline] def finishBuilder (state : HashState) (working : WorkingState)
+    (count : Nat) (builder : WitnessBuilder) : WitnessBuilder :=
+  finishBuilderLoop state working 0 count builder
 
 @[inline] def finishCompression (state : HashState) (working : WorkingState)
     (builder : WitnessBuilder) : HashState × WitnessBuilder :=
