@@ -230,11 +230,15 @@ structure Stats where
   mRows : Nat
   mCols : Nat
   r1csRows : Nat
+  cost : Nat
 deriving Repr
 
 def CS.stats (cs : CS) : Stats :=
-  { mRows := cs.m.size + 1,
-    mCols := (cs.m.map (·.coeffs.maxKey!) |>.rangeMaxD 0) + 2,
-    r1csRows := cs.r1cs.size }
+  let mRows := cs.m.size + 1
+  let mCols := (cs.m.map (·.coeffs.maxKey!) |>.rangeMaxD 0) + 2
+  { mRows,
+    mCols,
+    r1csRows := cs.r1cs.size,
+    cost := 7 * mRows + mCols }
 
 end Freigen.F2Z.Semantics
