@@ -46,7 +46,7 @@ structure Aux where
 /-- Interpret the conventional big-endian SHA-256 output as a little-endian
 `U 256`. -/
 def sha256DigestU (digest : Vector (LC Bool) 256) : Circuit (U 256) :=
-  U.fromWord { bitsLE := Vector.ofFn fun i => digest[255 - i.val]'(by omega) }
+  U.fromWord { bitsLE := digest.reverse }
 
 /-- Verify an ECDSA-P256 signature over an already computed SHA-256 digest.
 
@@ -109,8 +109,11 @@ theorem sha256DigestU_wf :
       (WF.VectorRel (fun lv rv (l r : LC Bool) =>
         WF.LCEq lv.bool rv.bool l r))
       sha256DigestU U.WFRel := by
-  wfgen' using [U.fromWord_wf_rel] unfold [sha256DigestU]
-  intro i
-  apply h
+  unfold WF.GadgetSpec sha256DigestU
+  intro left right
+  apply Modular.WF.Rel.strengthen (U.fromWord_wf_rel
+    { bitsLE := left.reverse } { bitsLE := right.reverse })
+  intro lv rv h i
+  exact WF.eval_reverse h i
 
 end Freigen.F2Z.Examples.EcdsaP256

@@ -30,8 +30,6 @@ argument.
 
 namespace Freigen.F2Z.Examples.Modular
 
-set_option maxHeartbeats 800000
-
 open Std.Do
 open scoped Std.Do
 
@@ -198,6 +196,13 @@ theorem ofNat_valid (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) :
   · change ((BitVec.ofNat n x : U n).intVal.eval ρ.int) < p.modulus
     rw [U.intVal_eval_eq_eval_toNat _ (U.valid_bitVec _), U.eval_bitVec]
     simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hfit]
+
+theorem ofNat_evalNat (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) :
+    (ofNat p x hfit hlt).evalNat ρ = x := by
+  unfold Elem.evalNat
+  change ((BitVec.ofNat n x : U n).intVal.eval ρ.int).toNat = x
+  rw [U.intVal_eval_eq_eval_toNat _ (U.valid_bitVec _), U.eval_bitVec]
+  simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hfit]
 
 private theorem constWord_eval_toNat {n : Nat} (v : Nat)
     (hv : v < 2 ^ n) (ρ : WF.Valuation) :
@@ -928,7 +933,8 @@ theorem assertEq_wf :
   · simp [WF.LCEq]
   · simp [WF.LCEq]
   · intro lv rv h
-    unfold Elem.WFRel U.WFRel WF.LCEq at h ⊢
+    unfold Elem.WFRel U.WFRel at h
+    unfold WF.LCEq at h ⊢
     simp only [LC.eval_sub]
     rw [h.1.1, h.2.1]
   · intro _ _ _
@@ -947,7 +953,7 @@ def InvSpec (ρ : WF.Valuation) (one x out : Elem p) : Prop :=
     ⦃⌜True⌝⦄ Sound.interp ρ (checkedInv p one x candidate)
     ⦃⇓ out => ⌜InvSpec p ρ one x out⌝⦄ := by
   mvcgen [checkedInv, InvSpec]
-  exact ⟨hc, h✝¹.2.trans h✝⟩
+  all_goals simp_all [MulSpec, InvSpec]
 
 @[spec] theorem checkedInv_complete {one x candidate : Elem p}
     (hone : one.Valid ρ) (hx : x.Valid ρ) (hc : candidate.Valid ρ)
@@ -965,6 +971,24 @@ theorem checkedInv_wf :
         Elem.WFRel lv rv l.2.1 r.2.1 ∧ Elem.WFRel lv rv l.2.2 r.2.2)
       (fun z => checkedInv p z.1 z.2.1 z.2.2)
       (Elem.WFRel (p := p)) := by
-  wfgen' using [mul_wf, assertEq_wf] unfold [checkedInv]
+  unfold WF.GadgetSpec
+  intro left right
+  unfold checkedInv
+  apply WF.GadgetSpec.bind_rule (mul_wf p)
+  · intro lv rv h
+    exact ⟨h.2.1, h.2.2⟩
+  · intro A productL productR hproduct
+    unfold assertEq
+    apply WF.Rel.assertR1C
+    · intro _ _ _
+      rfl
+    · intro _ _ _
+      rfl
+    · intro lv rv hA
+      have h := hproduct lv rv hA
+      exact WF.eval_sub h.2.1 h.1.1.1
+    · apply WF.Rel.pure
+      intro lv rv hA
+      exact (hproduct lv rv hA).1.2.2
 
 end Freigen.F2Z.Examples.Modular
