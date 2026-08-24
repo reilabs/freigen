@@ -36,6 +36,8 @@ def base : Params 256 where
   fits := by native_decide
   lowerHalf := by native_decide
 
+@[simp] theorem base_modulus_eq : base.modulus = baseModulus := rfl
+
 def scalar : Params 256 where
   modulus := scalarModulus
   bitsPositive := by omega
@@ -69,6 +71,10 @@ def curveB : Fp := fpConst
 def curveB3 : Fp := fpConst
   ((3 * 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b) %
     baseModulus) (by native_decide)
+
+def mulByA (x : Fp) : Circuit Fp := mul base curveA x
+
+def mulByB3 (x : Fp) : Circuit Fp := mul base curveB3 x
 
 def generatorX : Fp := fpConst
   0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296
@@ -187,19 +193,19 @@ def addCore (s : AddPrelude) : Circuit AddCore := do
   let t3 := s.t3
   let t4 := s.t4
   let t5 := s.t5
-  let z0 ← mul base curveA t4
-  let x0 ← mul base curveB3 t2
+  let z0 ← mulByA t4
+  let x0 ← mulByB3 t2
   let z1 ← add base x0 z0
   let x1 ← sub base t1 z1
   let z2 ← add base t1 z1
   let y0 ← mul base x1 z2
   let t1d ← add base t0 t0
   let t1t ← add base t1d t0
-  let t2a ← mul base curveA t2
-  let t4b ← mul base curveB3 t4
+  let t2a ← mulByA t2
+  let t4b ← mulByB3 t4
   let t1a ← add base t1t t2a
   let t2s ← sub base t0 t2a
-  let t2aa ← mul base curveA t2s
+  let t2aa ← mulByA t2s
   let t4a ← add base t4b t2aa
   pure ⟨t3, t5, x1, z2, y0, t1a, t4a⟩
 
@@ -321,6 +327,44 @@ private theorem curveA_evalNat : curveA.evalNat ρ = aval := by
 private theorem curveB3_evalNat : curveB3.evalNat ρ = b3val := by
   exact Modular.ofNat_evalNat base _ (by native_decide) (by native_decide)
 
+def MulByASpec (ρ : WF.Valuation) (x out : Fp) : Prop :=
+  out.Valid ρ ∧ out.evalNat ρ = fmul aval (x.evalNat ρ)
+
+def MulByB3Spec (ρ : WF.Valuation) (x out : Fp) : Prop :=
+  out.Valid ρ ∧ out.evalNat ρ = fmul b3val (x.evalNat ρ)
+
+@[spec] theorem mulByA_sound {x : Fp} (hx : x.Valid ρ) :
+    ⦃⌜True⌝⦄ Sound.interp ρ (mulByA x)
+    ⦃⇓ out => ⌜MulByASpec ρ x out⌝⦄ := by
+  have ha : curveA.Valid ρ :=
+    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
+  simpa only [mulByA, MulByASpec, MulSpec, fmul, base_modulus_eq,
+    curveA_evalNat] using Modular.mul_sound base ha hx
+
+@[spec] theorem mulByA_complete {x : Fp} (hx : x.Valid ρ) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (mulByA x)
+    ⦃⇓ out => ⌜MulByASpec ρ x out⌝⦄ := by
+  have ha : curveA.Valid ρ :=
+    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
+  simpa only [mulByA, MulByASpec, MulSpec, fmul, base_modulus_eq,
+    curveA_evalNat] using Modular.mul_complete base ha hx
+
+@[spec] theorem mulByB3_sound {x : Fp} (hx : x.Valid ρ) :
+    ⦃⌜True⌝⦄ Sound.interp ρ (mulByB3 x)
+    ⦃⇓ out => ⌜MulByB3Spec ρ x out⌝⦄ := by
+  have hb3 : curveB3.Valid ρ :=
+    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
+  simpa only [mulByB3, MulByB3Spec, MulSpec, fmul, base_modulus_eq,
+    curveB3_evalNat] using Modular.mul_sound base hb3 hx
+
+@[spec] theorem mulByB3_complete {x : Fp} (hx : x.Valid ρ) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (mulByB3 x)
+    ⦃⇓ out => ⌜MulByB3Spec ρ x out⌝⦄ := by
+  have hb3 : curveB3.Valid ρ :=
+    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
+  simpa only [mulByB3, MulByB3Spec, MulSpec, fmul, base_modulus_eq,
+    curveB3_evalNat] using Modular.mul_complete base hb3 hx
+
 def PreludeSpec (ρ : WF.Valuation) (P Q : Projective)
     (out : AddPrelude) : Prop :=
   out.Valid ρ ∧ out.eval ρ = preludeModel (P.eval ρ) (Q.eval ρ)
@@ -337,8 +381,9 @@ def FinishSpec (ρ : WF.Valuation) (s : AddCore) (out : Projective) : Prop :=
     ⦃⇓ out => ⌜PreludeSpec ρ P Q out⌝⦄ := by
   unfold Valid at hP hQ
   mvcgen -trivial [addPrelude, PreludeSpec]
-  all_goals simp_all [PreludeSpec, MulSpec, AddSpec, SubSpec,
-    AddPrelude.Valid, AddPrelude.eval, eval, preludeModel, fmul, fadd, fsub, base]
+  all_goals simp_all only [PreludeSpec, MulSpec, AddSpec, SubSpec,
+    AddPrelude.Valid, AddPrelude.eval, eval, preludeModel, fmul, fadd, fsub,
+    base_modulus_eq, true_and]
 
 @[spec] theorem addPrelude_complete {P Q : Projective}
     (hP : P.Valid ρ) (hQ : Q.Valid ρ) :
@@ -346,66 +391,63 @@ def FinishSpec (ρ : WF.Valuation) (s : AddCore) (out : Projective) : Prop :=
     ⦃⇓ out => ⌜PreludeSpec ρ P Q out⌝⦄ := by
   unfold Valid at hP hQ
   mvcgen -trivial [addPrelude, PreludeSpec]
-  all_goals simp_all [PreludeSpec, MulSpec, AddSpec, SubSpec,
-    AddPrelude.Valid, AddPrelude.eval, eval, preludeModel, fmul, fadd, fsub, base]
+  all_goals simp_all only [PreludeSpec, MulSpec, AddSpec, SubSpec,
+    AddPrelude.Valid, AddPrelude.eval, eval, preludeModel, fmul, fadd, fsub,
+    base_modulus_eq, true_and]
 
 @[spec] theorem addCore_sound {s : AddPrelude} (hs : s.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (addCore s)
     ⦃⇓ out => ⌜CoreSpec ρ s out⌝⦄ := by
-  have ha : curveA.Valid ρ :=
-    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
-  have hb3 : curveB3.Valid ρ :=
-    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
-  have haeval : curveA.evalNat ρ = aval := curveA_evalNat
-  have hb3eval : curveB3.evalNat ρ = b3val := curveB3_evalNat
   unfold AddPrelude.Valid at hs
   mvcgen -trivial [addCore, CoreSpec]
-  all_goals simp_all [CoreSpec, MulSpec, AddSpec, SubSpec, AddCore.Valid,
-    AddPrelude.eval, AddCore.eval, coreModel, fmul, fadd, fsub, base]
+  all_goals simp_all only [CoreSpec, MulByASpec, MulByB3Spec, MulSpec,
+    AddSpec, SubSpec, AddCore.Valid,
+    AddPrelude.eval, AddCore.eval, coreModel, fmul, fadd, fsub,
+    base_modulus_eq, true_and]
 
 @[spec] theorem addCore_complete {s : AddPrelude} (hs : s.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (addCore s)
     ⦃⇓ out => ⌜CoreSpec ρ s out⌝⦄ := by
-  have ha : curveA.Valid ρ :=
-    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
-  have hb3 : curveB3.Valid ρ :=
-    Modular.ofNat_valid base _ (by native_decide) (by native_decide)
-  have haeval : curveA.evalNat ρ = aval := curveA_evalNat
-  have hb3eval : curveB3.evalNat ρ = b3val := curveB3_evalNat
   unfold AddPrelude.Valid at hs
   mvcgen -trivial [addCore, CoreSpec]
-  all_goals simp_all [CoreSpec, MulSpec, AddSpec, SubSpec, AddCore.Valid,
-    AddPrelude.eval, AddCore.eval, coreModel, fmul, fadd, fsub, base]
+  all_goals simp_all only [CoreSpec, MulByASpec, MulByB3Spec, MulSpec,
+    AddSpec, SubSpec, AddCore.Valid,
+    AddPrelude.eval, AddCore.eval, coreModel, fmul, fadd, fsub,
+    base_modulus_eq, true_and]
 
 @[spec] theorem addFinish_sound {s : AddCore} (hs : s.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (addFinish s)
     ⦃⇓ out => ⌜FinishSpec ρ s out⌝⦄ := by
   unfold AddCore.Valid at hs
   mvcgen -trivial [addFinish, FinishSpec]
-  all_goals simp_all [FinishSpec, MulSpec, AddSpec, SubSpec, Valid,
-    AddCore.eval, eval, finishModel, fmul, fadd, fsub, base]
+  all_goals simp_all only [FinishSpec, MulSpec, AddSpec, SubSpec, Valid,
+    AddCore.eval, eval, finishModel, fmul, fadd, fsub, base_modulus_eq,
+    true_and]
 
 @[spec] theorem addFinish_complete {s : AddCore} (hs : s.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (addFinish s)
     ⦃⇓ out => ⌜FinishSpec ρ s out⌝⦄ := by
   unfold AddCore.Valid at hs
   mvcgen -trivial [addFinish, FinishSpec]
-  all_goals simp_all [FinishSpec, MulSpec, AddSpec, SubSpec, Valid,
-    AddCore.eval, eval, finishModel, fmul, fadd, fsub, base]
+  all_goals simp_all only [FinishSpec, MulSpec, AddSpec, SubSpec, Valid,
+    AddCore.eval, eval, finishModel, fmul, fadd, fsub, base_modulus_eq,
+    true_and]
 
 theorem addComplete_sound_value {P Q : Projective}
     (hP : P.Valid ρ) (hQ : Q.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (addComplete P Q)
     ⦃⇓ out => ⌜AddValueSpec ρ P Q out⌝⦄ := by
   mvcgen -trivial [addComplete, AddValueSpec]
-  all_goals simp_all [AddValueSpec, PreludeSpec, CoreSpec, FinishSpec, addModel]
+  all_goals simp_all only [AddValueSpec, PreludeSpec, CoreSpec, FinishSpec,
+    addModel, true_and, implies_true]
 
 theorem addComplete_complete_value {P Q : Projective}
     (hP : P.Valid ρ) (hQ : Q.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (addComplete P Q)
     ⦃⇓ out => ⌜AddValueSpec ρ P Q out⌝⦄ := by
   mvcgen -trivial [addComplete, AddValueSpec]
-  all_goals simp_all [AddValueSpec, PreludeSpec, CoreSpec, FinishSpec, addModel]
+  all_goals simp_all only [AddValueSpec, PreludeSpec, CoreSpec, FinishSpec,
+    addModel, true_and, implies_true]
 
 @[spec] theorem addComplete_sound {P Q : Projective}
     (hP : P.Valid ρ) (hQ : Q.Valid ρ) :
@@ -447,6 +489,26 @@ private theorem curveB3_wf (lv rv : WF.Valuation) :
     Elem.WFRel lv rv curveB3 curveB3 := by
   exact fpConst_wf _ _ lv rv
 
+theorem mulByA_wf :
+    WF.GadgetSpec (Elem.WFRel (p := base)) mulByA
+      (Elem.WFRel (p := base)) := by
+  unfold WF.GadgetSpec mulByA
+  intro left right
+  apply Modular.WF.Rel.strengthen
+    (Modular.mul_wf base (curveA, left) (curveA, right))
+  intro lv rv h
+  exact ⟨curveA_wf lv rv, h⟩
+
+theorem mulByB3_wf :
+    WF.GadgetSpec (Elem.WFRel (p := base)) mulByB3
+      (Elem.WFRel (p := base)) := by
+  unfold WF.GadgetSpec mulByB3
+  intro left right
+  apply Modular.WF.Rel.strengthen
+    (Modular.mul_wf base (curveB3, left) (curveB3, right))
+  intro lv rv h
+  exact ⟨curveB3_wf lv rv, h⟩
+
 private theorem curveB_wf (lv rv : WF.Valuation) :
     Elem.WFRel lv rv curveB curveB := by
   exact fpConst_wf _ _ lv rv
@@ -462,9 +524,10 @@ theorem addPrelude_wf :
 
 theorem addCore_wf :
     WF.GadgetSpec AddPrelude.WFRel addCore AddCore.WFRel := by
-  wfgen_steps' using [Modular.mul_wf, Modular.add_wf, Modular.sub_wf]
+  wfgen_steps' using [mulByA_wf, mulByB3_wf, Modular.mul_wf,
+    Modular.add_wf, Modular.sub_wf]
     unfold [addCore, AddPrelude.WFRel, AddCore.WFRel]
-  all_goals grind only [curveA_wf, curveB3_wf]
+  all_goals grind only
 
 theorem addFinish_wf :
     WF.GadgetSpec AddCore.WFRel addFinish WFRel := by
@@ -504,7 +567,7 @@ def select (b : LC ℤ) (P Q : Projective) : Circuit Projective := do
     ⦃⇓ out => ⌜out.Valid ρ⌝⦄ := by
   unfold Valid at hP hQ
   mvcgen -trivial [select, Valid]
-  all_goals simp_all [Modular.SelectSpec, Valid]
+  all_goals simp_all only [Modular.SelectSpec, Valid, true_and]
 
 @[spec] theorem select_complete {b : LC ℤ} {P Q : Projective}
     (hP : P.Valid ρ) (hQ : Q.Valid ρ)
@@ -515,7 +578,7 @@ def select (b : LC ℤ) (P Q : Projective) : Circuit Projective := do
   mvcgen -trivial [select, Valid]
   all_goals first
     | exact hb
-    | simp_all [Modular.SelectSpec, Valid]
+    | simp_all only [Modular.SelectSpec, Valid, true_and]
 
 theorem select_wf :
     WF.GadgetSpec
@@ -523,7 +586,8 @@ theorem select_wf :
         WF.LCEq lv.int rv.int l.1 r.1 ∧
         WFRel lv rv l.2.1 r.2.1 ∧ WFRel lv rv l.2.2 r.2.2)
       (fun z => select z.1 z.2.1 z.2.2) WFRel := by
-  wfgen' using [Modular.select_wf] unfold [select, WFRel]
+  wfgen_steps' using [Modular.select_wf] unfold [select, WFRel]
+  all_goals grind only
 
 structure LadderState where
   acc : Projective
@@ -763,27 +827,31 @@ def OnCurveSpec (ρ : WF.Valuation) (x y : Fp) : Prop :=
     ⦃⌜True⌝⦄ Sound.interp ρ (curveCube x)
     ⦃⇓ out => ⌜CurveCubeSpec ρ x out⌝⦄ := by
   mvcgen -trivial [curveCube]
-  all_goals simp_all [CurveCubeSpec, MulSpec, fmul, base]
+  all_goals simp_all only [CurveCubeSpec, MulSpec, fmul, base_modulus_eq,
+    true_and, implies_true]
 
 @[spec] theorem curveCube_complete {x : Fp} (hx : x.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (curveCube x)
     ⦃⇓ out => ⌜CurveCubeSpec ρ x out⌝⦄ := by
   mvcgen -trivial [curveCube]
-  all_goals simp_all [CurveCubeSpec, MulSpec, fmul, base]
+  all_goals simp_all only [CurveCubeSpec, MulSpec, fmul, base_modulus_eq,
+    true_and, implies_true]
 
 @[spec] theorem mulAdd_sound {a x b : Fp}
     (ha : a.Valid ρ) (hx : x.Valid ρ) (hb : b.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (mulAdd a x b)
     ⦃⇓ out => ⌜MulAddSpec ρ a x b out⌝⦄ := by
   mvcgen -trivial [mulAdd]
-  all_goals simp_all [MulAddSpec, MulSpec, AddSpec, fmul, fadd, base]
+  all_goals simp_all only [MulAddSpec, MulSpec, AddSpec, fmul, fadd,
+    base_modulus_eq, true_and, implies_true]
 
 @[spec] theorem mulAdd_complete {a x b : Fp}
     (ha : a.Valid ρ) (hx : x.Valid ρ) (hb : b.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (mulAdd a x b)
     ⦃⇓ out => ⌜MulAddSpec ρ a x b out⌝⦄ := by
   mvcgen -trivial [mulAdd]
-  all_goals simp_all [MulAddSpec, MulSpec, AddSpec, fmul, fadd, base]
+  all_goals simp_all only [MulAddSpec, MulSpec, AddSpec, fmul, fadd,
+    base_modulus_eq, true_and, implies_true]
 
 @[spec] theorem curveLinear_sound {x : Fp} (hx : x.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (curveLinear x)
@@ -810,14 +878,16 @@ def OnCurveSpec (ρ : WF.Valuation) (x y : Fp) : Prop :=
     ⦃⌜True⌝⦄ Sound.interp ρ (cubic a x b)
     ⦃⇓ out => ⌜CubicSpec ρ a x b out⌝⦄ := by
   mvcgen -trivial [cubic]
-  all_goals simp_all [CubicSpec, CurveCubeSpec, MulAddSpec, AddSpec, fadd, base]
+  all_goals simp_all only [CubicSpec, CurveCubeSpec, MulAddSpec, AddSpec, fadd,
+    base_modulus_eq, true_and, implies_true]
 
 @[spec] theorem cubic_complete {a x b : Fp}
     (ha : a.Valid ρ) (hx : x.Valid ρ) (hb : b.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (cubic a x b)
     ⦃⇓ out => ⌜CubicSpec ρ a x b out⌝⦄ := by
   mvcgen -trivial [cubic]
-  all_goals simp_all [CubicSpec, CurveCubeSpec, MulAddSpec, AddSpec, fadd, base]
+  all_goals simp_all only [CubicSpec, CurveCubeSpec, MulAddSpec, AddSpec, fadd,
+    base_modulus_eq, true_and, implies_true]
 
 @[spec] theorem curveRhs_sound {x : Fp} (hx : x.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (curveRhs x)
@@ -844,14 +914,16 @@ def OnCurveSpec (ρ : WF.Valuation) (x y : Fp) : Prop :=
     ⦃⌜True⌝⦄ Sound.interp ρ (assertOnCurve x y)
     ⦃⇓ _ => ⌜OnCurveSpec ρ x y⌝⦄ := by
   mvcgen -trivial [assertOnCurve]
-  all_goals simp_all [OnCurveSpec, CurveRhsSpec, MulSpec, fmul, base]
+  all_goals simp_all only [OnCurveSpec, CurveRhsSpec, MulSpec, fmul,
+    base_modulus_eq, implies_true]
 
 @[spec] theorem assertOnCurve_complete {x y : Fp}
     (hx : x.Valid ρ) (hy : y.Valid ρ) (hon : OnCurveSpec ρ x y) :
     ⦃⌜True⌝⦄ Complete.interp ρ (assertOnCurve x y)
     ⦃⇓ _ => ⌜OnCurveSpec ρ x y⌝⦄ := by
   mvcgen -trivial [assertOnCurve]
-  all_goals simp_all [OnCurveSpec, CurveRhsSpec, MulSpec, fmul, base]
+  all_goals simp_all only [OnCurveSpec, CurveRhsSpec, MulSpec, fmul,
+    base_modulus_eq, implies_true]
 
 theorem curveCube_wf :
     WF.GadgetSpec (Elem.WFRel (p := base)) curveCube
