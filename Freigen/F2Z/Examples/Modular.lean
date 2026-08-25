@@ -1,31 +1,12 @@
-import Freigen.F2Z.Correctness.U
+import Freigen.F2Z.Examples.Modular.Lemmas
 
 /-!
-# Bounded modular arithmetic gadgets
+# Correctness of bounded modular arithmetic gadgets
 
-This module deliberately comes before the P-256 implementation.  It contains
-the representation and the three proof interfaces used by the curve code:
-
-* `Complete.interp`: the supplied witness generator succeeds;
-* `Sound.interp`: every satisfying execution has the advertised value;
-* `WF.GadgetSpec`: the gadget is independent of concrete witness names.
-
-## Representation
-
-An `Elem p` is a `U p.bits`, hence it has a Boolean little-endian
-decomposition and an integer linear combination for the same value.  The
-additional invariant says that the value is strictly below `p.modulus`.
-
-The useful F2Z-specific encoding is in `mul`: over the integer constraint
-semantics, the entire modular multiplication is the single R1C equation
-
-`x * y = r + p.modulus * q`.
-
-Both `r` and `q` are range checked by bit decomposition, and `r < modulus` is
-proved with a bounded slack.  Thus the equation is exact over `Int`; there are
-no limb carries to constrain.  This is not an encoding one may copy to an
-R1CS interpreted over a small finite field without an additional no-wrap
-argument.
+The circuit implementations and their specifications are defined in
+`Modular.Impl`; supporting proof lemmas are isolated in `Modular.Lemmas`.
+This module exposes the main soundness, completeness, and well-formedness
+results.
 -/
 
 namespace Freigen.F2Z.Examples.Modular
@@ -33,83 +14,7 @@ namespace Freigen.F2Z.Examples.Modular
 open Std.Do
 open scoped Std.Do
 
-/-- Strengthen the initial relational assumption of a well-formedness proof.
-This small structural rule makes proved gadgets compositional when an outer
-type carries more invariants than a callee consumes. -/
-theorem WF.Rel.strengthen {Q : WF.Post α} {R S : WF.Assumption}
-    {left right : Circuit α} (h : WF.Rel Q R left right)
-    (hSR : ∀ lv rv, S lv rv → R lv rv) :
-    WF.Rel Q S left right := by
-  induction h generalizing S with
-  | pure hpost =>
-      exact .pure fun lv rv hS => hpost lv rv (hSR lv rv hS)
-  | assertR1C ha hb hc _ ih =>
-      exact .assertR1C
-        (fun lv rv hS => ha lv rv (hSR lv rv hS))
-        (fun lv rv hS => hb lv rv (hSR lv rv hS))
-        (fun lv rv hS => hc lv rv (hSR lv rv hS))
-        (ih hSR)
-  | f2z ha _ ih =>
-      apply WF.Rel.f2z (fun lv rv hS => ha lv rv (hSR lv rv hS))
-      intro outL outR
-      apply ih
-      intro lv rv hS
-      exact ⟨hSR lv rv hS.1, hS.2.1, hS.2.2⟩
-  | hint hargs hbody _ ih =>
-      apply WF.Rel.hint
-        (fun lv rv hS => hargs lv rv (hSR lv rv hS))
-        (fun lv rv hS => hbody lv rv (hSR lv rv hS))
-      intro outL outR
-      apply ih
-      intro lv rv hS
-      exact ⟨hSR lv rv hS.1, hS.2⟩
-
-/-- Parameters needed by the generic `n`-bit reduction gadget.  The
-lower-half condition makes the quotient of two canonical inputs fit in `n`
-bits. -/
-structure Params (n : Nat) where
-  modulus : Nat
-  bitsPositive : 0 < n
-  positive : 0 < modulus
-  fits : modulus ≤ 2 ^ n
-  lowerHalf : 2 ^ (n - 1) ≤ modulus
-
 variable {n : Nat} (p : Params n)
-
-structure Elem (p : Params n) where
-  val : U n
-
-namespace Elem
-
-def Valid {p : Params n} (x : Elem p) (ρ : WF.Valuation) : Prop :=
-  x.val.Valid ρ ∧ x.val.intVal.eval ρ.int < p.modulus
-
-def evalNat {p : Params n} (x : Elem p) (ρ : WF.Valuation) : Nat :=
-  (x.val.intVal.eval ρ.int).toNat
-
-def WFRel {p : Params n} (lv rv : WF.Valuation) (l r : Elem p) : Prop :=
-  U.WFRel lv rv l.val r.val
-
-theorem nonneg {x : Elem p} (h : x.Valid ρ) :
-    0 ≤ x.val.intVal.eval ρ.int :=
-  U.intVal_nonneg x.val h.1
-
-theorem evalNat_cast {x : Elem p} (h : x.Valid ρ) :
-    (x.evalNat ρ : Int) = x.val.intVal.eval ρ.int := by
-  simp [evalNat, Int.toNat_of_nonneg (Elem.nonneg (p := p) h)]
-
-theorem evalNat_lt {x : Elem p} (h : x.Valid ρ) :
-    x.evalNat ρ < p.modulus := by
-  unfold evalNat
-  exact (Int.toNat_lt (Elem.nonneg (p := p) h)).2 h.2
-
-end Elem
-
-/-- Prove `x < bound` by decomposing the nonnegative slack
-`bound - 1 - x`. -/
-def assertLt (bound : Nat) (x : U n) : Circuit Unit := do
-  let _ ← U.fromInt n (LC.ofConst ((bound : Int) - 1) - x.intVal)
-  pure ()
 
 @[spec] theorem assertLt_sound {bound : Nat} {x : U n}
     (hvalid : x.Valid ρ) :
@@ -163,12 +68,6 @@ theorem assertLt_wf :
   unfold WF.GadgetSpec assertLt
   intro left right
   wfgen' using [U.fromInt_wf_full]
-
-/-- Turn an already bit-decomposed integer into a canonical modular element. -/
-def ofU (x : U n) : Circuit (Elem p) := do
-  assertLt p.modulus x
-  pure ⟨x⟩
-
 @[spec] theorem ofU_sound {x : U n} (hx : x.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (ofU p x)
     ⦃⇓ out => ⌜out.Valid ρ ∧ out.val = x⌝⦄ := by
@@ -184,157 +83,6 @@ def ofU (x : U n) : Circuit (Elem p) := do
 theorem ofU_wf :
     WF.GadgetSpec U.WFRel (ofU p) (Elem.WFRel (p := p)) := by
   wfgen' using [assertLt_wf] unfold [ofU, Elem.WFRel]
-
-/-- Constant canonical element. -/
-def ofNat (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) : Elem p :=
-  ⟨BitVec.ofNat n x⟩
-
-theorem ofNat_valid (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) :
-    (ofNat p x hfit hlt).Valid ρ := by
-  constructor
-  · exact U.valid_bitVec _
-  · change ((BitVec.ofNat n x : U n).intVal.eval ρ.int) < p.modulus
-    rw [U.intVal_eval_eq_eval_toNat _ (U.valid_bitVec _), U.eval_bitVec]
-    simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hfit]
-
-theorem ofNat_evalNat (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) :
-    (ofNat p x hfit hlt).evalNat ρ = x := by
-  unfold Elem.evalNat
-  change ((BitVec.ofNat n x : U n).intVal.eval ρ.int).toNat = x
-  rw [U.intVal_eval_eq_eval_toNat _ (U.valid_bitVec _), U.eval_bitVec]
-  simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hfit]
-
-private theorem constWord_eval_toNat {n : Nat} (v : Nat)
-    (hv : v < 2 ^ n) (ρ : WF.Valuation) :
-    (Word.eval ρ.bool {
-      bitsLE := Vector.ofFn (n := n) fun i => LC.ofConst (v.testBit i)
-    }).toNat = v := by
-  simp [Word.eval, BitVec.toNat_ofFnLE, Nat.ofBits_testBit,
-    Nat.mod_eq_of_lt hv]
-
-private theorem WF.lceq_of_common_realizes
-    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
-    (h : ∃ values : Vector Bool m,
-      WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values)
-    (i : Nat) (hi : i < m) :
-    WF.LCEq lv.bool rv.bool left[i] right[i] := by
-  rcases h with ⟨values, hleft, hright⟩
-  exact (hleft i hi).trans (hright i hi).symm
-
-private theorem WF.common_realizes_of_post
-    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
-    {P Q : Prop} {A B : Vector Bool m → Prop}
-    (h : (P ∧ ∃ values, A values ∧ B values ∧
-      WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values) ∧ Q) :
-    ∃ values, WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values := by
-  rcases h.1.2 with ⟨values, _, _, hleft, hright⟩
-  exact ⟨values, hleft, hright⟩
-
-private theorem WF.common_realizes_of_hint
-    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
-    {R : Prop} {bodyL bodyR : Hint (Vector Bool m)}
-    (h : R ∧ ∃ values, WF.HintReturns bodyL values ∧
-      WF.HintReturns bodyR values ∧
-      WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values) :
-    ∃ values, WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values := by
-  rcases h.2 with ⟨values, _, _, hleft, hright⟩
-  exact ⟨values, hleft, hright⟩
-
-private theorem WF.lowWord_lceq_of_common_realizes
-    {left right : Vector (LC Bool) (2 * n)} {lv rv : WF.Valuation}
-    (h : ∃ values : Vector Bool (2 * n),
-      WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values)
-    (i : Fin n) :
-    WF.LCEq lv.bool rv.bool
-      ({ bitsLE := Vector.ofFn fun j => left[j.val]'(by omega) } : Word n)[i]
-      ({ bitsLE := Vector.ofFn fun j => right[j.val]'(by omega) } : Word n)[i] := by
-  unfold WF.LCEq
-  change LC.eval lv.bool (Vector.ofFn fun j : Fin n => left[j.val]'(by omega))[i] =
-    LC.eval rv.bool (Vector.ofFn fun j : Fin n => right[j.val]'(by omega))[i]
-  have hleft :
-      (Vector.ofFn fun j : Fin n => left[j.val]'(by omega))[i] = left[i.val] := by
-    change (Vector.ofFn fun j : Fin n => left[j.val]'(by omega)).get i = _
-    simp
-  have hright :
-      (Vector.ofFn fun j : Fin n => right[j.val]'(by omega))[i] = right[i.val] := by
-    change (Vector.ofFn fun j : Fin n => right[j.val]'(by omega)).get i = _
-    simp
-  rw [hleft, hright]
-  exact WF.lceq_of_common_realizes h i.val (by omega)
-
-private theorem WF.highWord_lceq_of_common_realizes
-    {left right : Vector (LC Bool) (2 * n)} {lv rv : WF.Valuation}
-    (h : ∃ values : Vector Bool (2 * n),
-      WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values)
-    (i : Fin n) :
-    WF.LCEq lv.bool rv.bool
-      ({ bitsLE := Vector.ofFn fun j => left[n + j.val]'(by omega) } : Word n)[i]
-      ({ bitsLE := Vector.ofFn fun j => right[n + j.val]'(by omega) } : Word n)[i] := by
-  unfold WF.LCEq
-  change LC.eval lv.bool
-      (Vector.ofFn fun j : Fin n => left[n + j.val]'(by omega))[i] =
-    LC.eval rv.bool
-      (Vector.ofFn fun j : Fin n => right[n + j.val]'(by omega))[i]
-  have hleft :
-      (Vector.ofFn fun j : Fin n => left[n + j.val]'(by omega))[i] =
-        left[n + i.val] := by
-    change (Vector.ofFn fun j : Fin n => left[n + j.val]'(by omega)).get i = _
-    simp
-  have hright :
-      (Vector.ofFn fun j : Fin n => right[n + j.val]'(by omega))[i] =
-        right[n + i.val] := by
-    change (Vector.ofFn fun j : Fin n => right[n + j.val]'(by omega)).get i = _
-    simp
-  rw [hleft, hright]
-  exact WF.lceq_of_common_realizes h (n + i.val) (by omega)
-
-/-- Witness `(r,q)` for Euclidean reduction of a nonnegative integer.  This
-is the only place where division occurs; constraints consume only the
-resulting bits. -/
-def divRemHint (x y : LC ℤ) : Circuit (U n × U n) := do
-  let bits ← hint h![x, y] fun h![(a : Int), (b : Int)] =>
-    if ha : 0 ≤ a then
-      if hb : 0 ≤ b then
-      let z := a.toNat * b.toNat
-      let r := z % p.modulus
-      let q := z / p.modulus
-      pure $ Vector.ofFn (n := 2 * n) fun i =>
-        if hi : i.val < n then r.testBit i.val
-        else q.testBit (i.val - n)
-      else
-        fail s!"negative factor {b} in modular reduction"
-    else
-      fail s!"negative factor {a} in modular reduction"
-  let r ← U.fromWord {
-    bitsLE := Vector.ofFn fun i => bits[i.val]'(by omega) }
-  let q ← U.fromWord {
-    bitsLE := Vector.ofFn fun i => bits[n + i.val]'(by omega) }
-  assertR1C x y (r.intVal + p.modulus • q.intVal)
-  assertLt p.modulus r
-  pure (r, q)
-
-def DivRemSpec (ρ : WF.Valuation) (x y : LC ℤ) (out : U n × U n) : Prop :=
-  out.1.Valid ρ ∧ out.2.Valid ρ ∧
-    out.1.intVal.eval ρ.int < p.modulus ∧
-    x.eval ρ.int * y.eval ρ.int =
-      out.1.intVal.eval ρ.int + p.modulus * out.2.intVal.eval ρ.int
-
-private theorem divRemSpec_of_rel {x y : LC ℤ} {r q : U n}
-    (hr : U.Rel ρ r rv) (hq : U.Rel ρ q qv)
-    (hlt : r.intVal.eval ρ.int < p.modulus)
-    (heq : x.eval ρ.int * y.eval ρ.int =
-      (r.intVal + p.modulus • q.intVal).eval ρ.int) :
-    DivRemSpec p ρ x y (r, q) := by
-  exact ⟨hr.1, hq.1, hlt, by
-    simpa only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul] using heq⟩
-
 @[spec] theorem divRemHint_sound {x y : LC ℤ} :
     ⦃⌜True⌝⦄ Sound.interp ρ (divRemHint p x y)
     ⦃⇓ out => ⌜DivRemSpec p ρ x y out⌝⦄ := by
@@ -344,7 +92,7 @@ private theorem divRemSpec_of_rel {x y : LC ℤ} {r q : U n}
   all_goals first
     | assumption
     | grind [U.Rel]
-    | (apply divRemSpec_of_rel p <;> assumption)
+    | (apply Aux.divRemSpec_of_rel p <;> assumption)
 
 @[spec] theorem divRemHint_complete {x y : LC ℤ}
     (hx0 : 0 ≤ x.eval ρ.int) (hy0 : 0 ≤ y.eval ρ.int)
@@ -418,58 +166,17 @@ theorem divRemHint_wf :
     grind
   case vc2 outBitsL outBitsR B =>
     rename_i qL qR
-    apply WF.highWord_lceq_of_common_realizes
+    apply Aux.WF.highWord_lceq_of_common_realizes
     have hp := outBitsR leftVal rightVal B
-    exact WF.common_realizes_of_hint hp.1
+    exact Aux.WF.common_realizes_of_hint hp.1
   case vc3 =>
     rename_i h
-    apply WF.lowWord_lceq_of_common_realizes
-    exact WF.common_realizes_of_hint h
+    apply Aux.WF.lowWord_lceq_of_common_realizes
+    exact Aux.WF.common_realizes_of_hint h
   case vc4 =>
     simp_all [WF.LCEq, WF.evalArgs]
   case vc5 =>
     simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
-
-/-- Exact modular multiplication. -/
-def mul (x y : Elem p) : Circuit (Elem p) := do
-  let rq ← divRemHint p x.val.intVal y.val.intVal
-  pure ⟨rq.1⟩
-
-def MulSpec (ρ : WF.Valuation) (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    (out.evalNat ρ = (x.evalNat ρ * y.evalNat ρ) % p.modulus)
-
-private theorem mulSpec_of_divRem {x y : Elem p} {r q : U n}
-    (hx : x.Valid ρ) (hy : y.Valid ρ)
-    (hdiv : DivRemSpec p ρ x.val.intVal y.val.intVal (r, q))
-    (hrlt : r.intVal.eval ρ.int < p.modulus) :
-    MulSpec p ρ x y ⟨r⟩ := by
-  have hrValid : (⟨r⟩ : Elem p).Valid ρ := ⟨hdiv.1, hrlt⟩
-  refine ⟨hrValid, ?_⟩
-  have hq0 := U.intVal_nonneg q hdiv.2.1
-  have hr0 := U.intVal_nonneg r hdiv.1
-  have hnat : x.evalNat ρ * y.evalNat ρ =
-      (r.intVal.eval ρ.int).toNat +
-        p.modulus * (q.intVal.eval ρ.int).toNat := by
-    have heq := hdiv.2.2.2
-    rw [← Elem.evalNat_cast (p := p) hx,
-      ← Elem.evalNat_cast (p := p) hy] at heq
-    have heq' : (x.evalNat ρ * y.evalNat ρ : Int) =
-        ((r.intVal.eval ρ.int).toNat +
-          p.modulus * (q.intVal.eval ρ.int).toNat : Nat) := by
-      simp only [Nat.cast_mul, Nat.cast_add, Nat.cast_ofNat]
-      rw [Int.toNat_of_nonneg hr0, Int.toNat_of_nonneg hq0]
-      exact heq
-    exact_mod_cast heq'
-  have hmod : x.evalNat ρ * y.evalNat ρ ≡
-      (r.intVal.eval ρ.int).toNat [MOD p.modulus] := by
-    rw [Nat.ModEq]
-    simp [hnat, Nat.add_mod]
-  have hrNatLt : (r.intVal.eval ρ.int).toNat < p.modulus :=
-    (Int.toNat_lt hr0).2 hrlt
-  unfold Elem.evalNat
-  exact (Nat.mod_eq_of_modEq hmod hrNatLt).symm
-
 @[spec] theorem mul_sound {x y : Elem p}
     (hx : x.Valid ρ) (hy : y.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (mul p x y)
@@ -477,7 +184,7 @@ private theorem mulSpec_of_divRem {x y : Elem p} {r q : U n}
   unfold mul
   mvcgen
   rename_i rq hdiv
-  exact mulSpec_of_divRem p hx hy hdiv hdiv.2.2.1
+  exact Aux.mulSpec_of_divRem p hx hy hdiv hdiv.2.2.1
 
 @[spec] theorem mul_complete {x y : Elem p}
     (hx : x.Valid ρ) (hy : y.Valid ρ) :
@@ -495,7 +202,7 @@ private theorem mulSpec_of_divRem {x y : Elem p} {r q : U n}
       simpa [Elem.evalNat, Nat.mul_comm] using hab)).trans_le
       p.fits
   · rename_i rq hdiv
-    exact mulSpec_of_divRem p hx hy hdiv hdiv.2.2.1
+    exact Aux.mulSpec_of_divRem p hx hy hdiv hdiv.2.2.1
 
 theorem mul_wf :
     WF.GadgetSpec
@@ -511,60 +218,22 @@ theorem mul_wf :
     grind
   case vc2 outBitsL outBitsR B =>
     rename_i qL qR
-    apply WF.highWord_lceq_of_common_realizes
+    apply Aux.WF.highWord_lceq_of_common_realizes
     have hp := outBitsR leftVal rightVal B
-    exact WF.common_realizes_of_hint hp.1
+    exact Aux.WF.common_realizes_of_hint hp.1
   case vc3 =>
     rename_i h
-    apply WF.lowWord_lceq_of_common_realizes
-    exact WF.common_realizes_of_hint h
+    apply Aux.WF.lowWord_lceq_of_common_realizes
+    exact Aux.WF.common_realizes_of_hint h
   case vc4 =>
     simp_all [U.WFRel, WF.LCEq, WF.evalArgs]
   case vc5 =>
     simp_all [U.WFRel, WF.LCEq, WF.ArgsEq, WF.evalArgs]
-
-/-! ## Linear reduction, addition, and subtraction -/
-
-def reduce (x : LC ℤ) : Circuit (Elem p) := do
-  let rq ← divRemHint p x (LC.ofConst 1)
-  pure ⟨rq.1⟩
-
-def ReduceSpec (ρ : WF.Valuation) (x : LC ℤ) (out : Elem p) : Prop :=
-  out.Valid ρ ∧ out.evalNat ρ = (x.eval ρ.int).toNat % p.modulus
-
-private theorem reduceSpec_of_divRem {x : LC ℤ} {r q : U n}
-    (hx0 : 0 ≤ x.eval ρ.int)
-    (hdiv : DivRemSpec p ρ x (LC.ofConst 1) (r, q)) :
-    ReduceSpec p ρ x ⟨r⟩ := by
-  have hr0 := U.intVal_nonneg r hdiv.1
-  have hq0 := U.intVal_nonneg q hdiv.2.1
-  have hnat : (x.eval ρ.int).toNat =
-      (r.intVal.eval ρ.int).toNat +
-        p.modulus * (q.intVal.eval ρ.int).toNat := by
-    have heq := hdiv.2.2.2
-    simp only [LC.eval_ofConst, mul_one] at heq
-    have heq' : ((x.eval ρ.int).toNat : Int) =
-        ((r.intVal.eval ρ.int).toNat +
-          p.modulus * (q.intVal.eval ρ.int).toNat : Nat) := by
-      simp only [Nat.cast_add, Nat.cast_mul]
-      rw [Int.toNat_of_nonneg hx0, Int.toNat_of_nonneg hr0,
-        Int.toNat_of_nonneg hq0]
-      exact heq
-    exact_mod_cast heq'
-  have hmod : (x.eval ρ.int).toNat ≡
-      (r.intVal.eval ρ.int).toNat [MOD p.modulus] := by
-    rw [Nat.ModEq]
-    simp [hnat, Nat.add_mod]
-  have hrlt : (r.intVal.eval ρ.int).toNat < p.modulus :=
-    (Int.toNat_lt hr0).2 hdiv.2.2.1
-  exact ⟨⟨hdiv.1, hdiv.2.2.1⟩,
-    (Nat.mod_eq_of_modEq hmod hrlt).symm⟩
-
 @[spec] theorem reduce_sound {x : LC ℤ} (hx0 : 0 ≤ x.eval ρ.int) :
     ⦃⌜True⌝⦄ Sound.interp ρ (reduce p x)
     ⦃⇓ out => ⌜ReduceSpec p ρ x out⌝⦄ := by
   mvcgen [reduce]
-  exact reduceSpec_of_divRem p hx0 (by assumption)
+  exact Aux.reduceSpec_of_divRem p hx0 (by assumption)
 
 @[spec] theorem reduce_complete {x : LC ℤ} (hx0 : 0 ≤ x.eval ρ.int)
     (hq : (x.eval ρ.int).toNat / p.modulus < 2 ^ n) :
@@ -573,7 +242,7 @@ private theorem reduceSpec_of_divRem {x : LC ℤ} {r q : U n}
   mvcgen [reduce]
   · simp
   · simpa using hq
-  · exact reduceSpec_of_divRem p hx0 (by assumption)
+  · exact Aux.reduceSpec_of_divRem p hx0 (by assumption)
 
 theorem reduce_wf :
     WF.GadgetSpec
@@ -587,47 +256,17 @@ theorem reduce_wf :
     grind
   case vc2 outBitsL outBitsR B =>
     rename_i qL qR
-    apply WF.highWord_lceq_of_common_realizes
+    apply Aux.WF.highWord_lceq_of_common_realizes
     have hp := outBitsR leftVal rightVal B
-    exact WF.common_realizes_of_hint hp.1
+    exact Aux.WF.common_realizes_of_hint hp.1
   case vc3 =>
     rename_i h
-    apply WF.lowWord_lceq_of_common_realizes
-    exact WF.common_realizes_of_hint h
+    apply Aux.WF.lowWord_lceq_of_common_realizes
+    exact Aux.WF.common_realizes_of_hint h
   case vc4 =>
     simp_all [WF.LCEq, WF.evalArgs]
   case vc5 =>
     simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
-
-def add (x y : Elem p) : Circuit (Elem p) :=
-  reduce p (x.val.intVal + y.val.intVal)
-
-def AddSpec (ρ : WF.Valuation) (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    out.evalNat ρ = (x.evalNat ρ + y.evalNat ρ) % p.modulus
-
-private theorem addQuotientFits {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ((x.val.intVal + y.val.intVal).eval ρ.int).toNat /
-      p.modulus < 2 ^ n := by
-  have hx0 := Elem.nonneg (p := p) hx
-  have hy0 := Elem.nonneg (p := p) hy
-  have hxlt := hx.2
-  have hylt := hy.2
-  simp only [LC.eval_add, Int.toNat_add hx0 hy0]
-  by_cases hm : p.modulus = 1
-  · have hxz : x.val.intVal.eval ρ.int = 0 := by omega
-    have hyz : y.val.intVal.eval ρ.int = 0 := by omega
-    simp [hxz, hyz]
-  · have hm2 : 2 ≤ p.modulus := by omega
-    have hprod :
-        (x.val.intVal.eval ρ.int).toNat +
-          (y.val.intVal.eval ρ.int).toNat < p.modulus * p.modulus := by
-      have hxn := (Int.toNat_lt hx0).2 hxlt
-      have hyn := (Int.toNat_lt hy0).2 hylt
-      nlinarith
-    exact (Nat.div_lt_of_lt_mul (by simpa [Nat.mul_comm] using hprod)).trans_le
-      p.fits
 
 @[spec] theorem add_sound {x y : Elem p}
     (hx : x.Valid ρ) (hy : y.Valid ρ) :
@@ -651,7 +290,7 @@ private theorem addQuotientFits {x y : Elem p}
   mvcgen
   · simpa only [LC.eval_add] using
       add_nonneg (Elem.nonneg (p := p) hx) (Elem.nonneg (p := p) hy)
-  · exact addQuotientFits p hx hy
+  · exact Aux.addQuotientFits p hx hy
   · intro hred
     refine ⟨hred.1, ?_⟩
     rw [hred.2]
@@ -673,69 +312,15 @@ theorem add_wf :
   unfold WF.LCEq
   simp only [LC.eval_add]
   rw [h.1.1, h.2.1]
-
-def sub (x y : Elem p) : Circuit (Elem p) :=
-  reduce p (x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal)
-
-def SubSpec (ρ : WF.Valuation) (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    out.evalNat ρ =
-      (x.evalNat ρ + p.modulus - y.evalNat ρ) % p.modulus
-
-private theorem subDividend_nonneg {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    0 ≤ (x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal).eval ρ.int := by
-  simp only [LC.eval_sub, LC.eval_add, LC.eval_ofConst]
-  have hx0 := Elem.nonneg (p := p) hx
-  have hylt := hy.2
-  omega
-
-private theorem subDividend_toNat {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ((x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal).eval ρ.int).toNat =
-      x.evalNat ρ + p.modulus - y.evalNat ρ := by
-  have hnonneg := subDividend_nonneg p hx hy
-  apply Int.ofNat_inj.mp
-  rw [Int.toNat_of_nonneg hnonneg]
-  simp only [LC.eval_sub, LC.eval_add, LC.eval_ofConst]
-  rw [Nat.cast_sub]
-  · simp only [Nat.cast_add]
-    rw [Elem.evalNat_cast (p := p) hx, Elem.evalNat_cast (p := p) hy]
-  · exact (Elem.evalNat_lt (p := p) hy).le.trans
-      (Nat.le_add_left p.modulus (x.evalNat ρ))
-
-private theorem subQuotientFits {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ((x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal).eval ρ.int).toNat /
-      p.modulus < 2 ^ n := by
-  rw [subDividend_toNat p hx hy]
-  by_cases hm : p.modulus = 1
-  · have hxz : x.evalNat ρ = 0 := by
-      have := Elem.evalNat_lt (p := p) hx
-      omega
-    have hyz : y.evalNat ρ = 0 := by
-      have := Elem.evalNat_lt (p := p) hy
-      omega
-    have hn : n ≠ 0 := Nat.ne_of_gt p.bitsPositive
-    simp [hm, hxz, hyz, hn]
-  · have hp := p.positive
-    have hm2 : 2 ≤ p.modulus := by omega
-    have hnum : x.evalNat ρ + p.modulus - y.evalNat ρ <
-        p.modulus * p.modulus := by
-      have hxlt := Elem.evalNat_lt (p := p) hx
-      nlinarith [Nat.sub_le (x.evalNat ρ + p.modulus) (y.evalNat ρ)]
-    exact (Nat.div_lt_of_lt_mul (by simpa [Nat.mul_comm] using hnum)).trans_le
-      p.fits
-
 @[spec] theorem sub_sound {x y : Elem p}
     (hx : x.Valid ρ) (hy : y.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (sub p x y)
     ⦃⇓ out => ⌜SubSpec p ρ x y out⌝⦄ := by
   unfold sub
   mvcgen
-  · exact subDividend_nonneg p hx hy
+  · exact Aux.subDividend_nonneg p hx hy
   · intro hred
-    exact ⟨hred.1, by rw [hred.2, subDividend_toNat p hx hy]⟩
+    exact ⟨hred.1, by rw [hred.2, Aux.subDividend_toNat p hx hy]⟩
 
 @[spec] theorem sub_complete {x y : Elem p}
     (hx : x.Valid ρ) (hy : y.Valid ρ) :
@@ -743,10 +328,10 @@ private theorem subQuotientFits {x y : Elem p}
     ⦃⇓ out => ⌜SubSpec p ρ x y out⌝⦄ := by
   unfold sub
   mvcgen
-  · exact subDividend_nonneg p hx hy
-  · exact subQuotientFits p hx hy
+  · exact Aux.subDividend_nonneg p hx hy
+  · exact Aux.subQuotientFits p hx hy
   · intro hred
-    exact ⟨hred.1, by rw [hred.2, subDividend_toNat p hx hy]⟩
+    exact ⟨hred.1, by rw [hred.2, Aux.subDividend_toNat p hx hy]⟩
 
 theorem sub_wf :
     WF.GadgetSpec
@@ -764,43 +349,6 @@ theorem sub_wf :
   unfold WF.LCEq
   simp only [LC.eval_sub, LC.eval_add, LC.eval_ofConst]
   rw [h.1.1, h.2.1]
-
-/-! ## Whole-element conditional selection
-
-Selecting 256 individual coordinate bits with 256 multiplication constraints
-is unnecessary.  `select` witnesses the selected canonical word and proves the
-choice with one integer R1C equation
-
-`b * (y - x) = out - x`.
-
-The caller supplies the usual Boolean fact `b = 0 ∨ b = 1`.  Exact integer
-semantics make this a sound whole-element mux; the output bit decomposition and
-`assertLt` retain the canonical representation.
--/
-
-def select (b : LC ℤ) (x y : Elem p) : Circuit (Elem p) := do
-  let bits ← hint h![b, x.val.intVal, y.val.intVal]
-    fun h![(bit : Int), (xv : Int), (yv : Int)] =>
-      if bit = 0 then
-        pure $ Vector.ofFn (n := n) fun i => xv.toNat.testBit i
-      else if bit = 1 then
-        pure $ Vector.ofFn (n := n) fun i => yv.toNat.testBit i
-      else
-        fail s!"modular select expected a bit, got {bit}"
-  let out ← U.fromWord { bitsLE := bits }
-  assertR1C b (y.val.intVal - x.val.intVal)
-    (out.intVal - x.val.intVal)
-  assertLt p.modulus out
-  pure ⟨out⟩
-
-def SelectSpec (ρ : WF.Valuation) (b : LC ℤ)
-    (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    out.val.intVal.eval ρ.int =
-      x.val.intVal.eval ρ.int +
-        b.eval ρ.int *
-          (y.val.intVal.eval ρ.int - x.val.intVal.eval ρ.int)
-
 @[spec] theorem select_sound {b : LC ℤ} {x y : Elem p}
     (hx : x.Valid ρ) (hy : y.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (select p b x y)
@@ -879,24 +427,12 @@ theorem select_wf :
   wfgen' using [U.fromWord_wf_rel, assertLt_wf]
     unfold [select, Elem.WFRel]
   case vc1 =>
-    apply WF.lceq_of_common_realizes
-    exact WF.common_realizes_of_hint (by assumption)
+    apply Aux.WF.lceq_of_common_realizes
+    exact Aux.WF.common_realizes_of_hint (by assumption)
   case vc2 =>
     simp_all [WF.LCEq, U.WFRel, WF.ArgsEq, WF.evalArgs, LC.eval_sub]
   case vc3 =>
     simp_all [WF.LCEq, U.WFRel, WF.ArgsEq, WF.evalArgs]
-
-/-! ## Equality and checked inverses
-
-An inverse is most economical as an auxiliary witness: the circuit does not
-need to reproduce Euclid's algorithm, because one modular multiplication and
-one equality constraint certify it.  This is a proof-carrying witness, not a
-trusted hint; a wrong inverse cannot satisfy the circuit.
--/
-
-def assertEq (x y : Elem p) : Circuit Unit := do
-  assertR1C 0 0 (x.val.intVal - y.val.intVal)
-
 @[spec] theorem assertEq_sound {x y : Elem p} :
     ⦃⌜True⌝⦄ Sound.interp ρ (assertEq p x y)
     ⦃⇓ _ => ⌜x.evalNat ρ = y.evalNat ρ⌝⦄ := by
@@ -939,15 +475,6 @@ theorem assertEq_wf :
     rw [h.1.1, h.2.1]
   · intro _ _ _
     trivial
-
-def checkedInv (one x candidate : Elem p) : Circuit (Elem p) := do
-  let product ← mul p x candidate
-  assertEq p product one
-  pure candidate
-
-def InvSpec (ρ : WF.Valuation) (one x out : Elem p) : Prop :=
-  out.Valid ρ ∧ (x.evalNat ρ * out.evalNat ρ) % p.modulus = one.evalNat ρ
-
 @[spec] theorem checkedInv_sound {one x candidate : Elem p}
     (hone : one.Valid ρ) (hx : x.Valid ρ) (hc : candidate.Valid ρ) :
     ⦃⌜True⌝⦄ Sound.interp ρ (checkedInv p one x candidate)
@@ -990,5 +517,105 @@ theorem checkedInv_wf :
     · apply WF.Rel.pure
       intro lv rv hA
       exact (hproduct lv rv hA).1.2.2
+
+namespace Lazy
+
+@[spec] theorem mul_sound_zmod {x y : Rep p} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (mul p x y)
+    ⦃⇓ out => ⌜MulZModSpec p ρ x y out⌝⦄ := by
+  mvcgen [mul, MulZModSpec, evalZMod]
+  intro bits
+  mvcgen
+  rename_i r q hr hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) heq
+  simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul, Int.cast_mul,
+    Int.cast_add, Int.cast_natCast, ZMod.natCast_self, zero_mul,
+    add_zero] at hcast
+  exact hcast.symm
+
+@[spec] theorem mulSubToElem_sound_zmod {x y target : Rep p} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (mulSubToElem p x y target)
+    ⦃⇓ out => ⌜MulSubToElemZModSpec p ρ x y target out⌝⦄ := by
+  mvcgen [mulSubToElem, MulSubToElemZModSpec, evalZMod,
+    evalElemZMod]
+  intro bits
+  mvcgen
+  rename_i r q hr hq heq
+  rcases heq with ⟨_, heq⟩
+  have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) heq
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact (eq_sub_iff_add_eq).2 hcast.symm
+
+@[spec] theorem divide_sound_zmod {denominator numerator : Rep p} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (divide p denominator numerator)
+    ⦃⇓ out => ⌜DivideZModSpec p ρ denominator numerator out⌝⦄ := by
+  mvcgen [divide, DivideZModSpec, evalZMod]
+  intro bits
+  mvcgen
+  rename_i value q hv hq heq
+  rcases heq with ⟨_, heq⟩
+  have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) heq
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact hcast
+
+@[spec] theorem assertMulEq_sound_zmod {x y target : Rep p} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (assertMulEq p x y target)
+    ⦃⇓ _ => ⌜AssertMulEqZModSpec p ρ x y target⌝⦄ := by
+  mvcgen [assertMulEq, AssertMulEqZModSpec, evalZMod]
+  intro bits
+  mvcgen
+  intro heq
+  have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) heq
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact hcast
+
+@[spec] theorem zeroTest_sound_zmod [Fact (Nat.Prime p.modulus)]
+    {x : Rep p} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (zeroTest p x)
+    ⦃⇓ z => ⌜ZeroTestZModSpec p ρ x z⌝⦄ := by
+  mvcgen [zeroTest, ZeroTestZModSpec]
+  intro bits
+  mvcgen
+  intro qbits
+  mvcgen
+  rename_i zWord hzWord inverse hInverse u hmul q hq hfinal
+  rcases hfinal with ⟨_, hfinal⟩
+  have hzBit : zWord.intBits[0].eval ρ.int = 0 ∨
+      zWord.intBits[0].eval ρ.int = 1 := by
+    have hz := hzWord.1 (0 : Fin 1)
+    cases hb : zWord.bits.bitsLE[0].eval ρ.bool <;>
+      simp [hb] at hz
+    · exact Or.inl hz
+    · exact Or.inr hz
+  have hmul' : evalZMod p x ρ *
+      ((inverse.intVal.eval ρ.int : Int) : ZMod p.modulus) =
+      1 - ((zWord.intBits[0].eval ρ.int : Int) : ZMod p.modulus) := by
+    simpa [AssertMulEqZModSpec, evalZMod, ofElem, LC.eval_sub,
+      LC.eval_ofConst, Int.cast_sub, Int.cast_one] using hmul
+  have hfinalCast :=
+    congrArg (fun z : Int => (z : ZMod p.modulus)) hfinal
+  simp only [LC.eval_nsmul, nsmul_eq_mul, Int.cast_mul,
+    Int.cast_natCast, ZMod.natCast_self, zero_mul] at hfinalCast
+  refine ⟨hzBit, ?_⟩
+  constructor
+  · intro hz
+    simpa [evalZMod, hz] using hfinalCast
+  · intro hx
+    rcases hzBit with hz | hz
+    · have hzeroOne : (0 : ZMod p.modulus) = 1 := by
+        simpa [hx, hz] using hmul'
+      exact (zero_ne_one hzeroOne).elim
+    · exact hz
+
+end Lazy
 
 end Freigen.F2Z.Examples.Modular

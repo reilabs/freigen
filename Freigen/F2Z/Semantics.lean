@@ -234,7 +234,8 @@ deriving Repr
 
 def CS.stats (cs : CS) : Stats :=
   { mRows := cs.m.size + 1,
-    mCols := (cs.m.map (·.coeffs.maxKey!) |>.rangeMaxD 0) + 2,
+    mCols := cs.m.foldl
+      (fun maxKey row => max maxKey row.normalForm.coeffs.maxKey!) 0 + 2,
     r1csRows := cs.r1cs.size }
 
 end Freigen.F2Z.Semantics

@@ -53,12 +53,14 @@ private def appendInt (out : ByteArray) (n : Int) : ByteArray :=
   appendVarNat out (zigZag n)
 
 private def appendBoolRow (out : ByteArray) (row : LC Bool) : ByteArray :=
+  let row := row.normalForm
   let entryCount := row.coeffs.size + if row.constant then 1 else 0
   let out := appendU32 out entryCount
   let out := if row.constant then appendU32 out 0 else out
   row.coeffs.foldl (fun out column _ => appendU32 out (column + 1)) out
 
 private def appendIntRow (out : ByteArray) (row : LC Int) : ByteArray :=
+  let row := row.normalForm
   let entryCount := row.coeffs.size + if row.constant = 0 then 0 else 1
   let out := appendU32 out entryCount
   let out := if row.constant = 0 then out else appendInt (appendU32 out 0) row.constant

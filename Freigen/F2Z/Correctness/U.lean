@@ -333,20 +333,10 @@ theorem U.wfRel_bitVec (lv rv : WF.Valuation) (x : BitVec n) :
     U.WFRel lv rv (x : U n) (x : U n) := by
   have hbit (v : Nat → Bool) (j : Fin n) :
       LC.eval v ((x : U n).bits.bitsLE[j]) = x[j] := by
-    simp only [Vector.getElem_ofFn, Fin.getElem_fin]
-    change x[j] + (∅ : Std.ExtTreeMap Nat Bool).foldMap
-      (fun i c => c * v i) = x[j]
-    have hz : (∅ : Std.ExtTreeMap Nat Bool).foldMap
-        (fun i c => c * v i) = 0 := Std.ExtTreeMap.foldMap_empty _
-    rw [hz, add_zero]
+    simp only [Vector.getElem_ofFn, Fin.getElem_fin, LC.eval_ofConst]
   have hint (v : Nat → ℤ) (j : Fin n) :
       LC.eval v ((x : U n).intBits[j]) = x[j].toInt := by
-    simp only [Vector.getElem_ofFn, Fin.getElem_fin]
-    change x[j].toInt + (∅ : Std.ExtTreeMap Nat ℤ).foldMap
-      (fun i c => c * v i) = x[j].toInt
-    have hz : (∅ : Std.ExtTreeMap Nat ℤ).foldMap
-        (fun i c => c * v i) = 0 := Std.ExtTreeMap.foldMap_empty _
-    rw [hz, add_zero]
+    simp only [Vector.getElem_ofFn, Fin.getElem_fin, LC.eval_ofConst]
   unfold U.WFRel WF.LCEq U.intVal
   constructor
   · rw [LC.eval_sum, LC.eval_sum]

@@ -1,119 +1,76 @@
-import Freigen.F2Z.Examples.P256
-import Freigen.F2Z.Examples.Sha256.Full
+import Freigen.F2Z.Examples.EcdsaP256.Lemmas
 
 /-!
-# ECDSA/SHA-256 verification on P-256
+# ECDSA-P256 verification and Mathlib equivalence
 
-`verifyDigest` implements SEC 1 ECDSA verification for a 256-bit SHA-256
-digest.  `verify2KB` composes it with F2Z's existing, proved SHA-256 circuit for
-an exactly 2 KiB message.
-
-The inverse values are auxiliary, proof-carrying witnesses.  This avoids
-embedding extended Euclid in the constraint system: `checkedInv` verifies each
-witness with a modular multiplication and exact equality.  They are no more
-trusted than any other witness value.
-
-The digest conversion deserves attention: SHA-256 emits conventional stream
-order (most-significant bit first), while `U` deliberately stores bits little
-endian.  `sha256DigestU` is the single explicit reversal between those two
-representations.
+The verification circuits are defined in `EcdsaP256.Impl`. This module
+contains their main boundary correctness statements.
 -/
 
 namespace Freigen.F2Z.Examples.EcdsaP256
 
-open Std.Do
-open scoped Std.Do
-open Modular
-open P256
-open P256.Projective
+namespace Reference
 
-structure PublicKey where
-  x : U 256
-  y : U 256
+/-! ## Mathlib equivalence -/
 
-structure Signature where
-  r : U 256
-  s : U 256
+/-- Soundness of the checked inverse-witness ECDSA logic with respect to the
+Mathlib P-256 verifier. -/
+theorem checked_sound {digest r s rInv sInv : Nat} {publicKey : Point}
+    (h : CheckedVerifies digest r s rInv sInv publicKey) :
+    Verifies digest r s publicKey := by
+  rcases h with ⟨hq0, hqOrder, hr, hs, hrInv, hsInv, hrMul, hsMul, hfinal⟩
+  have hr0 : 0 < r := by
+    by_contra hzero
+    have : r = 0 := Nat.eq_zero_of_not_pos hzero
+    subst r
+    simp at hrMul
+  have hs0 : 0 < s := by
+    by_contra hzero
+    have : s = 0 := Nat.eq_zero_of_not_pos hzero
+    subst s
+    simp at hsMul
+  have hsCast : (s : Scalar) ≠ 0 := Aux.cast_ne_zero_of_pos_of_lt hs0 hs
+  have hsInvEq : (sInv : Scalar) = (s : Scalar)⁻¹ :=
+    Aux.inverse_eq_of_mul_eq_one hsCast hsMul
+  refine ⟨hq0, hqOrder, hr0, hr, hs0, hs, ?_⟩
+  simpa [verificationPoint, verificationPointWithInverse, hsInvEq] using hfinal
 
-/-- Auxiliary witnesses.  `rInv` proves `r != 0`, `sInv` both proves `s != 0`
-and supplies the ECDSA inverse, and `zInv` normalizes the final projective
-point. -/
-structure Aux where
-  rInv : U 256
-  sInv : U 256
-  zInv : U 256
+/-- Completeness: every Mathlib-valid signature has canonical inverse
+witnesses satisfying the circuit-facing checked relation. -/
+theorem checked_complete {digest r s : Nat} {publicKey : Point}
+    (h : Verifies digest r s publicKey) :
+    ∃ rInv sInv, CheckedVerifies digest r s rInv sInv publicKey := by
+  rcases h with ⟨hq0, hqOrder, hr0, hr, hs0, hs, hfinal⟩
+  let rInv : Nat := ((r : Scalar)⁻¹).val
+  let sInv : Nat := ((s : Scalar)⁻¹).val
+  refine ⟨rInv, sInv, hq0, hqOrder, hr, hs, ?_, ?_, ?_, ?_, ?_⟩
+  · exact ZMod.val_lt _
+  · exact ZMod.val_lt _
+  · rw [show (rInv : Scalar) = (r : Scalar)⁻¹ by
+      exact ZMod.natCast_zmod_val _]
+    exact mul_inv_cancel₀ (Aux.cast_ne_zero_of_pos_of_lt hr0 hr)
+  · rw [show (sInv : Scalar) = (s : Scalar)⁻¹ by
+      exact ZMod.natCast_zmod_val _]
+    exact mul_inv_cancel₀ (Aux.cast_ne_zero_of_pos_of_lt hs0 hs)
+  · simpa [verificationPoint, verificationPointWithInverse, sInv,
+      ZMod.natCast_zmod_val] using hfinal
 
-/-- Interpret the conventional big-endian SHA-256 output as a little-endian
-`U 256`. -/
-def sha256DigestU (digest : Vector (LC Bool) 256) : Circuit (U 256) :=
-  U.fromWord { bitsLE := digest.reverse }
+/-- The checked-witness ECDSA relation and the direct Mathlib definition are
+equivalent.  The forward direction is soundness; the reverse direction
+constructs the canonical inverse witnesses. -/
+theorem checked_iff {digest r s : Nat} {publicKey : Point} :
+    (∃ rInv sInv, CheckedVerifies digest r s rInv sInv publicKey) ↔
+      Verifies digest r s publicKey :=
+  ⟨fun ⟨_, _, h⟩ => checked_sound h, checked_complete⟩
 
-/-- Verify an ECDSA-P256 signature over an already computed SHA-256 digest.
+end Reference
 
-All external integers are first made canonical.  Therefore the circuit rejects
-non-canonical encodings instead of silently reducing signature or key fields.
+/-! ## Digest verification circuit size -/
+
+/--
+info: { mRows := 1158991, mCols := 1158479, r1csRows := 5730 }
 -/
-def verifyDigest (digest : U 256) (key : PublicKey)
-    (sig : Signature) (aux : Aux) : Circuit Unit := do
-  let qx ← ofU base key.x
-  let qy ← ofU base key.y
-  let r ← ofU scalar sig.r
-  let s ← ofU scalar sig.s
-  let rInv ← ofU scalar aux.rInv
-  let sInv ← ofU scalar aux.sInv
-  let zInv ← ofU base aux.zInv
-
-  assertOnCurve qx qy
-
-  -- These checks enforce 1 <= r,s < n.  Canonicality gives the upper bound;
-  -- existence of an inverse modulo the prime group order excludes zero.
-  let _ ← checkedInv scalar fnOne r rInv
-  let w ← checkedInv scalar fnOne s sInv
-
-  -- SHA-256 and the group order are both 256 bits.  Reduction implements the
-  -- SEC 1 `bits2int`/mod-n behavior for P-256.
-  let z ← reduce scalar digest.intVal
-  let u1 ← mul scalar z w
-  let u2 ← mul scalar r w
-
-  let q : Projective := ⟨qx, qy, one⟩
-  let p1 ← scalarMul u1 generator
-  let p2 ← scalarMul u2 q
-  let sum ← addComplete p1 p2
-
-  -- A point at infinity has Z=0 and consequently cannot pass this checked
-  -- inverse.  Homogeneous coordinates normalize with x = X/Z.
-  let iz ← checkedInv base one sum.Z zInv
-  let affineX ← mul base sum.X iz
-  let xModN ← reduce scalar affineX.val.intVal
-  assertEq scalar xModN r
-
-/-- Hash and verify an exactly 2 KiB message.  The length matches the existing
-full SHA-256 example and includes its fixed, standard padding block. -/
-def verify2KB
-    (message : Vector (LC Bool) sha2562KBMessageBits)
-    (key : PublicKey) (sig : Signature) (aux : Aux) : Circuit Unit := do
-  let digestBE ← sha2562KBCircuit message
-  let digest ← sha256DigestU digestBE
-  verifyDigest digest key sig aux
-
-/-! ## Boundary well-formedness
-
-The arithmetic and curve callees carry their complete/sound/wf triples in
-`Modular.lean` and `P256.lean`.  The conversion below records the endian bridge
-as a reusable wf gadget as well.
--/
-
-theorem sha256DigestU_wf :
-    WF.GadgetSpec
-      (WF.VectorRel (fun lv rv (l r : LC Bool) =>
-        WF.LCEq lv.bool rv.bool l r))
-      sha256DigestU U.WFRel := by
-  unfold WF.GadgetSpec sha256DigestU
-  intro left right
-  apply Modular.WF.Rel.strengthen (U.fromWord_wf_rel
-    { bitsLE := left.reverse } { bitsLE := right.reverse })
-  intro lv rv h i
-  exact WF.eval_reverse h i
+#guard_msgs in
+#eval verifyDigestCS.2.stats
 
 end Freigen.F2Z.Examples.EcdsaP256

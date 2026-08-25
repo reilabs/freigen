@@ -217,7 +217,6 @@ theorem interp_f2z_spec {a : LC Bool} {valuation : WF.Valuation} :
       ⌜result.eval valuation.int = (a.eval valuation.bool).toInt⌝⦄ := by
   rw [interp_f2z]
   mvcgen
-  case vc1 => simp
 
 @[simp, spec]
 theorem interp_map (valuation : WF.Valuation)

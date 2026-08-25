@@ -1115,11 +1115,15 @@ theorem finish_wf :
     fin_cases j
     · exact hin.1 i
     · unfold roundVector
-      fin_cases i <;> simp only [Fin.getElem_fin] <;>
-        first | exact hin.2.1 | exact hin.2.2.1 |
-          exact hin.2.2.2.1 | exact hin.2.2.2.2.1 |
-          exact hin.2.2.2.2.2.1 | exact hin.2.2.2.2.2.2.1 |
-          exact hin.2.2.2.2.2.2.2.1 | exact hin.2.2.2.2.2.2.2.2
+      fin_cases i <;> simp only [Fin.getElem_fin]
+      · exact hin.2.1
+      · exact hin.2.2.1
+      · exact hin.2.2.2.1
+      · exact hin.2.2.2.2.1
+      · exact hin.2.2.2.2.2.1
+      · exact hin.2.2.2.2.2.2.1
+      · exact hin.2.2.2.2.2.2.2.1
+      · exact hin.2.2.2.2.2.2.2.2
 
 theorem structured_wf :
     WF.GadgetSpec
