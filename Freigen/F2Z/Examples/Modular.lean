@@ -518,6 +518,43 @@ theorem checkedInv_wf :
       intro lv rv hA
       exact (hproduct lv rv hA).1.2.2
 
+namespace Relaxed
+
+@[spec] theorem mul_sound_zmod {x y : Elem p} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (mul p x y)
+    ⦃⇓ out => ⌜out.val.Valid ρ ∧
+      Lazy.evalElemZMod p out ρ =
+        Lazy.evalElemZMod p x ρ * Lazy.evalElemZMod p y ρ⌝⦄ := by
+  mvcgen [mul, Lazy.evalElemZMod]
+  intro bits
+  mvcgen
+  rename_i r hr q hq heq
+  refine ⟨hr.1, ?_⟩
+  have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) heq
+  simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul, Int.cast_mul,
+    Int.cast_add, Int.cast_natCast, ZMod.natCast_self, zero_mul,
+    add_zero] at hcast
+  exact hcast.symm
+
+@[spec] theorem reduceSmall_sound_zmod {x : LC ℤ} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (reduceSmall p x)
+    ⦃⇓ out => ⌜out.val.Valid ρ ∧
+      Lazy.evalElemZMod p out ρ =
+        Int.castRingHom (ZMod p.modulus) (x.eval ρ.int)⌝⦄ := by
+  mvcgen [reduceSmall, Lazy.evalElemZMod]
+  intro bits
+  mvcgen
+  rename_i r hr q hq heq
+  refine ⟨hr.1, ?_⟩
+  have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) heq
+  simp only [LC.eval_zero, LC.eval_sub, LC.eval_add, LC.eval_nsmul, nsmul_eq_mul,
+    Int.cast_sub, Int.cast_add, Int.cast_mul, Int.cast_natCast,
+    ZMod.natCast_self, zero_mul, add_zero] at hcast
+  unfold Lazy.evalElemZMod
+  exact (sub_eq_zero.mp (by simpa using hcast.symm)).symm
+
+end Relaxed
+
 namespace Lazy
 
 @[spec] theorem mul_sound_zmod {x y : Rep p} :
@@ -532,6 +569,95 @@ namespace Lazy
     Int.cast_add, Int.cast_natCast, ZMod.natCast_self, zero_mul,
     add_zero] at hcast
   exact hcast.symm
+
+@[spec] theorem mul_complete_zmod {x y : Rep p}
+    (hx : x.Valid ρ) (hy : y.Valid ρ)
+    (hbound : x.bound * y.bound < 2 ^ quotientExtraBits) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (mul p x y)
+    ⦃⇓ out => ⌜MulZModSpec p ρ x y out ∧ out.Valid ρ⌝⦄ := by
+  mvcgen [mul, MulZModSpec, evalZMod]
+  let a := x.intVal.eval ρ.int
+  let b := y.intVal.eval ρ.int
+  let value := a.toNat * b.toNat
+  let bits : Vector Bool (2 * n + quotientExtraBits) := Vector.ofFn fun i =>
+    if hi : i.val < n then (value % p.modulus).testBit i.val
+    else (value / p.modulus).testBit (i.val - n)
+  refine ⟨bits, ?_, ?_⟩
+  · simp [WF.interpHint, WF.evalArgs, hx.1, hy.1, bits, value, a, b]
+  · mvcgen
+    rename_i r hr q hq
+    have hrFit : value % p.modulus < 2 ^ n :=
+      (Nat.mod_lt _ p.positive).trans_le p.fits
+    have hqFit : value / p.modulus < 2 ^ (n + quotientExtraBits) := by
+      simpa [value, a, b] using Lazy.mul_quotient_fits p hx hy hbound
+    have hrWord :
+        (Word.eval ρ.bool {
+          bitsLE := Vector.ofFn (n := n) fun i =>
+            (Vector.map LC.ofConst bits)[i.val]'(by omega)
+        }).toNat = value % p.modulus := by
+      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
+        Nat.mod_eq_of_lt hrFit]
+    have hqWord :
+        (Word.eval ρ.bool {
+          bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
+            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
+        }).toNat = value / p.modulus := by
+      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
+        show ∀ i : Fin (n + quotientExtraBits), ¬n + i.val < n by omega,
+        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit]
+    have hrVal : r.intVal.eval ρ.int = (value % p.modulus : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int = (value / p.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    have haVal : a.toNat = a := by exact_mod_cast Int.toNat_of_nonneg hx.1
+    have hbVal : b.toNat = b := by exact_mod_cast Int.toNat_of_nonneg hy.1
+    constructor
+    · simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul,
+        hrVal, hqVal, value, a, b]
+      change a * b = _
+      rw [← haVal, ← hbVal]
+      exact_mod_cast (Nat.mod_add_div value p.modulus).symm
+    · mvcgen
+      constructor
+      · unfold MulZModSpec evalZMod
+        have heq : a * b =
+            (value % p.modulus : Nat) + p.modulus * (value / p.modulus) := by
+          rw [← haVal, ← hbVal]
+          exact_mod_cast (Nat.mod_add_div value p.modulus).symm
+        have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) heq
+        simpa [hrVal, value, a, b] using hcast.symm
+      · exact ⟨U.intVal_nonneg r hr.1, by
+          rw [hrVal]
+          have hmod := Nat.mod_lt value p.positive
+          push_cast
+          nlinarith [p.positive]⟩
+
+@[spec] theorem reduce_sound_zmod {x : Rep p} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (reduce p x)
+    ⦃⇓ out => ⌜out.Valid ρ ∧
+      evalElemZMod p out ρ = evalZMod p x ρ⌝⦄ := by
+  mvcgen [reduce]
+  intro bits
+  mvcgen
+  rename_i r hr q hq
+  intro heq
+  intro houtVal
+  refine ⟨heq, ?_⟩
+  unfold evalElemZMod evalZMod
+  rw [houtVal]
+  have hcast := congrArg (fun z : Int => (z : ZMod p.modulus)) q
+  simp only [LC.eval_zero, zero_mul, LC.eval_sub, LC.eval_add,
+    LC.eval_nsmul, nsmul_eq_mul, Int.cast_sub, Int.cast_add,
+    Int.cast_mul, Int.cast_natCast, ZMod.natCast_self, zero_mul,
+    add_zero] at hcast
+  have hcast' := hcast.symm
+  simp only [Int.cast_zero] at hcast'
+  have hEq := (sub_eq_zero.mp hcast').symm
+  simpa [evalElemZMod, evalZMod, houtVal] using hEq
+  case vc2 =>
+    intro _
+    first
+    | exact (show U.Rel ρ _ _ from ‹U.Rel ρ _ _›).1
 
 @[spec] theorem mulSubToElem_sound_zmod {x y target : Rep p} :
     ⦃⌜True⌝⦄ Sound.interp ρ (mulSubToElem p x y target)
@@ -605,16 +731,26 @@ namespace Lazy
     congrArg (fun z : Int => (z : ZMod p.modulus)) hfinal
   simp only [LC.eval_nsmul, nsmul_eq_mul, Int.cast_mul,
     Int.cast_natCast, ZMod.natCast_self, zero_mul] at hfinalCast
-  refine ⟨hzBit, ?_⟩
-  constructor
-  · intro hz
-    simpa [evalZMod, hz] using hfinalCast
-  · intro hx
-    rcases hzBit with hz | hz
-    · have hzeroOne : (0 : ZMod p.modulus) = 1 := by
-        simpa [hx, hz] using hmul'
-      exact (zero_ne_one hzeroOne).elim
-    · exact hz
+  refine ⟨hzBit, ?_, ?_⟩
+  · constructor
+    · intro hz
+      simpa [evalZMod, hz] using hfinalCast
+    · intro hx
+      rcases hzBit with hz | hz
+      · have hzeroOne : (0 : ZMod p.modulus) = 1 := by
+          simpa [hx, hz] using hmul'
+        exact (zero_ne_one hzeroOne).elim
+      · exact hz
+  · rcases hzBit with hz | hz
+    · have hx0 : evalZMod p x ρ ≠ 0 := by
+        intro hx
+        have hzeroOne : (0 : ZMod p.modulus) = 1 := by
+          simpa [hx, hz] using hmul'
+        exact zero_ne_one hzeroOne
+      simp [hz, hx0]
+    · have hx0 : evalZMod p x ρ = 0 := by
+        simpa [evalZMod, hz] using hfinalCast
+      simp [hz, hx0]
 
 end Lazy
 

@@ -38,13 +38,6 @@ def verificationPoint (digest r s : Nat) (publicKey : Point) : Point :=
   (((digest : Scalar) * w).val • P256.Reference.generator) +
     (((r : Scalar) * w).val • publicKey)
 
-/-- The same equation with the inverse supplied as a checked circuit witness. -/
-def verificationPointWithInverse (digest r sInv : Nat)
-    (publicKey : Point) : Point :=
-  let w : Scalar := sInv
-  (((digest : Scalar) * w).val • P256.Reference.generator) +
-    (((r : Scalar) * w).val • publicKey)
-
 /-- SEC 1 ECDSA verification for a 256-bit digest.
 
 The digest is cast to the scalar field, which is exactly reduction modulo the
@@ -58,21 +51,6 @@ def Verifies (digest r s : Nat) (publicKey : Point) : Prop :=
   0 < r ∧ r < scalarModulus ∧
   0 < s ∧ s < scalarModulus ∧
   match verificationPoint digest r s publicKey with
-  | 0 => False
-  | .some x _ _ => x.val % scalarModulus = r
-
-/-- Circuit-facing logical contract for the two inverse inputs, under the
-standard public-key subgroup precondition. The inverse of `r` certifies its
-nonzeroness; the inverse of `s` is also used in the verification equation. -/
-def CheckedVerifies (digest r s rInv sInv : Nat)
-    (publicKey : Point) : Prop :=
-  publicKey ≠ 0 ∧
-  scalarModulus • publicKey = 0 ∧
-  r < scalarModulus ∧ s < scalarModulus ∧
-  rInv < scalarModulus ∧ sInv < scalarModulus ∧
-  (r : Scalar) * (rInv : Scalar) = 1 ∧
-  (s : Scalar) * (sInv : Scalar) = 1 ∧
-  match verificationPointWithInverse digest r sInv publicKey with
   | 0 => False
   | .some x _ _ => x.val % scalarModulus = r
 

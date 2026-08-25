@@ -101,13 +101,13 @@ namespace Lazy
 abbrev Rep := Modular.Lazy.Rep base
 
 def OnCurveZModSpec (ρ : WF.Valuation) (x y : Fp) : Prop :=
-  let X : ZMod baseModulus :=
-    Int.castRingHom (ZMod baseModulus) (x.val.intVal.eval ρ.int)
-  let Y : ZMod baseModulus :=
-    Int.castRingHom (ZMod baseModulus) (y.val.intVal.eval ρ.int)
+  let X : ZMod base.modulus :=
+    Int.castRingHom (ZMod base.modulus) (x.val.intVal.eval ρ.int)
+  let Y : ZMod base.modulus :=
+    Int.castRingHom (ZMod base.modulus) (y.val.intVal.eval ρ.int)
   Y ^ 2 = X ^ 3 - 3 * X +
     (0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b :
-      ZMod baseModulus)
+      ZMod base.modulus)
 
 def mul (x y : Rep) : Circuit Rep := Modular.Lazy.mul base x y
 
@@ -152,7 +152,6 @@ def ofElems (x y : Fp) : Point :=
 def infinity : Point :=
   ⟨Modular.Lazy.ofElem base zero, Modular.Lazy.ofElem base zero, 1⟩
 
-def mul (x y : Rep) : Circuit Rep := Modular.Lazy.mul base x y
 def add (x y : Rep) : Rep := Modular.Lazy.add base x y
 def sub (x y : Rep) : Rep := Modular.Lazy.sub base x y
 def scale (k : Nat) (x : Rep) : Rep := Modular.Lazy.scale base k x
@@ -221,7 +220,7 @@ def addFiniteDistinct (P Q : Point) : Circuit Point := do
 /-- Finite affine doubling.  P-256 has odd prime group order, hence a finite
 curve point never has `y = 0`. -/
 def doubleFinite (P : Point) : Circuit Point := do
-  let x2 ← mul P.X P.X
+  let x2 ← Modular.Lazy.mul base P.X P.X
   let numerator := sub (scale 3 x2) (ofElem three)
   let denominator := scale 2 P.Y
   let slope ← Modular.Lazy.divide base denominator numerator
@@ -235,7 +234,7 @@ the infinity bit cancels the curve's `a = -3` tangent numerator, while adding
 the bit to `2*y` makes the denominator one.  The ordinary output equations
 then return `(0,0)` directly, with no coordinate selectors. -/
 def doubleComplete (P : Point) : Circuit Point := do
-  let x2 ← mul P.X P.X
+  let x2 ← Modular.Lazy.mul base P.X P.X
   let numerator := add (sub (scale 3 x2) (ofElem three))
     ⟨3 • P.infinity, 1⟩
   let denominator := add (scale 2 P.Y) ⟨P.infinity, 1⟩
@@ -264,7 +263,7 @@ def addComplete (P Q : Point) : Circuit Point := do
   let genericCase ← andBit finite (LC.ofConst 1 - sameX)
   let active := doubleCase + genericCase
 
-  let x2 ← mul P.X P.X
+  let x2 ← Modular.Lazy.mul base P.X P.X
   let doubleNumerator := sub (scale 3 x2) (ofElem three)
   let doubleDenominator := scale 2 P.Y
   let selectedNumerator ← selectFormula doubleCase doubleNumerator dy

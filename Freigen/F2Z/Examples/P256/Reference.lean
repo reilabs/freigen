@@ -23,7 +23,7 @@ instance : Fact (Nat.Prime baseModulus) := ⟨baseModulus_prime⟩
 
 instance : Fact (Nat.Prime base.modulus) := ⟨baseModulus_prime⟩
 
-abbrev Field := ZMod baseModulus
+abbrev Field := ZMod base.modulus
 
 /-- P-256 in Mathlib's general Weierstrass form:
 `y^2 = x^3 - 3*x + b`. -/

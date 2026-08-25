@@ -38,6 +38,29 @@ end Projective.Aux
 
 namespace Reference.Aux
 
+theorem represents_zero {P : AffineSlope.Point}
+    (h : Reference.Represents ρ P 0) :
+    P.infinity.eval ρ.int = 1 := by
+  rcases h with ⟨hbit, hcoords⟩
+  unfold Reference.circuitCoordinates Reference.coordinates at hcoords
+  rcases hbit with hzero | hone
+  · simp [hzero] at hcoords
+  · exact hone
+
+theorem represents_some {P : AffineSlope.Point}
+    {x y : Reference.Field}
+    {hxy : Reference.curve.toAffine.Nonsingular x y}
+    (h : Reference.Represents ρ P (.some x y hxy)) :
+    P.infinity.eval ρ.int = 0 ∧
+      Modular.Lazy.evalZMod base P.X ρ = x ∧
+      Modular.Lazy.evalZMod base P.Y ρ = y := by
+  rcases h with ⟨hbit, hcoords⟩
+  unfold Reference.circuitCoordinates Reference.coordinates at hcoords
+  rcases hbit with hzero | hone
+  · rw [if_neg (by omega)] at hcoords
+    exact ⟨hzero, Reference.Coordinates.finite.inj hcoords⟩
+  · simp [hone] at hcoords
+
 theorem chordSlope_eq_mathlib {x₁ y₁ x₂ y₂ : Reference.Field}
     (hx : x₁ ≠ x₂) :
     Reference.chordSlope x₁ y₁ x₂ y₂ =
@@ -70,5 +93,29 @@ theorem resultY_eq_mathlib (x₁ x₂ y₁ slope : Reference.Field) :
   ring
 
 end Reference.Aux
+
+namespace AffineSlope.Aux
+
+theorem two_mul_ne_zero_of_eq_of_ne_neg
+    {a b : Reference.Field} (hab : a = b) (hne : a ≠ -b) :
+    2 * a ≠ 0 := by
+  intro hzero
+  apply hne
+  rw [← hab]
+  linear_combination hzero
+
+theorem add_self_ne_zero_of_eq_of_ne_neg
+    {a b : Reference.Field} (hab : a = b) (hne : a ≠ -b) :
+    a + a ≠ 0 := by
+  intro hzero
+  apply hne
+  rw [← hab]
+  linear_combination hzero
+
+theorem sub_ne_zero_of_ne_rev {a b : Reference.Field}
+    (hne : a ≠ b) : b - a ≠ 0 :=
+  sub_ne_zero.mpr (Ne.symm hne)
+
+end AffineSlope.Aux
 
 end Freigen.F2Z.Examples.P256

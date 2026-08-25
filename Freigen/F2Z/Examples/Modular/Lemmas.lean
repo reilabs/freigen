@@ -12,6 +12,9 @@ namespace Freigen.F2Z.Examples.Modular
 open Std.Do
 open scoped Std.Do
 
+@[simp] theorem intCastRingHom_apply {R : Type} [Ring R] (x : Int) :
+    Int.castRingHom R x = (x : R) := rfl
+
 /-- Strengthen the initial relational assumption of a well-formedness proof.
 This small structural rule makes proved gadgets compositional when an outer
 type carries more invariants than a callee consumes. -/
@@ -77,6 +80,102 @@ theorem ofNat_evalNat (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) :
   change ((BitVec.ofNat n x : U n).intVal.eval ρ.int).toNat = x
   rw [U.intVal_eval_eq_eval_toNat _ (U.valid_bitVec _), U.eval_bitVec]
   simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hfit]
+
+namespace Lazy
+
+@[simp] theorem evalZMod_ofElem (x : Elem p) :
+    evalZMod p (ofElem p x) ρ = evalElemZMod p x ρ := rfl
+
+@[simp] theorem evalZMod_add (x y : Rep p) :
+    evalZMod p (add p x y) ρ = evalZMod p x ρ + evalZMod p y ρ := by
+  simp [evalZMod, add, Int.cast_add]
+
+@[simp] theorem evalZMod_sub (x y : Rep p) :
+    evalZMod p (sub p x y) ρ = evalZMod p x ρ - evalZMod p y ρ := by
+  simp [evalZMod, sub, Int.cast_sub, Int.cast_add]
+
+@[simp] theorem evalZMod_scale (k : Nat) (x : Rep p) :
+    evalZMod p (scale p k x) ρ = k * evalZMod p x ρ := by
+  simp [evalZMod, scale, Int.cast_mul]
+
+theorem ofElem_valid {x : Elem p} (hx : x.Valid ρ) :
+    (ofElem p x).Valid ρ := by
+  refine ⟨Elem.nonneg (p := p) hx, ?_⟩
+  change x.val.intVal.eval ρ.int < ((2 * p.modulus : Nat) : Int)
+  push_cast
+  have hp : (0 : Int) < p.modulus := by exact_mod_cast p.positive
+  nlinarith [hx.2]
+
+theorem add_valid {x y : Rep p} (hx : x.Valid ρ) (hy : y.Valid ρ) :
+    (add p x y).Valid ρ := by
+  rcases hx with ⟨hx0, hxlt⟩
+  rcases hy with ⟨hy0, hylt⟩
+  constructor
+  · simpa [add, Rep.Valid] using add_nonneg hx0 hy0
+  · simp only [add, Rep.Valid, LC.eval_add]
+    push_cast
+    ring_nf
+    nlinarith
+
+theorem sub_valid {x y : Rep p} (hx : x.Valid ρ) (hy : y.Valid ρ) :
+    (sub p x y).Valid ρ := by
+  rcases hx with ⟨hx0, hxlt⟩
+  rcases hy with ⟨hy0, hylt⟩
+  constructor
+  · simp only [sub, Rep.Valid, LC.eval_sub, LC.eval_add,
+      LC.eval_ofConst]
+    push_cast
+    omega
+  · simp only [sub, Rep.Valid, LC.eval_sub, LC.eval_add,
+      LC.eval_ofConst]
+    push_cast
+    ring_nf
+    nlinarith
+
+theorem scale_valid {x : Rep p} (hx : x.Valid ρ) {k : Nat} (hk : 0 < k) :
+    (scale p k x).Valid ρ := by
+  rcases hx with ⟨hx0, hxlt⟩
+  constructor
+  · simp only [scale, Rep.Valid, LC.eval_nsmul, nsmul_eq_mul]
+    positivity
+  · simp only [scale, Rep.Valid, LC.eval_nsmul, nsmul_eq_mul]
+    push_cast
+    ring_nf
+    have hk0 : (0 : Int) < k := by exact_mod_cast hk
+    nlinarith
+
+theorem toNat_lt_bound {x : Rep p} (hx : x.Valid ρ) :
+    (x.intVal.eval ρ.int).toNat < x.bound * p.modulus :=
+  (Int.toNat_lt hx.1).2 hx.2
+
+theorem mul_quotient_fits {x y : Rep p}
+    (hx : x.Valid ρ) (hy : y.Valid ρ)
+    (hbound : x.bound * y.bound < 2 ^ quotientExtraBits) :
+    (x.intVal.eval ρ.int).toNat * (y.intVal.eval ρ.int).toNat /
+      p.modulus < 2 ^ (n + quotientExtraBits) := by
+  let a := (x.intVal.eval ρ.int).toNat
+  let b := (y.intVal.eval ρ.int).toNat
+  have ha := toNat_lt_bound p hx
+  have hb := toNat_lt_bound p hy
+  have hproduct : a * b <
+      (x.bound * y.bound * p.modulus) * p.modulus := by
+    dsimp [a, b] at *
+    nlinarith [p.positive]
+  calc
+    a * b / p.modulus < x.bound * y.bound * p.modulus :=
+      Nat.div_lt_of_lt_mul (by
+        simpa [Nat.mul_assoc, Nat.mul_comm, Nat.mul_left_comm] using hproduct)
+    _ < 2 ^ quotientExtraBits * 2 ^ n :=
+      Nat.mul_lt_mul_of_lt_of_le hbound p.fits (by positivity)
+    _ = 2 ^ (n + quotientExtraBits) := by
+      rw [pow_add]
+      ac_rfl
+
+theorem ZeroTestZModSpec.value_eq_if {x : Rep p} {z : LC ℤ}
+    (h : ZeroTestZModSpec p ρ x z) :
+    z.eval ρ.int = if evalZMod p x ρ = 0 then 1 else 0 := h.2.2
+
+end Lazy
 
 namespace Aux
 

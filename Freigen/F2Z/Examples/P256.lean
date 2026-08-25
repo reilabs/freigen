@@ -129,13 +129,21 @@ end AffineSlope
 
 namespace Reference
 
+@[simp] theorem negY_eq (x y : Field) :
+    curve.toAffine.negY x y = -y := by
+  simp [curve]
+
+@[simp] theorem curve_a1 : curve.toAffine.a₁ = 0 := rfl
+
+@[simp] theorem curve_a3 : curve.toAffine.a₃ = 0 := rfl
+
 /-- A successful fused circuit check is exactly Mathlib's affine P-256
 equation, not a separate hand-written curve predicate. -/
 @[spec] theorem assertOnCurve_sound {x y : Fp} :
     ⦃⌜True⌝⦄ Sound.interp ρ (Projective.Lazy.assertOnCurve x y)
     ⦃⇓ _ => ⌜curve.toAffine.Equation
-      (Int.castRingHom (ZMod baseModulus) (x.val.intVal.eval ρ.int))
-      (Int.castRingHom (ZMod baseModulus) (y.val.intVal.eval ρ.int))⌝⦄ := by
+      (Int.castRingHom Field (x.val.intVal.eval ρ.int))
+      (Int.castRingHom Field (y.val.intVal.eval ρ.int))⌝⦄ := by
   apply Triple.iff_conseq.mp Projective.Lazy.assertOnCurve_sound (by simp)
   simp only [PostCond.entails, SPred.entails_nil]
   exact ⟨fun _ h => (equation_iff_short _ _).2 h,
