@@ -247,7 +247,8 @@ private theorem rand_bind_injective {α} {b k : ℤ → Nondet α}
   injection ho with _ hk
   funext z
   apply ExactCodensity.equiv.injective
-  change (b z).run pure = (k z).run pure
+  change (b z).result = (k z).result
+  rw [(b z).result_eq, (k z).result_eq]
   exact congrFun hk (Sum.inl z)
 
 private theorem rand_ne {α} {b : ℤ → Nondet α} {t : Nondet α}

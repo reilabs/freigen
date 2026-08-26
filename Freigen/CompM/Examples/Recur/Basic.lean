@@ -19,16 +19,21 @@ instance {Γ} {inp out : Type} : Eff.Spec (@Recur Γ inp out) where
 namespace Recur
 
 def runCounted {Γ : Type} {γ : Γ} {α : Type} :
-    (fuel : Nat) → CompM Eff.Tau γ α → Option (α × Nat)
-  | 0, x =>
-      match CompM.observe x with
-      | ⟨.ret value, _⟩ => some (value, 0)
-      | ⟨.op _, _⟩ => none
-  | fuel + 1, x =>
-      match CompM.observe x with
-      | ⟨.ret value, _⟩ => some (value, 0)
-      | ⟨.op _, children⟩ =>
-          (runCounted fuel (children (.inl PUnit.unit))).map
+    (fuel : Nat) → CompM Eff.Tau γ α → Option (α × Nat) :=
+  fun fuel x => go fuel (x.result.approx (fuel + 1))
+  where
+  go : (fuel : Nat) →
+      IxPoly.M.Approx (Eff.Step Γ Eff.Tau) (fuel + 1) (γ, α) →
+      Option (α × Nat)
+  | 0, ._succ _ _ p _ =>
+      match p with
+      | .ret value => some (value, 0)
+      | .op _ => none
+  | fuel + 1, ._succ _ _ p children =>
+      match p with
+      | .ret value => some (value, 0)
+      | .op _ =>
+          (go fuel (children (.inl PUnit.unit))).map
             fun (value, steps) => (value, steps + 1)
 
 def fix {Γ : Type} {E : Γ → Type} [Eff.Spec E] [Eff.Has Eff.Tau E]
@@ -69,6 +74,6 @@ def mul : Nat → Nat → CompM Eff.Tau () Nat := fun n => fix fun mul => fun
 | 0 => pure 0
 | m + 1 => do CompM.liftR $ add n (←mul m)
 
-#eval runCounted 5 (mul 2 2)
+#eval runCounted 5 (mul 10 2)
 
 end Freigen.CompM.Examples.Recur

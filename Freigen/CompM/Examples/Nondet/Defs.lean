@@ -33,7 +33,7 @@ def print (z : ℤ) : Nondet Unit :=
   CompM.op (E := Stack) (Sum.inr (Eff.print z)) nofun
 
 def approxWith {α} (entropy : ℕ → ℤ) (t : Nondet α) (n: Nat): List ℤ :=
-  go (entropy, 0) n ((t.run pure).approx n) where
+  go (entropy, 0) n (t.result.approx n) where
   go : (ℕ → ℤ) × ℕ → (n : Nat) →
       IxPoly.M.Approx (Eff.Step Unit Stack) n ((), α) →
       List ℤ := fun entropy n approx => match n, approx with

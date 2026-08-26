@@ -288,6 +288,130 @@ theorem op_bind
   · rfl
   · simp [bindCo_copy]
 
+def Approx.bindFast
+    {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+    {γ : Γ} {α β : Type v} (f : α → ITree E γ β) :
+    {n : Nat} →
+      IxPoly.M.Approx (Eff.Step Γ E) n (γ, α) →
+      IxPoly.M.Approx (Eff.Step Γ E) n (γ, β)
+  | 0, .zero _ => .zero _
+  | n + 1, @IxPoly.M.Approx._succ _ _ _ (γ, α) p children =>
+      match p with
+      | .ret value => (f value).approx (n + 1)
+      | .op e =>
+        ._succ n (γ, β) (Eff.NodeTag.op e) fun
+          | .inl output => Approx.bindFast f (children (.inl output))
+          | .inr block => children (.inr block)
+
+theorem Approx.bindFast_agree
+    {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+    {γ : Γ} {α β : Type v} (f : α → ITree E γ β)
+    {n : Nat}
+    {x : IxPoly.M.Approx (Eff.Step Γ E) n (γ, α)}
+    {y : IxPoly.M.Approx (Eff.Step Γ E) (n + 1) (γ, α)}
+    (h : IxPoly.M.Agree (Eff.Step Γ E) x y) :
+    IxPoly.M.Agree (Eff.Step Γ E)
+      (Approx.bindFast f x) (Approx.bindFast f y) := by
+  cases h with
+  | zero => exact .zero _ _
+  | succ p children children' hchildren =>
+    cases p with
+    | ret value =>
+      simp only [Approx.bindFast]
+      exact (f value).agree
+    | op e =>
+      simp only [Approx.bindFast]
+      apply IxPoly.M.Agree.succ
+      intro field
+      cases field with
+      | inl output =>
+        exact Approx.bindFast_agree f (hchildren (Sum.inl output))
+      | inr block => exact hchildren (Sum.inr block)
+
+def bindFast
+    {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+    {γ : Γ} {α β : Type v}
+    (x : ITree E γ α) (f : α → ITree E γ β) :
+    ITree E γ β where
+  approx n := Approx.bindFast f (x.approx n)
+  agree := Approx.bindFast_agree f x.agree
+
+@[simp]
+theorem bindFast_ret
+    {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+    {γ : Γ} {α β : Type v} (value : α)
+    (f : α → ITree E γ β) :
+    bindFast (ret value) f = f value := by
+  apply IxPoly.M.ext
+  intro n
+  change Approx.bindFast f
+    ((IxPoly.M.prepend (Eff.Step.ret value)).approx n) = (f value).approx n
+  cases n with
+  | zero =>
+    cases (f value).approx 0
+    rfl
+  | succ n => rfl
+
+@[simp]
+theorem bindFast_op
+    {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+    {γ : Γ} {α β : Type v} (e : E γ)
+    (blocks :
+      (t : eS.blockTag γ e) →
+      eS.blockInputs γ e t →
+      ITree E (eS.blockCtx γ e t) (eS.blockOutputs γ e t))
+    (k : eS.output γ e → ITree E γ α)
+    (f : α → ITree E γ β) :
+    bindFast (op e blocks k) f =
+      op e blocks (fun output => bindFast (k output) f) := by
+  apply IxPoly.M.ext
+  intro n
+  change Approx.bindFast f
+    ((IxPoly.M.prepend (Eff.Step.op e blocks k)).approx n) =
+    (IxPoly.M.prepend (Eff.Step.op e blocks
+      (fun output => bindFast (k output) f))).approx n
+  cases n with
+  | zero => rfl
+  | succ n =>
+    simp only [IxPoly.M.prepend, IxPoly.map, IxPoly.M.Approx.succ,
+      Eff.Step.op, Approx.bindFast, bindFast]
+    congr 1
+    funext field
+    cases field with
+    | inl output => rfl
+    | inr block =>
+      rcases block with ⟨tag, input⟩
+      rfl
+
+theorem bindFast_eq_bind
+    {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+    {γ : Γ} {α β : Type v}
+    (x : ITree E γ α) (f : α → ITree E γ β) :
+    bindFast x f = x >>= f := by
+  apply bisim₂_up_to_eq (i := (γ, β))
+    (Seed := fun i => ITree E i.1 α × (α → ITree E i.1 i.2))
+    (left := fun _ state => bindFast state.1 state.2)
+    (right := fun _ state => state.1 >>= state.2)
+    (seed := (x, f))
+  intro i state
+  rcases i with ⟨δ, A⟩
+  rcases state with ⟨tree, continuation⟩
+  have htree : tree = roll (observe tree) := (roll_observe tree).symm
+  rw [htree]
+  cases observe tree using Eff.Step.casesOn with
+  | ret value =>
+    simp only [roll_ret, bindFast_ret, ret_bind]
+    apply BisimRelF.refl_upToEq
+  | op e blocks k =>
+    simp only [roll_op, bindFast_op, op_bind, observe_op]
+    apply BisimRelF.op
+    · intro output
+      right
+      exact ⟨(k output, continuation), rfl, rfl⟩
+    · intro tag input
+      left
+      rfl
+
 @[simp]
 theorem hasOp_bind
     {F : Γ → Type u} {γ : Γ} {α β : Type v}
