@@ -146,6 +146,21 @@ structure Point where
   Y : Rep
   infinity : LC ℤ
 
+/-- Construction invariant for affine circuit state.  Coordinates are
+canonical integer representatives; the separate infinity flag is Boolean.
+This is stronger than the quotient semantics and is consumed only by witness
+generation/completeness. -/
+def Point.Valid (P : Point) (ρ : WF.Valuation) : Prop :=
+  P.X.bound = 2 ∧ P.X.Valid ρ ∧
+    P.X.intVal.eval ρ.int < base.modulus ∧
+    P.Y.bound = 2 ∧ P.Y.Valid ρ ∧
+    P.Y.intVal.eval ρ.int < base.modulus ∧
+    (P.infinity.eval ρ.int = 0 ∨ P.infinity.eval ρ.int = 1)
+
+def Point.WFRel (lv rv : WF.Valuation) (left right : Point) : Prop :=
+  left.X.WFRel lv rv right.X ∧ left.Y.WFRel lv rv right.Y ∧
+    WF.LCEq lv.int rv.int left.infinity right.infinity
+
 def ofElems (x y : Fp) : Point :=
   ⟨Modular.Lazy.ofElem base x, Modular.Lazy.ofElem base y, 0⟩
 
@@ -178,6 +193,13 @@ def andBit (x y : LC ℤ) : Circuit (LC ℤ) := do
   assertR1C x y out.intVal
   pure out.intVal
 
+/-- Three-input conjunction.  Keeping the intermediate product inside this
+gadget gives completeness a local Boolean invariant instead of exposing it
+to callers. -/
+def and3Bit (x y z : LC ℤ) : Circuit (LC ℤ) := do
+  let xy ← andBit x y
+  andBit z xy
+
 /-- Exact selection between canonical representatives.  The result is again
 a 256-bit representative and can safely remain in the affine state. -/
 def selectCanonical (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep := do
@@ -206,89 +228,133 @@ def selectFormula (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep := do
     (out.intVal - whenZero.intVal)
   pure ⟨out.intVal, 66⟩
 
-/-- Ordinary finite affine addition.  Its caller establishes that the two
-x-coordinates differ, so the chord denominator is invertible. -/
-def addFiniteDistinct (P Q : Point) : Circuit Point := do
-  let dx := sub Q.X P.X
-  let dy := sub Q.Y P.Y
-  let slope ← Modular.Lazy.divide base dx dy
-  let x3 ← Modular.Lazy.mulSubToElem base slope slope (add P.X Q.X)
-  let x3r := ofElem x3
-  let y3 ← Modular.Lazy.mulSubToElem base slope (sub P.X x3r) P.Y
-  pure ⟨x3r, ofElem y3, 0⟩
-
-/-- Finite affine doubling.  P-256 has odd prime group order, hence a finite
-curve point never has `y = 0`. -/
-def doubleFinite (P : Point) : Circuit Point := do
-  let x2 ← Modular.Lazy.mul base P.X P.X
-  let numerator := sub (scale 3 x2) (ofElem three)
-  let denominator := scale 2 P.Y
-  let slope ← Modular.Lazy.divide base denominator numerator
-  let x3 ← Modular.Lazy.mulSubToElem base slope slope (scale 2 P.X)
-  let x3r := ofElem x3
-  let y3 ← Modular.Lazy.mulSubToElem base slope (sub P.X x3r) P.Y
-  pure ⟨x3r, ofElem y3, 0⟩
-
 /-- Complete affine doubling.  At infinity `(x,y)=(0,0)`: adding three times
 the infinity bit cancels the curve's `a = -3` tangent numerator, while adding
 the bit to `2*y` makes the denominator one.  The ordinary output equations
 then return `(0,0)` directly, with no coordinate selectors. -/
-def doubleComplete (P : Point) : Circuit Point := do
+def doubleSlope (P : Point) : Circuit Rep := do
   let x2 ← Modular.Lazy.mul base P.X P.X
   let numerator := add (sub (scale 3 x2) (ofElem three))
     ⟨3 • P.infinity, 1⟩
   let denominator := add (scale 2 P.Y) ⟨P.infinity, 1⟩
-  let slope ← Modular.Lazy.divide base denominator numerator
+  Modular.Lazy.divide base denominator numerator
+
+def finishDouble (P : Point) (slope : Rep) : Circuit Point := do
   let x3 ← Modular.Lazy.mulSubToElem base slope slope (scale 2 P.X)
   let x3r := ofElem x3
   let y3 ← Modular.Lazy.mulSubToElem base slope (sub P.X x3r) P.Y
   pure ⟨x3r, ofElem y3, P.infinity⟩
+
+def doubleComplete (P : Point) : Circuit Point := do
+  let slope ← doubleSlope P
+  finishDouble P slope
 
 /-- Complete affine addition.  Two verified zero tests distinguish chord,
 tangent, and opposite-point cases.  In inactive infinity/opposite branches
 the slope relation is changed to the harmless `slope * 1 = 0`; the final two
 canonical coordinates are then selected from the appropriate identity case.
 -/
-def addComplete (P Q : Point) : Circuit Point := do
+structure AddControl where
+  sameX : LC ℤ
+  oppositeY : LC ℤ
+  finite : LC ℤ
+  doubleCase : LC ℤ
+  active : LC ℤ
+
+def AddControl.WFRel (lv rv : WF.Valuation)
+    (left right : AddControl) : Prop :=
+  WF.LCEq lv.int rv.int left.sameX right.sameX ∧
+    WF.LCEq lv.int rv.int left.oppositeY right.oppositeY ∧
+    WF.LCEq lv.int rv.int left.finite right.finite ∧
+    WF.LCEq lv.int rv.int left.doubleCase right.doubleCase ∧
+    WF.LCEq lv.int rv.int left.active right.active
+
+def classifyAdd (P Q : Point) : Circuit AddControl := do
   let dx := sub Q.X P.X
-  let dy := sub Q.Y P.Y
   let ysum := add P.Y Q.Y
   let sameX ← Modular.Lazy.zeroTest base dx
   let oppositeY ← Modular.Lazy.zeroTest base ysum
-
   let finite ← andBit (LC.ofConst 1 - P.infinity)
     (LC.ofConst 1 - Q.infinity)
   let doubleKind ← andBit sameX (LC.ofConst 1 - oppositeY)
   let doubleCase ← andBit finite doubleKind
   let genericCase ← andBit finite (LC.ofConst 1 - sameX)
   let active := doubleCase + genericCase
+  pure ⟨sameX, oppositeY, finite, doubleCase, active⟩
 
+structure SlopeOperands where
+  numerator : Rep
+  denominator : Rep
+
+def SlopeOperands.WFRel (lv rv : WF.Valuation)
+    (left right : SlopeOperands) : Prop :=
+  left.numerator.WFRel lv rv right.numerator ∧
+    left.denominator.WFRel lv rv right.denominator
+
+def SlopeOperands.Valid (operands : SlopeOperands)
+    (ρ : WF.Valuation) : Prop :=
+  operands.numerator.Valid ρ ∧ operands.numerator.bound = 66 ∧
+    operands.denominator.Valid ρ ∧ operands.denominator.bound = 66
+
+def selectRawSlopeOperands (P Q : Point)
+    (control : AddControl) : Circuit SlopeOperands := do
+  let dx := sub Q.X P.X
+  let dy := sub Q.Y P.Y
   let x2 ← Modular.Lazy.mul base P.X P.X
   let doubleNumerator := sub (scale 3 x2) (ofElem three)
   let doubleDenominator := scale 2 P.Y
-  let selectedNumerator ← selectFormula doubleCase doubleNumerator dy
-  let selectedDenominator ← selectFormula doubleCase doubleDenominator dx
-  let numerator ← selectFormula active selectedNumerator (ofElem zero)
-  let denominator ← selectFormula active selectedDenominator (ofElem one)
+  let selectedNumerator ←
+    selectFormula control.doubleCase doubleNumerator dy
+  let selectedDenominator ←
+    selectFormula control.doubleCase doubleDenominator dx
+  pure ⟨selectedNumerator, selectedDenominator⟩
 
-  let slope ← Modular.Lazy.divide base denominator numerator
+def activateSlopeOperands (_P _Q : Point) (control : AddControl)
+    (selected : SlopeOperands) : Circuit SlopeOperands := do
+  let numerator ←
+    selectFormula control.active selected.numerator (ofElem zero)
+  let denominator ←
+    selectFormula control.active selected.denominator (ofElem one)
+
+  pure ⟨numerator, denominator⟩
+
+def selectSlopeOperands (P Q : Point)
+    (control : AddControl) : Circuit SlopeOperands := do
+  let selected ← selectRawSlopeOperands P Q control
+  activateSlopeOperands P Q control selected
+
+def finishAddCandidate (P Q : Point)
+    (operands : SlopeOperands) : Circuit (Rep × Rep) := do
+  let slope ← Modular.Lazy.divide base operands.denominator operands.numerator
   let candidateX ← Modular.Lazy.mulSubToElem base slope slope (add P.X Q.X)
   let candidateXr := ofElem candidateX
   let candidateY ← Modular.Lazy.mulSubToElem base slope
     (sub P.X candidateXr) P.Y
   let candidateYr := ofElem candidateY
+  pure (candidateXr, candidateYr)
 
+def addCandidate (P Q : Point) (control : AddControl) : Circuit (Rep × Rep) := do
+  let operands ← selectSlopeOperands P Q control
+  finishAddCandidate P Q operands
+
+def selectAddOutput (P Q : Point) (control : AddControl)
+    (candidate : Rep × Rep) : Circuit Point := do
   let inactiveX0 ← selectCanonical Q.infinity P.X (ofElem zero)
   let inactiveY0 ← selectCanonical Q.infinity P.Y (ofElem zero)
   let inactiveX ← selectCanonical P.infinity Q.X inactiveX0
   let inactiveY ← selectCanonical P.infinity Q.Y inactiveY0
-  let X ← selectCanonical active candidateXr inactiveX
-  let Y ← selectCanonical active candidateYr inactiveY
+  let X ← selectCanonical control.active candidate.1 inactiveX
+  let Y ← selectCanonical control.active candidate.2 inactiveY
 
   let bothInfinity ← andBit P.infinity Q.infinity
-  let oppositePair ← andBit sameX oppositeY
-  let finiteOpposite ← andBit finite oppositePair
+  let finiteOpposite ←
+    and3Bit control.sameX control.oppositeY control.finite
   pure ⟨X, Y, bothInfinity + finiteOpposite⟩
+
+def addComplete (P Q : Point) : Circuit Point := do
+  let control ← classifyAdd P Q
+  let candidate ← addCandidate P Q control
+  selectAddOutput P Q control candidate
 
 end AffineSlope
 

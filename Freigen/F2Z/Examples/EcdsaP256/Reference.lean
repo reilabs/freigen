@@ -18,8 +18,13 @@ axiom scalarModulus_prime : Nat.Prime scalarModulus
 
 instance : Fact (Nat.Prime scalarModulus) := ⟨scalarModulus_prime⟩
 
+instance : Fact (Nat.Prime scalar.modulus) := ⟨scalarModulus_prime⟩
+
 abbrev Scalar := ZMod scalarModulus
 abbrev Point := P256.Reference.Point
+
+def HasCoordinates (publicKey : Point) (x y : P256.Reference.Field) : Prop :=
+  P256.Reference.coordinates publicKey = .finite x y
 
 /-- Canonical natural-number coordinates, used only when crossing the circuit
 boundary or constructing a fixed lookup table.  Infinity maps to `(0,0)`;
@@ -47,7 +52,6 @@ x coordinate is reduced modulo the group order before comparison with `r`.
 -/
 def Verifies (digest r s : Nat) (publicKey : Point) : Prop :=
   publicKey ≠ 0 ∧
-  scalarModulus • publicKey = 0 ∧
   0 < r ∧ r < scalarModulus ∧
   0 < s ∧ s < scalarModulus ∧
   match verificationPoint digest r s publicKey with

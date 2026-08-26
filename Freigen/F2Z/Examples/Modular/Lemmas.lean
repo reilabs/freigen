@@ -197,6 +197,40 @@ theorem WF.lceq_of_common_realizes
   rcases h with ⟨values, hleft, hright⟩
   exact (hleft i hi).trans (hright i hi).symm
 
+/-- Any fixed slice of a common hint result gives related word bits.  Unlike
+the older low/high helpers, this also covers quotient witnesses with a few
+extra slack bits. -/
+theorem WF.wordSlice_lceq_of_common_realizes
+    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
+    (h : ∃ values : Vector Bool m,
+      WF.RealizesBools lv.bool left values ∧
+      WF.RealizesBools rv.bool right values)
+    (offset width : Nat) (hfit : offset + width ≤ m) (i : Fin width) :
+    WF.LCEq lv.bool rv.bool
+      ({ bitsLE := Vector.ofFn fun j =>
+          left[offset + j.val]'(by omega) } : Word width)[i]
+      ({ bitsLE := Vector.ofFn fun j =>
+          right[offset + j.val]'(by omega) } : Word width)[i] := by
+  unfold WF.LCEq
+  change LC.eval lv.bool
+      (Vector.ofFn fun j : Fin width => left[offset + j.val]'(by omega))[i] =
+    LC.eval rv.bool
+      (Vector.ofFn fun j : Fin width => right[offset + j.val]'(by omega))[i]
+  have hleft :
+      (Vector.ofFn fun j : Fin width =>
+        left[offset + j.val]'(by omega))[i] = left[offset + i.val] := by
+    change (Vector.ofFn fun j : Fin width =>
+      left[offset + j.val]'(by omega)).get i = _
+    simp
+  have hright :
+      (Vector.ofFn fun j : Fin width =>
+        right[offset + j.val]'(by omega))[i] = right[offset + i.val] := by
+    change (Vector.ofFn fun j : Fin width =>
+      right[offset + j.val]'(by omega)).get i = _
+    simp
+  rw [hleft, hright]
+  exact WF.lceq_of_common_realizes h (offset + i.val) (by omega)
+
 theorem WF.common_realizes_of_post
     {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
     {P Q : Prop} {A B : Vector Bool m → Prop}

@@ -37,25 +37,61 @@ structure Aux where
   rInv : U 256
   sInv : U 256
 
+/-- Packed input to the standalone prehashed verifier. -/
+abbrev VerifyInput := U 256 × PublicKey × Signature × Aux
+
+/-- A proof-visible index for extending a table of public-key multiples.  The
+index is compile-time data and does not change the generated circuit. -/
+def addMultiple (_k : Nat) (P Q : AffineSlope.Point) :
+    Circuit AffineSlope.Point :=
+  AffineSlope.addComplete P Q
+
+def materializeLow (p1 : AffineSlope.Point) :
+    Circuit (Vector AffineSlope.Point 5) := do
+  let p2 ← addMultiple 1 p1 p1
+  let p3 ← addMultiple 2 p2 p1
+  let p4 ← addMultiple 3 p3 p1
+  let p5 ← addMultiple 4 p4 p1
+  pure #v[p1, p2, p3, p4, p5]
+
+def materializeMid (p1 p5 : AffineSlope.Point) :
+    Circuit (Vector AffineSlope.Point 5) := do
+  let p6 ← addMultiple 5 p5 p1
+  let p7 ← addMultiple 6 p6 p1
+  let p8 ← addMultiple 7 p7 p1
+  let p9 ← addMultiple 8 p8 p1
+  let p10 ← addMultiple 9 p9 p1
+  pure #v[p6, p7, p8, p9, p10]
+
+def materializeHigh (p1 p10 : AffineSlope.Point) :
+    Circuit (Vector AffineSlope.Point 5) := do
+  let p11 ← addMultiple 10 p10 p1
+  let p12 ← addMultiple 11 p11 p1
+  let p13 ← addMultiple 12 p12 p1
+  let p14 ← addMultiple 13 p13 p1
+  let p15 ← addMultiple 14 p14 p1
+  pure #v[p11, p12, p13, p14, p15]
+
+/-- The upper ten public-key multiples are kept behind one circuit boundary.
+This keeps both the correctness and quotient proofs compositional without
+changing the emitted constraints. -/
+def materializeTail (p1 : AffineSlope.Point)
+    (low : Vector AffineSlope.Point 5) :
+    Circuit (Vector AffineSlope.Point 5 × Vector AffineSlope.Point 5) := do
+  let mid ← materializeMid p1 low[4]
+  let high ← materializeHigh p1 mid[4]
+  pure (mid, high)
+
 def materializeMultiples (P : Projective) :
     Circuit (Vector AffineSlope.Point 16) := do
   let p1 := AffineSlope.ofElems P.X P.Y
-  let p2 ← AffineSlope.doubleFinite p1
-  let p3 ← AffineSlope.addFiniteDistinct p2 p1
-  let p4 ← AffineSlope.doubleFinite p2
-  let p5 ← AffineSlope.addFiniteDistinct p4 p1
-  let p6 ← AffineSlope.doubleFinite p3
-  let p7 ← AffineSlope.addFiniteDistinct p6 p1
-  let p8 ← AffineSlope.doubleFinite p4
-  let p9 ← AffineSlope.addFiniteDistinct p8 p1
-  let p10 ← AffineSlope.doubleFinite p5
-  let p11 ← AffineSlope.addFiniteDistinct p10 p1
-  let p12 ← AffineSlope.doubleFinite p6
-  let p13 ← AffineSlope.addFiniteDistinct p12 p1
-  let p14 ← AffineSlope.doubleFinite p7
-  let p15 ← AffineSlope.addFiniteDistinct p14 p1
-  pure #v[AffineSlope.infinity, p1, p2, p3, p4, p5, p6, p7,
-    p8, p9, p10, p11, p12, p13, p14, p15]
+  let low ← materializeLow p1
+  let tail ← materializeTail p1 low
+  let mid := tail.1
+  let high := tail.2
+  pure #v[AffineSlope.infinity, low[0], low[1], low[2], low[3], low[4],
+    mid[0], mid[1], mid[2], mid[3], mid[4],
+    high[0], high[1], high[2], high[3], high[4]]
 
 def indicators (n : Nat) (digit : LC ℤ) : Circuit (U n) := do
   let bits ← hint h![digit] fun h![(d : Int)] =>
@@ -70,12 +106,12 @@ def windowIndicators (digit : LC ℤ) : Circuit (U 16) :=
   indicators 16 digit
 
 def assertLookupRep (indicators : U 16) (out : U 256)
-    (xs : Vector AffineSlope.Rep 16) : Circuit Unit := do
-  for h : i in [:16] do
+    (xs : Vector AffineSlope.Rep 16) : Circuit Unit :=
+  WF.foldRange [:16] () fun i h _ =>
     assertR1C indicators.intBits[i] (out.intVal - xs[i].intVal) 0
 
-def lookupRep (digit : LC ℤ) (indicators : U 16)
-    (xs : Vector AffineSlope.Rep 16) : Circuit AffineSlope.Rep := do
+def lookupRepWord (digit : LC ℤ) (xs : Vector AffineSlope.Rep 16) :
+    Circuit (U 256) := do
   let bits ← hint h![digit,
       xs[0].intVal, xs[1].intVal, xs[2].intVal, xs[3].intVal,
       xs[4].intVal, xs[5].intVal, xs[6].intVal, xs[7].intVal,
@@ -89,16 +125,43 @@ def lookupRep (digit : LC ℤ) (indicators : U 16)
         x8, x9, x10, x11, x12, x13, x14, x15]
       let chosen := values[d.toNat]!
       pure $ Vector.ofFn (n := 256) fun i => chosen.toNat.testBit i
-  let out ← U.fromWord { bitsLE := bits }
+  U.fromWord { bitsLE := bits }
+
+def lookupRep (digit : LC ℤ) (indicators : U 16)
+    (xs : Vector AffineSlope.Rep 16) : Circuit AffineSlope.Rep := do
+  let out ← lookupRepWord digit xs
   assertLookupRep indicators out xs
   pure ⟨out.intVal, 2⟩
+
+def assertLookupFlag (indicators : U 16) (out : LC ℤ)
+    (flags : Vector (LC ℤ) 16) : Circuit Unit :=
+  WF.foldRange [:16] () fun i h _ =>
+    assertR1C indicators.intBits[i] (out - flags[i]) 0
+
+def lookupFlag (digit : LC ℤ) (indicators : U 16)
+    (flags : Vector (LC ℤ) 16) : Circuit (LC ℤ) := do
+  let bits ← hint h![digit,
+      flags[0], flags[1], flags[2], flags[3], flags[4], flags[5],
+      flags[6], flags[7], flags[8], flags[9], flags[10], flags[11],
+      flags[12], flags[13], flags[14], flags[15]]
+    fun h![(d : Int), (f0 : Int), (f1 : Int), (f2 : Int),
+      (f3 : Int), (f4 : Int), (f5 : Int), (f6 : Int), (f7 : Int),
+      (f8 : Int), (f9 : Int), (f10 : Int), (f11 : Int), (f12 : Int),
+      (f13 : Int), (f14 : Int), (f15 : Int)] =>
+      let values := #[f0, f1, f2, f3, f4, f5, f6, f7,
+        f8, f9, f10, f11, f12, f13, f14, f15]
+      pure #v[values[d.toNat]! = 1]
+  let out ← f2z bits[0]
+  assertLookupFlag indicators out flags
+  pure out
 
 def lookupPoint (digit : LC ℤ)
     (table : Vector AffineSlope.Point 16) : Circuit AffineSlope.Point := do
   let indicators ← windowIndicators digit
   let X ← lookupRep digit indicators (table.map (·.X))
   let Y ← lookupRep digit indicators (table.map (·.Y))
-  pure ⟨X, Y, indicators.intBits[0]⟩
+  let infinity ← lookupFlag digit indicators (table.map (·.infinity))
+  pure ⟨X, Y, infinity⟩
 
 def generatorByteX : Vector Nat 256 :=
   Vector.ofFn fun i => Reference.xNat (i.val • P256.Reference.generator)
@@ -115,17 +178,25 @@ def lookupGeneratorByte (digit : LC ℤ) :
     Circuit AffineSlope.Point := do
   let indicators ← byteIndicators digit
   let X : Modular.Lazy.Rep base :=
-    ⟨∑ i : Fin 256, generatorByteX[i] • indicators.intBits[i], 1⟩
+    ⟨∑ i : Fin 256, generatorByteX[i] • indicators.intBits[i], 2⟩
   let Y : Modular.Lazy.Rep base :=
-    ⟨∑ i : Fin 256, generatorByteY[i] • indicators.intBits[i], 1⟩
+    ⟨∑ i : Fin 256, generatorByteY[i] • indicators.intBits[i], 2⟩
   pure ⟨X, Y, indicators.intBits[0]⟩
+
+def doubleStep (_k : Nat) (P : AffineSlope.Point) :
+    Circuit AffineSlope.Point :=
+  AffineSlope.doubleComplete P
+
+/-- Two doublings behind one compositional boundary. -/
+def doublePair (P : AffineSlope.Point) :
+    Circuit AffineSlope.Point := do
+  let P ← doubleStep 1 P
+  doubleStep 2 P
 
 def doubleFour (P : AffineSlope.Point) :
     Circuit AffineSlope.Point := do
-  let P ← AffineSlope.doubleComplete P
-  let P ← AffineSlope.doubleComplete P
-  let P ← AffineSlope.doubleComplete P
-  AffineSlope.doubleComplete P
+  let P ← doublePair P
+  doublePair P
 
 def windowDigit (k : Fn) (i : Nat) (_hi : i < 64) : Circuit (LC ℤ) := do
   let baseIndex := 252 - 4 * i
@@ -133,10 +204,10 @@ def windowDigit (k : Fn) (i : Nat) (_hi : i < 64) : Circuit (LC ℤ) := do
   have h1 : baseIndex + 1 < 256 := by omega
   have h2 : baseIndex + 2 < 256 := by omega
   have h3 : baseIndex + 3 < 256 := by omega
-  let b0 ← f2z k.val.bits.bitsLE[baseIndex]
-  let b1 ← f2z k.val.bits.bitsLE[baseIndex + 1]
-  let b2 ← f2z k.val.bits.bitsLE[baseIndex + 2]
-  let b3 ← f2z k.val.bits.bitsLE[baseIndex + 3]
+  let b0 := k.val.intBits[baseIndex]
+  let b1 := k.val.intBits[baseIndex + 1]
+  let b2 := k.val.intBits[baseIndex + 2]
+  let b3 := k.val.intBits[baseIndex + 3]
   pure (b0 + 2 • b1 + 4 • b2 + 8 • b3)
 
 def windowByte (k : Fn) (i : Nat) (_hi : i < 32) : Circuit (LC ℤ) := do
@@ -149,20 +220,25 @@ def windowByte (k : Fn) (i : Nat) (_hi : i < 32) : Circuit (LC ℤ) := do
   have h5 : baseIndex + 5 < 256 := by omega
   have h6 : baseIndex + 6 < 256 := by omega
   have h7 : baseIndex + 7 < 256 := by omega
-  let b0 ← f2z k.val.bits.bitsLE[baseIndex]
-  let b1 ← f2z k.val.bits.bitsLE[baseIndex + 1]
-  let b2 ← f2z k.val.bits.bitsLE[baseIndex + 2]
-  let b3 ← f2z k.val.bits.bitsLE[baseIndex + 3]
-  let b4 ← f2z k.val.bits.bitsLE[baseIndex + 4]
-  let b5 ← f2z k.val.bits.bitsLE[baseIndex + 5]
-  let b6 ← f2z k.val.bits.bitsLE[baseIndex + 6]
-  let b7 ← f2z k.val.bits.bitsLE[baseIndex + 7]
+  let b0 := k.val.intBits[baseIndex]
+  let b1 := k.val.intBits[baseIndex + 1]
+  let b2 := k.val.intBits[baseIndex + 2]
+  let b3 := k.val.intBits[baseIndex + 3]
+  let b4 := k.val.intBits[baseIndex + 4]
+  let b5 := k.val.intBits[baseIndex + 5]
+  let b6 := k.val.intBits[baseIndex + 6]
+  let b7 := k.val.intBits[baseIndex + 7]
   pure (b0 + 2 • b1 + 4 • b2 + 8 • b3 + 16 • b4 + 32 • b5 +
     64 • b6 + 128 • b7)
 
-def jointByteStep (u1 u2 : Fn)
-    (qTable : Vector AffineSlope.Point 16) (i : Nat) (hi : i < 32)
-    (acc : AffineSlope.Point) : Circuit AffineSlope.Point := do
+structure JointTerms where
+  qhi : AffineSlope.Point
+  qlo : AffineSlope.Point
+  g : AffineSlope.Point
+
+def selectJointTerms (u1 u2 : Fn)
+    (qTable : Vector AffineSlope.Point 16) (i : Nat) (hi : i < 32) :
+    Circuit JointTerms := do
   let d1 ← windowByte u1 i hi
   have hhi : 2 * i < 64 := by omega
   have hlo : 2 * i + 1 < 64 := by omega
@@ -170,12 +246,22 @@ def jointByteStep (u1 u2 : Fn)
   let d2lo ← windowDigit u2 (2 * i + 1) hlo
   let qhi ← lookupPoint d2hi qTable
   let qlo ← lookupPoint d2lo qTable
-  let acc ← doubleFour acc
-  let acc ← AffineSlope.addComplete acc qhi
-  let acc ← doubleFour acc
-  let acc ← AffineSlope.addComplete acc qlo
   let g ← lookupGeneratorByte d1
-  AffineSlope.addComplete acc g
+  pure ⟨qhi, qlo, g⟩
+
+def accumulateJoint (acc : AffineSlope.Point) (terms : JointTerms) :
+    Circuit AffineSlope.Point := do
+  let acc ← doubleFour acc
+  let acc ← AffineSlope.addComplete acc terms.qhi
+  let acc ← doubleFour acc
+  let acc ← AffineSlope.addComplete acc terms.qlo
+  AffineSlope.addComplete acc terms.g
+
+def jointByteStep (u1 u2 : Fn)
+    (qTable : Vector AffineSlope.Point 16) (i : Nat) (hi : i < 32)
+    (acc : AffineSlope.Point) : Circuit AffineSlope.Point := do
+  let terms ← selectJointTerms u1 u2 qTable i hi
+  accumulateJoint acc terms
 
 /-- Eight-bit fixed-G/four-bit variable-Q joint multiplication for
 `u1*G + u2*Q`. Each step consumes one G byte and two Q nibbles. -/
@@ -185,41 +271,100 @@ def jointScalarMul (u1 u2 : Fn) (q : Projective) :
   WF.foldRange [:32] AffineSlope.infinity fun i hi acc =>
     jointByteStep u1 u2 qTable i hi.2.1 acc
 
-/-- Verify an ECDSA-P256 signature over an already computed SHA-256 digest.
+structure CanonicalInput where
+  qx : Fp
+  qy : Fp
+  r : Fn
+  s : Fn
+  rInv : Fn
+  sInv : Fn
 
-All external integers are first made canonical. Therefore the circuit rejects
-non-canonical encodings instead of silently reducing signature or key fields.
--/
-def verifyDigest (digest : U 256) (key : PublicKey)
-    (sig : Signature) (aux : Aux) : Circuit Unit := do
+def canonicalizeKey (key : PublicKey) : Circuit (Fp × Fp) := do
   let qx ← ofU base key.x
   let qy ← ofU base key.y
+  pure (qx, qy)
+
+def canonicalizeSignature (sig : Signature) : Circuit (Fn × Fn) := do
   let r ← ofU scalar sig.r
   let s ← ofU scalar sig.s
+  pure (r, s)
+
+def canonicalizeAux (aux : Aux) : Circuit (Fn × Fn) := do
   let rInv ← ofU scalar aux.rInv
   let sInv ← ofU scalar aux.sInv
+  pure (rInv, sInv)
 
-  Projective.Lazy.assertOnCurve qx qy
+def canonicalizeInput (key : PublicKey) (sig : Signature) (aux : Aux) :
+    Circuit CanonicalInput := do
+  let q ← canonicalizeKey key
+  let rs ← canonicalizeSignature sig
+  let invs ← canonicalizeAux aux
+  pure ⟨q.1, q.2, rs.1, rs.2, invs.1, invs.2⟩
+
+structure PreparedVerification where
+  u1 : Fn
+  u2 : Fn
+  q : Projective
+  r : Fn
+
+def validateCanonicalInput (input : CanonicalInput) : Circuit Unit := do
+  Projective.Lazy.assertOnCurve input.qx input.qy
 
   -- These checks enforce 1 <= r,s < n.  Canonicality gives the upper bound;
   -- existence of an inverse modulo the prime group order excludes zero.
   Modular.Lazy.assertMulEq scalar
-    (Modular.Lazy.ofElem scalar r) (Modular.Lazy.ofElem scalar rInv)
+    (Modular.Lazy.ofElem scalar input.r)
+    (Modular.Lazy.ofElem scalar input.rInv)
     (Modular.Lazy.ofElem scalar fnOne)
   Modular.Lazy.assertMulEq scalar
-    (Modular.Lazy.ofElem scalar s) (Modular.Lazy.ofElem scalar sInv)
+    (Modular.Lazy.ofElem scalar input.s)
+    (Modular.Lazy.ofElem scalar input.sInv)
     (Modular.Lazy.ofElem scalar fnOne)
-  let w := sInv
 
+def multiplyScalars (z : Fn) (input : CanonicalInput) :
+    Circuit (Fn × Fn) := do
+  let w := input.sInv
+  let u1Relaxed ← Modular.Relaxed.mul scalar z w
+  let u2Relaxed ← Modular.Relaxed.mul scalar input.r w
+
+  pure (u1Relaxed, u2Relaxed)
+
+def deriveRelaxedScalars (digest : U 256) (input : CanonicalInput) :
+    Circuit (Fn × Fn) := do
   -- SHA-256 and the group order are both 256 bits.  Reduction implements the
   -- SEC 1 `bits2int`/mod-n behavior for P-256.
   let z ← Modular.Relaxed.reduceSmall scalar digest.intVal
-  let u1 ← Modular.Relaxed.mul scalar z w
-  let u2 ← Modular.Relaxed.mul scalar r w
+  multiplyScalars z input
 
-  let q : Projective := ⟨qx, qy, one⟩
-  let sum ← jointScalarMul u1 u2 q
+def canonicalizeScalars (input : Fn × Fn) : Circuit (Fn × Fn) := do
 
+  -- Relaxed quotient witnesses may use a representative plus `n`.  That is
+  -- harmless during field arithmetic, but scalar multiplication consumes the
+  -- representative as a natural number, so tighten exactly at this boundary.
+  let u1 ← Modular.Lazy.reduce scalar
+    (Modular.Lazy.ofElem scalar input.1)
+  let u2 ← Modular.Lazy.reduce scalar
+    (Modular.Lazy.ofElem scalar input.2)
+
+  pure (u1, u2)
+
+def deriveScalars (digest : U 256) (input : CanonicalInput) :
+    Circuit (Fn × Fn) := do
+  let relaxed ← deriveRelaxedScalars digest input
+  canonicalizeScalars relaxed
+
+def prepareVerification (digest : U 256) (input : CanonicalInput) :
+    Circuit PreparedVerification := do
+  validateCanonicalInput input
+  let scalars ← deriveScalars digest input
+
+  pure ⟨scalars.1, scalars.2, ⟨input.qx, input.qy, one⟩, input.r⟩
+
+def computeVerificationSum (input : PreparedVerification) :
+    Circuit AffineSlope.Point :=
+  jointScalarMul input.u1 input.u2 input.q
+
+def checkVerificationX (r : Fn) (sum : AffineSlope.Point) : Circuit Unit := do
   -- ECDSA rejects the identity.  Affine slope arithmetic has already
   -- materialized the final x-coordinate. Canonicalize it in the base field
   -- before changing moduli: reducing an arbitrary `x + k*p` modulo `n` would
@@ -228,6 +373,21 @@ def verifyDigest (digest : U 256) (key : PublicKey)
   let xCanonical ← Modular.Lazy.reduce base sum.X
   let xModN ← Modular.Relaxed.reduceSmall scalar xCanonical.val.intVal
   assertEq scalar xModN r
+
+def finishVerification (input : PreparedVerification) : Circuit Unit := do
+  let sum ← computeVerificationSum input
+  checkVerificationX input.r sum
+
+/-- Verify an ECDSA-P256 signature over an already computed SHA-256 digest.
+
+All external integers are first made canonical. Therefore the circuit rejects
+non-canonical encodings instead of silently reducing signature or key fields.
+-/
+def verifyDigest (digest : U 256) (key : PublicKey)
+    (sig : Signature) (aux : Aux) : Circuit Unit := do
+  let input ← canonicalizeInput key sig aux
+  let prepared ← prepareVerification digest input
+  finishVerification prepared
 
 /-- Number of Boolean inputs to the standalone digest verifier: the digest,
 public-key coordinates, signature scalars, and two inverse witnesses. -/

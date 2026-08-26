@@ -94,13 +94,22 @@ def Represents (ρ : WF.Valuation) (P : AffineSlope.Point)
   (P.infinity.eval ρ.int = 0 ∨ P.infinity.eval ρ.int = 1) ∧
     circuitCoordinates ρ P = coordinates p
 
-/-- The chord slope used by `AffineSlope.addFiniteDistinct`.  The signs are
-reversed together relative to Mathlib's presentation. -/
+/-- Scalar multiplication keeps a canonical carrier for the identity.  This
+extra invariant is needed by the selector-free doubling circuit, whose
+inactive formula is evaluated at `(0,0)`. -/
+def NormalizedRep (ρ : WF.Valuation) (P : AffineSlope.Point)
+    (p : Point) : Prop :=
+  Represents ρ P p ∧
+    (p = 0 → Modular.Lazy.evalZMod base P.X ρ = 0 ∧
+      Modular.Lazy.evalZMod base P.Y ρ = 0)
+
+/-- The chord slope used by the generic branch of complete affine addition.
+The signs are reversed together relative to Mathlib's presentation. -/
 def chordSlope (x₁ y₁ x₂ y₂ : Field) : Field :=
   (y₂ - y₁) / (x₂ - x₁)
 
-/-- The P-256 tangent slope used by `AffineSlope.doubleFinite` and the
-doubling branch of `AffineSlope.addComplete`. -/
+/-- The P-256 tangent slope used by complete doubling and the doubling branch
+of complete affine addition. -/
 def tangentSlope (x y : Field) : Field :=
   (3 * x ^ 2 - 3) / (2 * y)
 

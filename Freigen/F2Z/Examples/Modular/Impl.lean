@@ -290,6 +290,14 @@ structure Rep (p : Params n) where
   /-- Static construction-time bound: `0 ≤ intVal < bound * modulus`. -/
   bound : Nat
 
+/-- Quotient-backend equality: representatives have the same static slack
+bound and evaluate to the same integer under every pair of valuations supplied
+by `WF.GadgetSpec`. -/
+def Rep.WFRel {p : Params n} (lv rv : WF.Valuation)
+    (left right : Rep p) : Prop :=
+  left.bound = right.bound ∧
+    WF.LCEq lv.int rv.int left.intVal right.intVal
+
 /-- Semantic invariant justified by the construction-time bound. It is used
 only by completeness proofs to show that the concrete hint programs cannot
 fail and that their quotient words are wide enough. -/
