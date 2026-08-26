@@ -68,124 +68,9 @@ def ofU (x : U n) : Circuit (Elem p) := do
 def ofNat (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) : Elem p :=
   ⟨BitVec.ofNat n x⟩
 
-/-- Witness `(r,q)` for Euclidean reduction of a nonnegative integer.  This
-is the only place where division occurs; constraints consume only the
-resulting bits. -/
-def divRemHint (x y : LC ℤ) : Circuit (U n × U n) := do
-  let bits ← hint h![x, y] fun h![(a : Int), (b : Int)] =>
-    if ha : 0 ≤ a then
-      if hb : 0 ≤ b then
-      let z := a.toNat * b.toNat
-      let r := z % p.modulus
-      let q := z / p.modulus
-      pure $ Vector.ofFn (n := 2 * n) fun i =>
-        if hi : i.val < n then r.testBit i.val
-        else q.testBit (i.val - n)
-      else
-        fail s!"negative factor {b} in modular reduction"
-    else
-      fail s!"negative factor {a} in modular reduction"
-  let r ← U.fromWord {
-    bitsLE := Vector.ofFn (n := n) fun i => bits[i.val]'(by omega) }
-  let q ← U.fromWord {
-    bitsLE := Vector.ofFn fun i => bits[n + i.val]'(by omega) }
-  assertR1C x y (r.intVal + p.modulus • q.intVal)
-  assertLt p.modulus r
-  pure (r, q)
-
-def DivRemSpec (ρ : WF.Valuation) (x y : LC ℤ) (out : U n × U n) : Prop :=
-  out.1.Valid ρ ∧ out.2.Valid ρ ∧
-    out.1.intVal.eval ρ.int < p.modulus ∧
-    x.eval ρ.int * y.eval ρ.int =
-      out.1.intVal.eval ρ.int + p.modulus * out.2.intVal.eval ρ.int
-
-/-- Exact modular multiplication. -/
-def mul (x y : Elem p) : Circuit (Elem p) := do
-  let rq ← divRemHint p x.val.intVal y.val.intVal
-  pure ⟨rq.1⟩
-
-def MulSpec (ρ : WF.Valuation) (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    (out.evalNat ρ = (x.evalNat ρ * y.evalNat ρ) % p.modulus)
-
-/-! ## Linear reduction, addition, and subtraction -/
-
-def reduce (x : LC ℤ) : Circuit (Elem p) := do
-  let rq ← divRemHint p x (LC.ofConst 1)
-  pure ⟨rq.1⟩
-
-def ReduceSpec (ρ : WF.Valuation) (x : LC ℤ) (out : Elem p) : Prop :=
-  out.Valid ρ ∧ out.evalNat ρ = (x.eval ρ.int).toNat % p.modulus
-
-def add (x y : Elem p) : Circuit (Elem p) :=
-  reduce p (x.val.intVal + y.val.intVal)
-
-def AddSpec (ρ : WF.Valuation) (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    out.evalNat ρ = (x.evalNat ρ + y.evalNat ρ) % p.modulus
-
-def sub (x y : Elem p) : Circuit (Elem p) :=
-  reduce p (x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal)
-
-def SubSpec (ρ : WF.Valuation) (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    out.evalNat ρ =
-      (x.evalNat ρ + p.modulus - y.evalNat ρ) % p.modulus
-
-/-! ## Whole-element conditional selection
-
-Selecting 256 individual coordinate bits with 256 multiplication constraints
-is unnecessary.  `select` witnesses the selected canonical word and proves the
-choice with one integer R1C equation
-
-`b * (y - x) = out - x`.
-
-The caller supplies the usual Boolean fact `b = 0 ∨ b = 1`.  Exact integer
-semantics make this a sound whole-element mux; the output bit decomposition and
-`assertLt` retain the canonical representation.
--/
-
-def select (b : LC ℤ) (x y : Elem p) : Circuit (Elem p) := do
-  let bits ← hint h![b, x.val.intVal, y.val.intVal]
-    fun h![(bit : Int), (xv : Int), (yv : Int)] =>
-      if bit = 0 then
-        pure $ Vector.ofFn (n := n) fun i => xv.toNat.testBit i
-      else if bit = 1 then
-        pure $ Vector.ofFn (n := n) fun i => yv.toNat.testBit i
-      else
-        fail s!"modular select expected a bit, got {bit}"
-  let out ← U.fromWord { bitsLE := bits }
-  assertR1C b (y.val.intVal - x.val.intVal)
-    (out.intVal - x.val.intVal)
-  assertLt p.modulus out
-  pure ⟨out⟩
-
-def SelectSpec (ρ : WF.Valuation) (b : LC ℤ)
-    (x y out : Elem p) : Prop :=
-  out.Valid ρ ∧
-    out.val.intVal.eval ρ.int =
-      x.val.intVal.eval ρ.int +
-        b.eval ρ.int *
-          (y.val.intVal.eval ρ.int - x.val.intVal.eval ρ.int)
-
-/-! ## Equality and checked inverses
-
-An inverse is most economical as an auxiliary witness: the circuit does not
-need to reproduce Euclid's algorithm, because one modular multiplication and
-one equality constraint certify it.  This is a proof-carrying witness, not a
-trusted hint; a wrong inverse cannot satisfy the circuit.
--/
-
+/-- Assert equality of two canonical representatives. -/
 def assertEq (x y : Elem p) : Circuit Unit := do
   assertR1C 0 0 (x.val.intVal - y.val.intVal)
-
-def checkedInv (one x candidate : Elem p) : Circuit (Elem p) := do
-  let product ← mul p x candidate
-  assertEq p product one
-  pure candidate
-
-def InvSpec (ρ : WF.Valuation) (one x out : Elem p) : Prop :=
-  out.Valid ρ ∧ (x.evalNat ρ * out.evalNat ρ) % p.modulus = one.evalNat ρ
 
 /-! ## Relaxed fixed-modulus arithmetic
 
@@ -241,34 +126,6 @@ def reduceSmall (x : LC ℤ) : Circuit (Elem p) := do
     bitsLE := Vector.ofFn (n := 2) fun i => bits[n + i.val]'(by omega) }
   assertR1C 0 0 (x - (r.intVal + p.modulus • q.intVal))
   pure ⟨r⟩
-
-def add (x y : Elem p) : Circuit (Elem p) :=
-  reduceSmall p (x.val.intVal + y.val.intVal)
-
-/-- Adding `2*p` keeps subtraction nonnegative for arbitrary `n`-bit
-representatives while preserving the residue. -/
-def sub (x y : Elem p) : Circuit (Elem p) :=
-  reduceSmall p
-    (x.val.intVal + LC.ofConst (2 * p.modulus : Int) - y.val.intVal)
-
-/-- Whole-element mux without re-canonicalizing the selected representative. -/
-def select (b : LC ℤ) (x y : Elem p) : Circuit (Elem p) := do
-  let bits ← hint h![b, x.val.intVal, y.val.intVal]
-    fun h![(bit : Int), (xv : Int), (yv : Int)] =>
-      if bit = 0 then
-        pure $ Vector.ofFn (n := n) fun i => xv.toNat.testBit i
-      else if bit = 1 then
-        pure $ Vector.ofFn (n := n) fun i => yv.toNat.testBit i
-      else fail s!"relaxed modular select expected a bit, got {bit}"
-  let out ← U.fromWord { bitsLE := bits }
-  assertR1C b (y.val.intVal - x.val.intVal)
-    (out.intVal - x.val.intVal)
-  pure ⟨out⟩
-
-def checkedInv (one x candidate : Elem p) : Circuit (Elem p) := do
-  let product ← mul p x candidate
-  assertEq p product one
-  pure candidate
 
 end Relaxed
 
@@ -378,30 +235,6 @@ def mul (x y : Rep p) : Circuit (Rep p) := do
   assertR1C x.intVal y.intVal
     (r.intVal + p.modulus • q.intVal)
   pure ⟨r.intVal, 2⟩
-
-/-- Multiplication whose result is needed as a boundary word.  This avoids
-materializing the same remainder a second time through `reduce`. -/
-def mulToElem (x y : Rep p) : Circuit (Elem p) := do
-  let bits ← hint h![x.intVal, y.intVal]
-    fun h![(a : Int), (b : Int)] =>
-      if ha : 0 ≤ a then
-        if hb : 0 ≤ b then
-          let value := a.toNat * b.toNat
-          let r := value % p.modulus
-          let q := value / p.modulus
-          pure $ Vector.ofFn (n := 2 * n + quotientExtraBits) fun i =>
-            if hi : i.val < n then r.testBit i.val
-            else q.testBit (i.val - n)
-        else fail s!"negative lazy multiplication operand {b}"
-      else fail s!"negative lazy multiplication operand {a}"
-  let r ← U.fromWord {
-    bitsLE := Vector.ofFn (n := n) fun i => bits[i.val]'(by omega) }
-  let q ← U.fromWord {
-    bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
-      bits[n + i.val]'(by omega) }
-  assertR1C x.intVal y.intVal
-    (r.intVal + p.modulus • q.intVal)
-  pure ⟨r⟩
 
 /-- Materialize `x*y - target (mod p)` directly.  This is the affine-slope
 form of a multiplication: the output word and quotient share the one R1C,

@@ -83,356 +83,6 @@ theorem assertLt_wf :
 theorem ofU_wf :
     WF.GadgetSpec U.WFRel (ofU p) (Elem.WFRel (p := p)) := by
   wfgen' using [assertLt_wf] unfold [ofU, Elem.WFRel]
-@[spec] theorem divRemHint_sound {x y : LC ℤ} :
-    ⦃⌜True⌝⦄ Sound.interp ρ (divRemHint p x y)
-    ⦃⇓ out => ⌜DivRemSpec p ρ x y out⌝⦄ := by
-  mvcgen [divRemHint]
-  intro bits
-  mvcgen [DivRemSpec]
-  all_goals first
-    | assumption
-    | grind [U.Rel]
-    | (apply Aux.divRemSpec_of_rel p <;> assumption)
-
-@[spec] theorem divRemHint_complete {x y : LC ℤ}
-    (hx0 : 0 ≤ x.eval ρ.int) (hy0 : 0 ≤ y.eval ρ.int)
-    (hqBound : (x.eval ρ.int).toNat * (y.eval ρ.int).toNat /
-      p.modulus < 2 ^ n) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (divRemHint p x y)
-    ⦃⇓ out => ⌜DivRemSpec p ρ x y out⌝⦄ := by
-  mvcgen [divRemHint]
-  let a := (x.eval ρ.int).toNat
-  let b := (y.eval ρ.int).toNat
-  let bits : Vector Bool (2 * n) := Vector.ofFn fun i =>
-    if hi : i.val < n then (a * b % p.modulus).testBit i.val
-    else (a * b / p.modulus).testBit (i.val - n)
-  refine ⟨bits, ?_, ?_⟩
-  · simp [WF.evalArgs, WF.interpHint, hx0, hy0, bits, a, b]
-  · mvcgen [DivRemSpec]
-    rename_i r hr q hq
-    have hrFit : a * b % p.modulus < 2 ^ n :=
-      (Nat.mod_lt _ p.positive).trans_le p.fits
-    have hqFit : a * b / p.modulus < 2 ^ n := hqBound
-    have rWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[i.val]'(by omega)
-        }).toNat = a * b % p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hrFit]
-    have qWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
-        }).toNat = a * b / p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
-        show ∀ i : Fin n, ¬n + i.val < n by omega,
-        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit]
-    have hrVal : r.intVal.eval ρ.int = (a * b % p.modulus : Nat) := by
-      rw [U.Rel.intVal hr, rWord]
-    have hqVal : q.intVal.eval ρ.int = (a * b / p.modulus : Nat) := by
-      rw [U.Rel.intVal hq, qWord]
-    have hxVal : x.eval ρ.int = (a : Nat) := by
-      exact (Int.toNat_of_nonneg hx0).symm
-    have hyVal : y.eval ρ.int = (b : Nat) := by
-      exact (Int.toNat_of_nonneg hy0).symm
-    constructor
-    · simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul,
-        hxVal, hyVal, hrVal, hqVal]
-      exact_mod_cast (Nat.mod_add_div (a * b) p.modulus).symm
-    · mvcgen
-      · exact hr.1
-      · exact p.fits
-      · rw [hrVal]
-        exact_mod_cast Nat.mod_lt (a * b) p.positive
-      · exact ⟨hr.1, hq.1, by
-          rw [hrVal]
-          exact_mod_cast Nat.mod_lt (a * b) p.positive, by
-          simp only [hxVal, hyVal, hrVal, hqVal]
-          exact_mod_cast (Nat.mod_add_div (a * b) p.modulus).symm⟩
-
-theorem divRemHint_wf :
-    WF.GadgetSpec
-      (fun lv rv (l r : LC ℤ × LC ℤ) =>
-        WF.LCEq lv.int rv.int l.1 r.1 ∧
-        WF.LCEq lv.int rv.int l.2 r.2)
-      (fun x => divRemHint p x.1 x.2)
-      (fun lv rv l r =>
-        U.WFRel lv rv l.1 r.1 ∧ U.WFRel lv rv l.2 r.2) := by
-  wfgen' using [U.fromWord_wf_rel, assertLt_wf] unfold [divRemHint]
-  case vc1 =>
-    simp_all [WF.LCEq, U.WFRel, Word.WFRel, WF.ArgsEq,
-      WF.RealizesBools, WF.evalArgs, LC.eval_add, LC.eval_nsmul]
-    grind
-  case vc2 outBitsL outBitsR B =>
-    rename_i qL qR
-    apply Aux.WF.highWord_lceq_of_common_realizes
-    have hp := outBitsR leftVal rightVal B
-    exact Aux.WF.common_realizes_of_hint hp.1
-  case vc3 =>
-    rename_i h
-    apply Aux.WF.lowWord_lceq_of_common_realizes
-    exact Aux.WF.common_realizes_of_hint h
-  case vc4 =>
-    simp_all [WF.LCEq, WF.evalArgs]
-  case vc5 =>
-    simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
-@[spec] theorem mul_sound {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (mul p x y)
-    ⦃⇓ out => ⌜MulSpec p ρ x y out⌝⦄ := by
-  unfold mul
-  mvcgen
-  rename_i rq hdiv
-  exact Aux.mulSpec_of_divRem p hx hy hdiv hdiv.2.2.1
-
-@[spec] theorem mul_complete {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (mul p x y)
-    ⦃⇓ out => ⌜MulSpec p ρ x y out⌝⦄ := by
-  unfold mul
-  mvcgen
-  · exact Elem.nonneg (p := p) hx
-  · exact Elem.nonneg (p := p) hy
-  · have hxn := Elem.evalNat_lt (p := p) hx
-    have hyn := Elem.evalNat_lt (p := p) hy
-    have hab : x.evalNat ρ * y.evalNat ρ < p.modulus * p.modulus := by
-      nlinarith
-    exact (Nat.div_lt_of_lt_mul (by
-      simpa [Elem.evalNat, Nat.mul_comm] using hab)).trans_le
-      p.fits
-  · rename_i rq hdiv
-    exact Aux.mulSpec_of_divRem p hx hy hdiv hdiv.2.2.1
-
-theorem mul_wf :
-    WF.GadgetSpec
-      (fun lv rv (l r : Elem p × Elem p) =>
-        Elem.WFRel lv rv l.1 r.1 ∧ Elem.WFRel lv rv l.2 r.2)
-      (fun x => mul p x.1 x.2)
-      (Elem.WFRel (p := p)) := by
-  wfgen' using [U.fromWord_wf_rel, assertLt_wf]
-    unfold [mul, divRemHint, Elem.WFRel]
-  case vc1 =>
-    simp_all [WF.LCEq, U.WFRel, Word.WFRel, WF.ArgsEq,
-      WF.RealizesBools, WF.evalArgs, LC.eval_add, LC.eval_nsmul]
-    grind
-  case vc2 outBitsL outBitsR B =>
-    rename_i qL qR
-    apply Aux.WF.highWord_lceq_of_common_realizes
-    have hp := outBitsR leftVal rightVal B
-    exact Aux.WF.common_realizes_of_hint hp.1
-  case vc3 =>
-    rename_i h
-    apply Aux.WF.lowWord_lceq_of_common_realizes
-    exact Aux.WF.common_realizes_of_hint h
-  case vc4 =>
-    simp_all [U.WFRel, WF.LCEq, WF.evalArgs]
-  case vc5 =>
-    simp_all [U.WFRel, WF.LCEq, WF.ArgsEq, WF.evalArgs]
-@[spec] theorem reduce_sound {x : LC ℤ} (hx0 : 0 ≤ x.eval ρ.int) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (reduce p x)
-    ⦃⇓ out => ⌜ReduceSpec p ρ x out⌝⦄ := by
-  mvcgen [reduce]
-  exact Aux.reduceSpec_of_divRem p hx0 (by assumption)
-
-@[spec] theorem reduce_complete {x : LC ℤ} (hx0 : 0 ≤ x.eval ρ.int)
-    (hq : (x.eval ρ.int).toNat / p.modulus < 2 ^ n) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (reduce p x)
-    ⦃⇓ out => ⌜ReduceSpec p ρ x out⌝⦄ := by
-  mvcgen [reduce]
-  · simp
-  · simpa using hq
-  · exact Aux.reduceSpec_of_divRem p hx0 (by assumption)
-
-theorem reduce_wf :
-    WF.GadgetSpec
-      (fun lv rv (l r : LC ℤ) => WF.LCEq lv.int rv.int l r)
-      (reduce p) (Elem.WFRel (p := p)) := by
-  wfgen' using [U.fromWord_wf_rel, assertLt_wf]
-    unfold [reduce, divRemHint, Elem.WFRel]
-  case vc1 =>
-    simp_all [WF.LCEq, U.WFRel, WF.RealizesBools, WF.evalArgs,
-      LC.eval_add, LC.eval_nsmul]
-    grind
-  case vc2 outBitsL outBitsR B =>
-    rename_i qL qR
-    apply Aux.WF.highWord_lceq_of_common_realizes
-    have hp := outBitsR leftVal rightVal B
-    exact Aux.WF.common_realizes_of_hint hp.1
-  case vc3 =>
-    rename_i h
-    apply Aux.WF.lowWord_lceq_of_common_realizes
-    exact Aux.WF.common_realizes_of_hint h
-  case vc4 =>
-    simp_all [WF.LCEq, WF.evalArgs]
-  case vc5 =>
-    simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
-
-@[spec] theorem add_sound {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (add p x y)
-    ⦃⇓ out => ⌜AddSpec p ρ x y out⌝⦄ := by
-  unfold add
-  mvcgen
-  · simpa only [LC.eval_add] using
-      add_nonneg (Elem.nonneg (p := p) hx) (Elem.nonneg (p := p) hy)
-  · intro hred
-    refine ⟨hred.1, ?_⟩
-    rw [hred.2]
-    simp only [LC.eval_add, Int.toNat_add
-      (Elem.nonneg (p := p) hx) (Elem.nonneg (p := p) hy), Elem.evalNat]
-
-@[spec] theorem add_complete {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (add p x y)
-    ⦃⇓ out => ⌜AddSpec p ρ x y out⌝⦄ := by
-  unfold add
-  mvcgen
-  · simpa only [LC.eval_add] using
-      add_nonneg (Elem.nonneg (p := p) hx) (Elem.nonneg (p := p) hy)
-  · exact Aux.addQuotientFits p hx hy
-  · intro hred
-    refine ⟨hred.1, ?_⟩
-    rw [hred.2]
-    simp only [LC.eval_add, Int.toNat_add
-      (Elem.nonneg (p := p) hx) (Elem.nonneg (p := p) hy), Elem.evalNat]
-
-theorem add_wf :
-    WF.GadgetSpec
-      (fun lv rv (l r : Elem p × Elem p) =>
-        Elem.WFRel lv rv l.1 r.1 ∧ Elem.WFRel lv rv l.2 r.2)
-      (fun x => add p x.1 x.2) (Elem.WFRel (p := p)) := by
-  unfold WF.GadgetSpec add
-  intro left right
-  apply WF.Rel.strengthen
-    (reduce_wf p (left.1.val.intVal + left.2.val.intVal)
-      (right.1.val.intVal + right.2.val.intVal))
-  intro lv rv h
-  unfold Elem.WFRel U.WFRel WF.LCEq at h
-  unfold WF.LCEq
-  simp only [LC.eval_add]
-  rw [h.1.1, h.2.1]
-@[spec] theorem sub_sound {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (sub p x y)
-    ⦃⇓ out => ⌜SubSpec p ρ x y out⌝⦄ := by
-  unfold sub
-  mvcgen
-  · exact Aux.subDividend_nonneg p hx hy
-  · intro hred
-    exact ⟨hred.1, by rw [hred.2, Aux.subDividend_toNat p hx hy]⟩
-
-@[spec] theorem sub_complete {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (sub p x y)
-    ⦃⇓ out => ⌜SubSpec p ρ x y out⌝⦄ := by
-  unfold sub
-  mvcgen
-  · exact Aux.subDividend_nonneg p hx hy
-  · exact Aux.subQuotientFits p hx hy
-  · intro hred
-    exact ⟨hred.1, by rw [hred.2, Aux.subDividend_toNat p hx hy]⟩
-
-theorem sub_wf :
-    WF.GadgetSpec
-      (fun lv rv (l r : Elem p × Elem p) =>
-        Elem.WFRel lv rv l.1 r.1 ∧ Elem.WFRel lv rv l.2 r.2)
-      (fun x => sub p x.1 x.2) (Elem.WFRel (p := p)) := by
-  unfold WF.GadgetSpec sub
-  intro left right
-  apply WF.Rel.strengthen
-    (reduce_wf p
-      (left.1.val.intVal + LC.ofConst (p.modulus : Int) - left.2.val.intVal)
-      (right.1.val.intVal + LC.ofConst (p.modulus : Int) - right.2.val.intVal))
-  intro lv rv h
-  unfold Elem.WFRel U.WFRel WF.LCEq at h
-  unfold WF.LCEq
-  simp only [LC.eval_sub, LC.eval_add, LC.eval_ofConst]
-  rw [h.1.1, h.2.1]
-@[spec] theorem select_sound {b : LC ℤ} {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (select p b x y)
-    ⦃⇓ out => ⌜SelectSpec p ρ b x y out⌝⦄ := by
-  mvcgen [select, SelectSpec]
-  intro bits
-  mvcgen
-  all_goals simp_all [SelectSpec, Elem.Valid, LC.eval_sub, U.Rel]
-  all_goals nlinarith
-
-@[spec] theorem select_complete {b : LC ℤ} {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ)
-    (hb : b.eval ρ.int = 0 ∨ b.eval ρ.int = 1) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (select p b x y)
-    ⦃⇓ out => ⌜SelectSpec p ρ b x y out⌝⦄ := by
-  mvcgen [select, SelectSpec]
-  let chosen := if b.eval ρ.int = 0 then x.evalNat ρ else y.evalNat ρ
-  let bits : Vector Bool n := Vector.ofFn fun i => chosen.testBit i
-  refine ⟨bits, ?_, ?_⟩
-  · rcases hb with hb | hb
-    · simp [WF.interpHint, WF.evalArgs, hb, bits, chosen,
-        Elem.evalNat, Int.toNat_of_nonneg (Elem.nonneg (p := p) hx)]
-    · simp [WF.interpHint, WF.evalArgs, hb, bits, chosen,
-        Elem.evalNat, Int.toNat_of_nonneg (Elem.nonneg (p := p) hy)]
-  · mvcgen
-    rename_i out hout
-    have hchosenFit : chosen < 2 ^ n := by
-      unfold chosen
-      split
-      · exact (Elem.evalNat_lt (p := p) hx).trans_le p.fits
-      · exact (Elem.evalNat_lt (p := p) hy).trans_le p.fits
-    have hword :
-        (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits }).toNat =
-          chosen := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hchosenFit]
-    have houtVal : out.intVal.eval ρ.int = (chosen : Nat) := by
-      rw [U.Rel.intVal hout, hword]
-    constructor
-    · rcases hb with hb | hb
-      · simp only [LC.eval_sub, hb, zero_mul, houtVal, chosen, if_pos hb]
-        rw [← Elem.evalNat_cast (p := p) hx]
-        ring
-      · simp only [LC.eval_sub, hb, one_mul, houtVal, chosen,
-          if_neg (by omega : ¬b.eval ρ.int = 0)]
-        rw [← Elem.evalNat_cast (p := p) hx,
-          ← Elem.evalNat_cast (p := p) hy]
-    · mvcgen
-      · exact hout.1
-      · exact p.fits
-      · rw [houtVal]
-        unfold chosen
-        split
-        · exact_mod_cast Elem.evalNat_lt (p := p) hx
-        · exact_mod_cast Elem.evalNat_lt (p := p) hy
-      · constructor
-        · exact ⟨hout.1, by
-            rw [houtVal]
-            unfold chosen
-            split
-            · exact_mod_cast Elem.evalNat_lt (p := p) hx
-            · exact_mod_cast Elem.evalNat_lt (p := p) hy⟩
-        · rcases hb with hb | hb
-          · simp [houtVal, chosen, hb, Elem.evalNat_cast (p := p) hx]
-          · simp [houtVal, chosen, hb]
-            exact Elem.evalNat_cast (p := p) hy
-
-theorem select_wf :
-    WF.GadgetSpec
-      (fun lv rv (l r : LC ℤ × Elem p × Elem p) =>
-        WF.LCEq lv.int rv.int l.1 r.1 ∧
-        Elem.WFRel lv rv l.2.1 r.2.1 ∧
-        Elem.WFRel lv rv l.2.2 r.2.2)
-      (fun z => select p z.1 z.2.1 z.2.2)
-      (Elem.WFRel (p := p)) := by
-  wfgen' using [U.fromWord_wf_rel, assertLt_wf]
-    unfold [select, Elem.WFRel]
-  case vc1 =>
-    apply Aux.WF.lceq_of_common_realizes
-    exact Aux.WF.common_realizes_of_hint (by assumption)
-  case vc2 =>
-    simp_all [WF.LCEq, U.WFRel, WF.ArgsEq, WF.evalArgs, LC.eval_sub]
-  case vc3 =>
-    simp_all [WF.LCEq, U.WFRel, WF.ArgsEq, WF.evalArgs]
 @[spec] theorem assertEq_sound {x y : Elem p} :
     ⦃⌜True⌝⦄ Sound.interp ρ (assertEq p x y)
     ⦃⇓ _ => ⌜x.evalNat ρ = y.evalNat ρ⌝⦄ := by
@@ -475,49 +125,6 @@ theorem assertEq_wf :
     rw [h.1.1, h.2.1]
   · intro _ _ _
     trivial
-@[spec] theorem checkedInv_sound {one x candidate : Elem p}
-    (hone : one.Valid ρ) (hx : x.Valid ρ) (hc : candidate.Valid ρ) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (checkedInv p one x candidate)
-    ⦃⇓ out => ⌜InvSpec p ρ one x out⌝⦄ := by
-  mvcgen [checkedInv, InvSpec]
-  all_goals simp_all [MulSpec, InvSpec]
-
-@[spec] theorem checkedInv_complete {one x candidate : Elem p}
-    (hone : one.Valid ρ) (hx : x.Valid ρ) (hc : candidate.Valid ρ)
-    (hinv : (x.evalNat ρ * candidate.evalNat ρ) % p.modulus =
-      one.evalNat ρ) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (checkedInv p one x candidate)
-    ⦃⇓ out => ⌜InvSpec p ρ one x out⌝⦄ := by
-  mvcgen [checkedInv, InvSpec]
-  all_goals simp_all [MulSpec, InvSpec]
-
-theorem checkedInv_wf :
-    WF.GadgetSpec
-      (fun lv rv (l r : Elem p × Elem p × Elem p) =>
-        Elem.WFRel lv rv l.1 r.1 ∧
-        Elem.WFRel lv rv l.2.1 r.2.1 ∧ Elem.WFRel lv rv l.2.2 r.2.2)
-      (fun z => checkedInv p z.1 z.2.1 z.2.2)
-      (Elem.WFRel (p := p)) := by
-  unfold WF.GadgetSpec
-  intro left right
-  unfold checkedInv
-  apply WF.GadgetSpec.bind_rule (mul_wf p)
-  · intro lv rv h
-    exact ⟨h.2.1, h.2.2⟩
-  · intro A productL productR hproduct
-    unfold assertEq
-    apply WF.Rel.assertR1C
-    · intro _ _ _
-      rfl
-    · intro _ _ _
-      rfl
-    · intro lv rv hA
-      have h := hproduct lv rv hA
-      exact WF.eval_sub h.2.1 h.1.1.1
-    · apply WF.Rel.pure
-      intro lv rv hA
-      exact (hproduct lv rv hA).1.2.2
-
 namespace Relaxed
 
 theorem reduceSmall_wf {n : Nat} (p : Params n) :
@@ -595,12 +202,11 @@ theorem mul_wf {n : Nat} (p : Params n) :
   let a := x.val.intVal.eval ρ.int
   let b := y.val.intVal.eval ρ.int
   let value := a.toNat * b.toNat
-  let bits : Vector Bool (2 * n + 2) := Vector.ofFn fun i =>
-    if hi : i.val < n then (value % p.modulus).testBit i.val
-    else (value / p.modulus).testBit (i.val - n)
+  let bits := Aux.quotientBits (2 * n + 2) n
+    (value % p.modulus) (value / p.modulus)
   refine ⟨bits, ?_, ?_⟩
   · simp [WF.interpHint, WF.evalArgs, Modular.Elem.nonneg p hx,
-      Modular.Elem.nonneg p hy, bits, value, a, b]
+      Modular.Elem.nonneg p hy, bits, Aux.quotientBits, value, a, b]
   · mvcgen
     rename_i r hr q hq
     have hrFit : value % p.modulus < 2 ^ n :=
@@ -618,21 +224,13 @@ theorem mul_wf {n : Nat} (p : Params n) :
     have hqFit : value / p.modulus < 2 ^ (n + 2) :=
       hqSmall.trans_le (p.fits.trans
         (Nat.pow_le_pow_right (by omega) (by omega)))
-    have hrWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[i.val]'(by omega)
-        }).toNat = value % p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hrFit]
-    have hqWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n + 2) fun i =>
-            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
-        }).toNat = value / p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
-        show ∀ i : Fin (n + 2), ¬ n + i.val < n by omega,
-        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit]
+    have hrWord := Aux.quotientBits_low
+      (totalWidth := 2 * n + 2) (n := n) (low := value % p.modulus)
+      (high := value / p.modulus) (by omega) hrFit ρ
+    have hqWord := Aux.quotientBits_high
+      (totalWidth := 2 * n + 2) (n := n) (quotientWidth := n + 2)
+      (low := value % p.modulus) (high := value / p.modulus)
+      (by omega) hqFit ρ
     have hrVal : r.intVal.eval ρ.int = (value % p.modulus : Nat) := by
       rw [U.Rel.intVal hr, hrWord]
     have hqVal : q.intVal.eval ρ.int = (value / p.modulus : Nat) := by
@@ -686,11 +284,10 @@ theorem mul_wf {n : Nat} (p : Params n) :
         Int.castRingHom (ZMod p.modulus) (x.eval ρ.int)⌝⦄ := by
   mvcgen [reduceSmall]
   let a := x.eval ρ.int
-  let bits : Vector Bool (n + 2) := Vector.ofFn fun i =>
-    if hi : i.val < n then (a.toNat % p.modulus).testBit i.val
-    else (a.toNat / p.modulus).testBit (i.val - n)
+  let bits := Aux.quotientBits (n + 2) n
+    (a.toNat % p.modulus) (a.toNat / p.modulus)
   refine ⟨bits, ?_, ?_⟩
-  · simp [WF.interpHint, WF.evalArgs, hx0, bits, a]
+  · simp [WF.interpHint, WF.evalArgs, hx0, bits, Aux.quotientBits, a]
   · mvcgen
     rename_i r hr q hq
     have hrFit : a.toNat % p.modulus < 2 ^ n :=
@@ -703,21 +300,13 @@ theorem mul_wf {n : Nat} (p : Params n) :
       exact (Nat.div_lt_iff_lt_mul p.positive).2 (by
         simpa [Nat.mul_comm] using haBound)
     have hqFit4 : a.toNat / p.modulus < 4 := by simpa using hqFit
-    have hrWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[i.val]'(by omega)
-        }).toNat = a.toNat % p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hrFit]
-    have hqWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := 2) fun i =>
-            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
-        }).toNat = a.toNat / p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
-        show ∀ i : Fin 2, ¬ n + i.val < n by omega,
-        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit4]
+    have hrWord := Aux.quotientBits_low
+      (totalWidth := n + 2) (n := n) (low := a.toNat % p.modulus)
+      (high := a.toNat / p.modulus) (by omega) hrFit ρ
+    have hqWord := Aux.quotientBits_high
+      (totalWidth := n + 2) (n := n) (quotientWidth := 2)
+      (low := a.toNat % p.modulus) (high := a.toNat / p.modulus)
+      (by omega) hqFit4 ρ
     have hrVal : r.intVal.eval ρ.int = (a.toNat % p.modulus : Nat) := by
       rw [U.Rel.intVal hr, hrWord]
     have hqVal : q.intVal.eval ρ.int = (a.toNat / p.modulus : Nat) := by
@@ -922,32 +511,25 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
   let a := x.intVal.eval ρ.int
   let b := y.intVal.eval ρ.int
   let value := a.toNat * b.toNat
-  let bits : Vector Bool (2 * n + quotientExtraBits) := Vector.ofFn fun i =>
-    if hi : i.val < n then (value % p.modulus).testBit i.val
-    else (value / p.modulus).testBit (i.val - n)
+  let bits := Aux.quotientBits (2 * n + quotientExtraBits) n
+    (value % p.modulus) (value / p.modulus)
   refine ⟨bits, ?_, ?_⟩
-  · simp [WF.interpHint, WF.evalArgs, hx.1, hy.1, bits, value, a, b]
+  · simp [WF.interpHint, WF.evalArgs, hx.1, hy.1, bits,
+      Aux.quotientBits, value, a, b]
   · mvcgen
     rename_i r hr q hq
     have hrFit : value % p.modulus < 2 ^ n :=
       (Nat.mod_lt _ p.positive).trans_le p.fits
     have hqFit : value / p.modulus < 2 ^ (n + quotientExtraBits) := by
       simpa [value, a, b] using Lazy.mul_quotient_fits p hx hy hbound
-    have hrWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[i.val]'(by omega)
-        }).toNat = value % p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hrFit]
-    have hqWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
-            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
-        }).toNat = value / p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
-        show ∀ i : Fin (n + quotientExtraBits), ¬n + i.val < n by omega,
-        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit]
+    have hrWord := Aux.quotientBits_low
+      (totalWidth := 2 * n + quotientExtraBits) (n := n)
+      (low := value % p.modulus) (high := value / p.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Aux.quotientBits_high
+      (totalWidth := 2 * n + quotientExtraBits) (n := n)
+      (quotientWidth := n + quotientExtraBits) (low := value % p.modulus)
+      (high := value / p.modulus) (by omega) hqFit ρ
     have hrVal : r.intVal.eval ρ.int = (value % p.modulus : Nat) := by
       rw [U.Rel.intVal hr, hrWord]
     have hqVal : q.intVal.eval ρ.int = (value / p.modulus : Nat) := by
@@ -1009,11 +591,10 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
       evalElemZMod p out ρ = evalZMod p x ρ⌝⦄ := by
   mvcgen [reduce]
   let a := x.intVal.eval ρ.int
-  let bits : Vector Bool (2 * n + quotientExtraBits) := Vector.ofFn fun i =>
-    if hi : i.val < n then (a.toNat % p.modulus).testBit i.val
-    else (a.toNat / p.modulus).testBit (i.val - n)
+  let bits := Aux.quotientBits (2 * n + quotientExtraBits) n
+    (a.toNat % p.modulus) (a.toNat / p.modulus)
   refine ⟨bits, ?_, ?_⟩
-  · simp [WF.interpHint, WF.evalArgs, hx.1, bits, a]
+  · simp [WF.interpHint, WF.evalArgs, hx.1, bits, Aux.quotientBits, a]
   · mvcgen
     rename_i r hr q hq
     have hrFit : a.toNat % p.modulus < 2 ^ n :=
@@ -1027,21 +608,14 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
     have hqFit : a.toNat / p.modulus < 2 ^ (n + quotientExtraBits) :=
       hqSmall.trans (hbound.trans_le
         (Nat.pow_le_pow_right (by omega) (by omega)))
-    have hrWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[i.val]'(by omega)
-        }).toNat = a.toNat % p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hrFit]
-    have hqWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
-            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
-        }).toNat = a.toNat / p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
-        show ∀ i : Fin (n + quotientExtraBits), ¬n + i.val < n by omega,
-        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit]
+    have hrWord := Aux.quotientBits_low
+      (totalWidth := 2 * n + quotientExtraBits) (n := n)
+      (low := a.toNat % p.modulus) (high := a.toNat / p.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Aux.quotientBits_high
+      (totalWidth := 2 * n + quotientExtraBits) (n := n)
+      (quotientWidth := n + quotientExtraBits) (low := a.toNat % p.modulus)
+      (high := a.toNat / p.modulus) (by omega) hqFit ρ
     have hrVal : r.intVal.eval ρ.int = (a.toNat % p.modulus : Nat) := by
       rw [U.Rel.intVal hr, hrWord]
     have hqVal : q.intVal.eval ρ.int = (a.toNat / p.modulus : Nat) := by
@@ -1106,12 +680,11 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
         (target.bound : Int) * p.modulus := by
     simpa [a, b, c] using hcond
   let value := shifted.toNat
-  let bits : Vector Bool (2 * n + quotientExtraBits) := Vector.ofFn fun i =>
-    if hi : i.val < n then (value % p.modulus).testBit i.val
-    else (value / p.modulus).testBit (i.val - n)
+  let bits := Aux.quotientBits (2 * n + quotientExtraBits) n
+    (value % p.modulus) (value / p.modulus)
   refine ⟨bits, ?_, ?_⟩
   · simp [WF.interpHint, WF.evalArgs, a, b, c, shifted, hcond',
-      bits, value]
+      bits, Aux.quotientBits, value]
   · mvcgen
     rename_i r hr q hq
     have hrFit : value % p.modulus < 2 ^ n :=
@@ -1156,21 +729,14 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
         _ = 2 ^ (n + quotientExtraBits) := by
           rw [pow_add]
           ac_rfl
-    have hrWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[i.val]'(by omega)
-        }).toNat = value % p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hrFit]
-    have hqWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
-            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
-        }).toNat = value / p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
-        show ∀ i : Fin (n + quotientExtraBits), ¬n + i.val < n by omega,
-        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit]
+    have hrWord := Aux.quotientBits_low
+      (totalWidth := 2 * n + quotientExtraBits) (n := n)
+      (low := value % p.modulus) (high := value / p.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Aux.quotientBits_high
+      (totalWidth := 2 * n + quotientExtraBits) (n := n)
+      (quotientWidth := n + quotientExtraBits) (low := value % p.modulus)
+      (high := value / p.modulus) (by omega) hqFit ρ
     have hrVal : r.intVal.eval ρ.int = (value % p.modulus : Nat) := by
       rw [U.Rel.intVal hr, hrWord]
     have hqVal : q.intVal.eval ρ.int = (value / p.modulus : Nat) := by
@@ -1314,9 +880,8 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
           ((value : Int) * a - b) + numerator.bound * p.modulus := by ring
       _ = p.modulus * k + numerator.bound * p.modulus := by rw [hk]
       _ = p.modulus * (k + numerator.bound) := by ring
-  let bits : Vector Bool (2 * n + quotientExtraBits) := Vector.ofFn fun i =>
-    if hi : i.val < n then value.testBit i.val
-    else (shifted.toNat / p.modulus).testBit (i.val - n)
+  let bits := Aux.quotientBits (2 * n + quotientExtraBits) n
+    value (shifted.toNat / p.modulus)
   refine ⟨bits, ?_, ?_⟩
   · simp only [WF.evalArgs]
     rw [if_pos hdenominator.1, if_pos hnumerator.1,
@@ -1369,21 +934,17 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
         _ = 2 ^ (n + quotientExtraBits) := by
           rw [pow_add]
           ac_rfl
-    have hrWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n) fun i =>
-            (Vector.map LC.ofConst bits)[i.val]'(by omega)
-        }).toNat = value := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hvalueFit]
-    have hqWord :
-        (Word.eval ρ.bool {
-          bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
-            (Vector.map LC.ofConst bits)[n + i.val]'(by omega)
-        }).toNat = shifted.toNat / p.modulus := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits,
-        show ∀ i : Fin (n + quotientExtraBits), ¬n + i.val < n by omega,
-        Nat.ofBits_testBit, Nat.mod_eq_of_lt hqFit]
+    have hrWord : (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := n) fun i =>
+          (Vector.map LC.ofConst bits)[i.val]'(by omega) }).toNat = value := by
+      simpa [Nat.mod_eq_of_lt hvalueFit] using
+        (Aux.quotientBits_low (totalWidth := 2 * n + quotientExtraBits)
+          (n := n) (low := value) (high := shifted.toNat / p.modulus)
+          (by omega) hvalueFit ρ)
+    have hqWord := Aux.quotientBits_high
+      (totalWidth := 2 * n + quotientExtraBits) (n := n)
+      (quotientWidth := n + quotientExtraBits) (low := value)
+      (high := shifted.toNat / p.modulus) (by omega) hqFit ρ
     have hrVal : r.intVal.eval ρ.int = (value : Nat) := by
       rw [U.Rel.intVal hr, hrWord]
     have hqVal : q.intVal.eval ρ.int =
@@ -1542,8 +1103,7 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
           bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
             (Vector.map LC.ofConst bits)[i.val]
         }).toNat = quotient := by
-      simp [Word.eval, BitVec.toNat_ofFnLE, bits, Nat.ofBits_testBit,
-        Nat.mod_eq_of_lt hqFit]
+      simpa [bits] using Aux.constWord_eval_toNat quotient hqFit ρ
     have hqVal : q.intVal.eval ρ.int = (quotient : Nat) := by
       rw [U.Rel.intVal hq, hqWord]
     have hshiftDvdNat : p.modulus ∣ shifted.toNat := by
@@ -1797,8 +1357,7 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
             bitsLE := Vector.ofFn (n := quotientExtraBits) fun i =>
               (Vector.map LC.ofConst qBits)[i.val]
           }).toNat = quotient := by
-        simp [Word.eval, BitVec.toNat_ofFnLE, qBits, Nat.ofBits_testBit,
-          Nat.mod_eq_of_lt hqFit]
+        simpa [qBits] using Aux.constWord_eval_toNat quotient hqFit ρ
       have hqVal : q.intVal.eval ρ.int = (quotient : Nat) := by
         rw [U.Rel.intVal hq, hqWord]
       constructor

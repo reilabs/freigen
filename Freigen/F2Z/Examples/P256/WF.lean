@@ -10,7 +10,8 @@ operations opaque during top-level ECDSA well-formedness checking.
 
 namespace Freigen.F2Z.Examples.P256.Projective.Lazy
 
-set_option maxRecDepth 10000
+set_option maxRecDepth 100000
+set_option maxHeartbeats 1000000
 
 @[simp] private theorem curveB_intVal_eval_eq (lv rv : WF.Valuation) :
     LC.eval lv.int curveB.val.intVal = LC.eval rv.int curveB.val.intVal := by
@@ -58,6 +59,9 @@ theorem assertOnCurve_wf_aux :
 end Freigen.F2Z.Examples.P256.Projective.Lazy
 
 namespace Freigen.F2Z.Examples.P256.AffineSlope
+
+set_option maxRecDepth 100000
+set_option maxHeartbeats 1000000
 
 private theorem fpConst_wfRel (x : Nat) (h : x < baseModulus)
     (lv rv : WF.Valuation) :
@@ -122,6 +126,24 @@ theorem andBit_wf_aux :
       (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
   all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
 
+theorem selectRep_wf_aux (width outBound : Nat) (description : String) :
+    WF.GadgetSpec
+      (fun lv rv (left right : LC ℤ × Rep × Rep) =>
+        WF.LCEq lv.int rv.int left.1 right.1 ∧
+        left.2.1.WFRel lv rv right.2.1 ∧
+        left.2.2.WFRel lv rv right.2.2)
+      (fun input => selectRep width outBound description
+        input.1 input.2.1 input.2.2)
+      Modular.Lazy.Rep.WFRel := by
+  wfgen' using [U.fromWord_wf_rel]
+    unfold [selectRep, Modular.Lazy.Rep.WFRel]
+  case vc1 =>
+    rename_i h
+    change WF.LCEq leftVal.bool rightVal.bool outL[i] outR[i]
+    exact Modular.Aux.WF.lceq_of_common_realizes
+      (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
+  all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
+
 theorem selectCanonical_wf_aux :
     WF.GadgetSpec
       (fun lv rv (left right : LC ℤ × Rep × Rep) =>
@@ -130,14 +152,7 @@ theorem selectCanonical_wf_aux :
         left.2.2.WFRel lv rv right.2.2)
       (fun input => selectCanonical input.1 input.2.1 input.2.2)
       Modular.Lazy.Rep.WFRel := by
-  wfgen' using [U.fromWord_wf_rel]
-    unfold [selectCanonical, Modular.Lazy.Rep.WFRel]
-  case vc1 =>
-    rename_i h
-    change WF.LCEq leftVal.bool rightVal.bool outL[i] outR[i]
-    exact Modular.Aux.WF.lceq_of_common_realizes
-      (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
-  all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
+  simpa [selectCanonical] using selectRep_wf_aux 256 2 "canonical"
 
 theorem doubleSlope_wf_aux :
     WF.GadgetSpec Point.WFRel doubleSlope
@@ -168,7 +183,6 @@ theorem doubleSlope_wf_aux :
       LC.eval_add, LC.eval_sub, LC.eval_nsmul, LC.eval_ofConst]
     exact three_intVal_eval_eq lv rv
 
-set_option maxRecDepth 100000 in
 theorem finishDouble_wf_aux :
     WF.GadgetSpec
       (fun lv rv (left right : Point × Rep) =>
@@ -203,14 +217,8 @@ theorem selectFormula_wf_aux :
         left.2.2.WFRel lv rv right.2.2)
       (fun input => selectFormula input.1 input.2.1 input.2.2)
       Modular.Lazy.Rep.WFRel := by
-  wfgen' using [U.fromWord_wf_rel]
-    unfold [selectFormula, Modular.Lazy.Rep.WFRel]
-  case vc1 =>
-    rename_i h
-    change WF.LCEq leftVal.bool rightVal.bool outL[i] outR[i]
-    exact Modular.Aux.WF.lceq_of_common_realizes
-      (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
-  all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
+  simpa [selectFormula] using
+    selectRep_wf_aux 262 66 "affine formula"
 
 theorem and3Bit_wf_aux :
     WF.GadgetSpec
@@ -280,8 +288,6 @@ theorem selectRawSlopeOperands_wf_aux :
     · exact hh.2.1
     · rw [hh.2.2, three_intVal_eval_eq leftVal rightVal]
 
-set_option maxRecDepth 100000 in
-set_option maxHeartbeats 1000000 in
 theorem activateSlopeOperands_wf_aux :
     WF.GadgetSpec
       (fun lv rv (left right : Point × Point × AddControl × SlopeOperands) =>
@@ -320,7 +326,6 @@ theorem selectSlopeOperands_wf_aux :
     have hh := hrel lv rv hB
     exact ⟨hh.1.1, hh.1.2.1, hh.1.2.2, hh.2⟩
 
-set_option maxRecDepth 100000 in
 theorem finishAddCandidate_wf_aux :
     WF.GadgetSpec
       (fun lv rv (left right : Point × Point × SlopeOperands) =>
@@ -360,7 +365,6 @@ theorem addCandidate_wf_aux :
     have hh := hrel lv rv hB
     exact ⟨hh.1.1, hh.1.2.1, hh.2⟩
 
-set_option maxRecDepth 100000 in
 theorem selectAddOutput_wf_aux :
     WF.GadgetSpec
       (fun lv rv

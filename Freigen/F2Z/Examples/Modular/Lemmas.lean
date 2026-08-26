@@ -15,37 +15,6 @@ open scoped Std.Do
 @[simp] theorem intCastRingHom_apply {R : Type} [Ring R] (x : Int) :
     Int.castRingHom R x = (x : R) := rfl
 
-/-- Strengthen the initial relational assumption of a well-formedness proof.
-This small structural rule makes proved gadgets compositional when an outer
-type carries more invariants than a callee consumes. -/
-theorem WF.Rel.strengthen {Q : WF.Post α} {R S : WF.Assumption}
-    {left right : Circuit α} (h : WF.Rel Q R left right)
-    (hSR : ∀ lv rv, S lv rv → R lv rv) :
-    WF.Rel Q S left right := by
-  induction h generalizing S with
-  | pure hpost =>
-      exact .pure fun lv rv hS => hpost lv rv (hSR lv rv hS)
-  | assertR1C ha hb hc _ ih =>
-      exact .assertR1C
-        (fun lv rv hS => ha lv rv (hSR lv rv hS))
-        (fun lv rv hS => hb lv rv (hSR lv rv hS))
-        (fun lv rv hS => hc lv rv (hSR lv rv hS))
-        (ih hSR)
-  | f2z ha _ ih =>
-      apply WF.Rel.f2z (fun lv rv hS => ha lv rv (hSR lv rv hS))
-      intro outL outR
-      apply ih
-      intro lv rv hS
-      exact ⟨hSR lv rv hS.1, hS.2.1, hS.2.2⟩
-  | hint hargs hbody _ ih =>
-      apply WF.Rel.hint
-        (fun lv rv hS => hargs lv rv (hSR lv rv hS))
-        (fun lv rv hS => hbody lv rv (hSR lv rv hS))
-      intro outL outR
-      apply ih
-      intro lv rv hS
-      exact ⟨hSR lv rv hS.1, hS.2⟩
-
 variable {n : Nat} (p : Params n)
 
 namespace Elem
@@ -171,13 +140,39 @@ theorem mul_quotient_fits {x y : Rep p}
       rw [pow_add]
       ac_rfl
 
-theorem ZeroTestZModSpec.value_eq_if {x : Rep p} {z : LC ℤ}
-    (h : ZeroTestZModSpec p ρ x z) :
-    z.eval ρ.int = if evalZMod p x ρ = 0 then 1 else 0 := h.2.2
-
 end Lazy
 
 namespace Aux
+
+def quotientBits (totalWidth n low high : Nat) :
+    Vector Bool totalWidth :=
+  Vector.ofFn fun i => if hi : i.val < n then
+    low.testBit i.val
+  else
+    high.testBit (i.val - n)
+
+theorem quotientBits_low {totalWidth n low high : Nat}
+    (hwidth : n ≤ totalWidth) (hfit : low < 2 ^ n)
+    (ρ : WF.Valuation) :
+    (Word.eval ρ.bool {
+      bitsLE := Vector.ofFn (n := n) fun i =>
+        (Vector.map LC.ofConst
+          (quotientBits totalWidth n low high))[i.val]'(by omega)
+    }).toNat = low := by
+  simp [quotientBits, Word.eval, BitVec.toNat_ofFnLE,
+    Nat.ofBits_testBit, Nat.mod_eq_of_lt hfit]
+
+theorem quotientBits_high {totalWidth n quotientWidth low high : Nat}
+    (hwidth : n + quotientWidth ≤ totalWidth)
+    (hfit : high < 2 ^ quotientWidth) (ρ : WF.Valuation) :
+    (Word.eval ρ.bool {
+      bitsLE := Vector.ofFn (n := quotientWidth) fun i =>
+        (Vector.map LC.ofConst
+          (quotientBits totalWidth n low high))[n + i.val]'(by omega)
+    }).toNat = high := by
+  simp [quotientBits, Word.eval, BitVec.toNat_ofFnLE,
+    show ∀ i : Fin quotientWidth, ¬n + i.val < n by omega,
+    Nat.ofBits_testBit, Nat.mod_eq_of_lt hfit]
 
 theorem constWord_eval_toNat {n : Nat} (v : Nat)
     (hv : v < 2 ^ n) (ρ : WF.Valuation) :
@@ -253,190 +248,6 @@ theorem WF.common_realizes_of_hint
       WF.RealizesBools rv.bool right values := by
   rcases h.2 with ⟨values, _, _, hleft, hright⟩
   exact ⟨values, hleft, hright⟩
-
-theorem WF.lowWord_lceq_of_common_realizes
-    {left right : Vector (LC Bool) (2 * n)} {lv rv : WF.Valuation}
-    (h : ∃ values : Vector Bool (2 * n),
-      WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values)
-    (i : Fin n) :
-    WF.LCEq lv.bool rv.bool
-      ({ bitsLE := Vector.ofFn fun j => left[j.val]'(by omega) } : Word n)[i]
-      ({ bitsLE := Vector.ofFn fun j => right[j.val]'(by omega) } : Word n)[i] := by
-  unfold WF.LCEq
-  change LC.eval lv.bool (Vector.ofFn fun j : Fin n => left[j.val]'(by omega))[i] =
-    LC.eval rv.bool (Vector.ofFn fun j : Fin n => right[j.val]'(by omega))[i]
-  have hleft :
-      (Vector.ofFn fun j : Fin n => left[j.val]'(by omega))[i] = left[i.val] := by
-    change (Vector.ofFn fun j : Fin n => left[j.val]'(by omega)).get i = _
-    simp
-  have hright :
-      (Vector.ofFn fun j : Fin n => right[j.val]'(by omega))[i] = right[i.val] := by
-    change (Vector.ofFn fun j : Fin n => right[j.val]'(by omega)).get i = _
-    simp
-  rw [hleft, hright]
-  exact WF.lceq_of_common_realizes h i.val (by omega)
-
-theorem WF.highWord_lceq_of_common_realizes
-    {left right : Vector (LC Bool) (2 * n)} {lv rv : WF.Valuation}
-    (h : ∃ values : Vector Bool (2 * n),
-      WF.RealizesBools lv.bool left values ∧
-      WF.RealizesBools rv.bool right values)
-    (i : Fin n) :
-    WF.LCEq lv.bool rv.bool
-      ({ bitsLE := Vector.ofFn fun j => left[n + j.val]'(by omega) } : Word n)[i]
-      ({ bitsLE := Vector.ofFn fun j => right[n + j.val]'(by omega) } : Word n)[i] := by
-  unfold WF.LCEq
-  change LC.eval lv.bool
-      (Vector.ofFn fun j : Fin n => left[n + j.val]'(by omega))[i] =
-    LC.eval rv.bool
-      (Vector.ofFn fun j : Fin n => right[n + j.val]'(by omega))[i]
-  have hleft :
-      (Vector.ofFn fun j : Fin n => left[n + j.val]'(by omega))[i] =
-        left[n + i.val] := by
-    change (Vector.ofFn fun j : Fin n => left[n + j.val]'(by omega)).get i = _
-    simp
-  have hright :
-      (Vector.ofFn fun j : Fin n => right[n + j.val]'(by omega))[i] =
-        right[n + i.val] := by
-    change (Vector.ofFn fun j : Fin n => right[n + j.val]'(by omega)).get i = _
-    simp
-  rw [hleft, hright]
-  exact WF.lceq_of_common_realizes h (n + i.val) (by omega)
-
-theorem divRemSpec_of_rel {x y : LC ℤ} {r q : U n}
-    (hr : U.Rel ρ r rv) (hq : U.Rel ρ q qv)
-    (hlt : r.intVal.eval ρ.int < p.modulus)
-    (heq : x.eval ρ.int * y.eval ρ.int =
-      (r.intVal + p.modulus • q.intVal).eval ρ.int) :
-    DivRemSpec p ρ x y (r, q) := by
-  exact ⟨hr.1, hq.1, hlt, by
-    simpa only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul] using heq⟩
-theorem mulSpec_of_divRem {x y : Elem p} {r q : U n}
-    (hx : x.Valid ρ) (hy : y.Valid ρ)
-    (hdiv : DivRemSpec p ρ x.val.intVal y.val.intVal (r, q))
-    (hrlt : r.intVal.eval ρ.int < p.modulus) :
-    MulSpec p ρ x y ⟨r⟩ := by
-  have hrValid : (⟨r⟩ : Elem p).Valid ρ := ⟨hdiv.1, hrlt⟩
-  refine ⟨hrValid, ?_⟩
-  have hq0 := U.intVal_nonneg q hdiv.2.1
-  have hr0 := U.intVal_nonneg r hdiv.1
-  have hnat : x.evalNat ρ * y.evalNat ρ =
-      (r.intVal.eval ρ.int).toNat +
-        p.modulus * (q.intVal.eval ρ.int).toNat := by
-    have heq := hdiv.2.2.2
-    rw [← Elem.evalNat_cast (p := p) hx,
-      ← Elem.evalNat_cast (p := p) hy] at heq
-    have heq' : (x.evalNat ρ * y.evalNat ρ : Int) =
-        ((r.intVal.eval ρ.int).toNat +
-          p.modulus * (q.intVal.eval ρ.int).toNat : Nat) := by
-      simp only [Nat.cast_mul, Nat.cast_add, Nat.cast_ofNat]
-      rw [Int.toNat_of_nonneg hr0, Int.toNat_of_nonneg hq0]
-      exact heq
-    exact_mod_cast heq'
-  have hmod : x.evalNat ρ * y.evalNat ρ ≡
-      (r.intVal.eval ρ.int).toNat [MOD p.modulus] := by
-    rw [Nat.ModEq]
-    simp [hnat, Nat.add_mod]
-  have hrNatLt : (r.intVal.eval ρ.int).toNat < p.modulus :=
-    (Int.toNat_lt hr0).2 hrlt
-  unfold Elem.evalNat
-  exact (Nat.mod_eq_of_modEq hmod hrNatLt).symm
-theorem reduceSpec_of_divRem {x : LC ℤ} {r q : U n}
-    (hx0 : 0 ≤ x.eval ρ.int)
-    (hdiv : DivRemSpec p ρ x (LC.ofConst 1) (r, q)) :
-    ReduceSpec p ρ x ⟨r⟩ := by
-  have hr0 := U.intVal_nonneg r hdiv.1
-  have hq0 := U.intVal_nonneg q hdiv.2.1
-  have hnat : (x.eval ρ.int).toNat =
-      (r.intVal.eval ρ.int).toNat +
-        p.modulus * (q.intVal.eval ρ.int).toNat := by
-    have heq := hdiv.2.2.2
-    simp only [LC.eval_ofConst, mul_one] at heq
-    have heq' : ((x.eval ρ.int).toNat : Int) =
-        ((r.intVal.eval ρ.int).toNat +
-          p.modulus * (q.intVal.eval ρ.int).toNat : Nat) := by
-      simp only [Nat.cast_add, Nat.cast_mul]
-      rw [Int.toNat_of_nonneg hx0, Int.toNat_of_nonneg hr0,
-        Int.toNat_of_nonneg hq0]
-      exact heq
-    exact_mod_cast heq'
-  have hmod : (x.eval ρ.int).toNat ≡
-      (r.intVal.eval ρ.int).toNat [MOD p.modulus] := by
-    rw [Nat.ModEq]
-    simp [hnat, Nat.add_mod]
-  have hrlt : (r.intVal.eval ρ.int).toNat < p.modulus :=
-    (Int.toNat_lt hr0).2 hdiv.2.2.1
-  exact ⟨⟨hdiv.1, hdiv.2.2.1⟩,
-    (Nat.mod_eq_of_modEq hmod hrlt).symm⟩
-
-theorem addQuotientFits {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ((x.val.intVal + y.val.intVal).eval ρ.int).toNat /
-      p.modulus < 2 ^ n := by
-  have hx0 := Elem.nonneg (p := p) hx
-  have hy0 := Elem.nonneg (p := p) hy
-  have hxlt := hx.2
-  have hylt := hy.2
-  simp only [LC.eval_add, Int.toNat_add hx0 hy0]
-  by_cases hm : p.modulus = 1
-  · have hxz : x.val.intVal.eval ρ.int = 0 := by omega
-    have hyz : y.val.intVal.eval ρ.int = 0 := by omega
-    simp [hxz, hyz]
-  · have hm2 : 2 ≤ p.modulus := by omega
-    have hprod :
-        (x.val.intVal.eval ρ.int).toNat +
-          (y.val.intVal.eval ρ.int).toNat < p.modulus * p.modulus := by
-      have hxn := (Int.toNat_lt hx0).2 hxlt
-      have hyn := (Int.toNat_lt hy0).2 hylt
-      nlinarith
-    exact (Nat.div_lt_of_lt_mul (by simpa [Nat.mul_comm] using hprod)).trans_le
-      p.fits
-
-theorem subDividend_nonneg {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    0 ≤ (x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal).eval ρ.int := by
-  simp only [LC.eval_sub, LC.eval_add, LC.eval_ofConst]
-  have hx0 := Elem.nonneg (p := p) hx
-  have hylt := hy.2
-  omega
-
-theorem subDividend_toNat {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ((x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal).eval ρ.int).toNat =
-      x.evalNat ρ + p.modulus - y.evalNat ρ := by
-  have hnonneg := subDividend_nonneg p hx hy
-  apply Int.ofNat_inj.mp
-  rw [Int.toNat_of_nonneg hnonneg]
-  simp only [LC.eval_sub, LC.eval_add, LC.eval_ofConst]
-  rw [Nat.cast_sub]
-  · simp only [Nat.cast_add]
-    rw [Elem.evalNat_cast (p := p) hx, Elem.evalNat_cast (p := p) hy]
-  · exact (Elem.evalNat_lt (p := p) hy).le.trans
-      (Nat.le_add_left p.modulus (x.evalNat ρ))
-
-theorem subQuotientFits {x y : Elem p}
-    (hx : x.Valid ρ) (hy : y.Valid ρ) :
-    ((x.val.intVal + LC.ofConst (p.modulus : Int) - y.val.intVal).eval ρ.int).toNat /
-      p.modulus < 2 ^ n := by
-  rw [subDividend_toNat p hx hy]
-  by_cases hm : p.modulus = 1
-  · have hxz : x.evalNat ρ = 0 := by
-      have := Elem.evalNat_lt (p := p) hx
-      omega
-    have hyz : y.evalNat ρ = 0 := by
-      have := Elem.evalNat_lt (p := p) hy
-      omega
-    have hn : n ≠ 0 := Nat.ne_of_gt p.bitsPositive
-    simp [hm, hxz, hyz, hn]
-  · have hp := p.positive
-    have hm2 : 2 ≤ p.modulus := by omega
-    have hnum : x.evalNat ρ + p.modulus - y.evalNat ρ <
-        p.modulus * p.modulus := by
-      have hxlt := Elem.evalNat_lt (p := p) hx
-      nlinarith [Nat.sub_le (x.evalNat ρ + p.modulus) (y.evalNat ρ)]
-    exact (Nat.div_lt_of_lt_mul (by simpa [Nat.mul_comm] using hnum)).trans_le
-      p.fits
 
 end Aux
 

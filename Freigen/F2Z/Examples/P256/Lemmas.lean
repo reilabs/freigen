@@ -10,7 +10,8 @@ soundness, completeness, and well-formedness proofs.
 
 namespace Freigen.F2Z.Examples.P256
 
-set_option maxRecDepth 10000
+set_option maxRecDepth 100000
+set_option maxHeartbeats 1000000
 
 open Std.Do
 open scoped Std.Do
@@ -28,8 +29,6 @@ theorem ofElems_represents_pointOfCircuit {x y : Fp}
 
 end Reference.Aux
 open Modular
-
-theorem base_modulus_eq : base.modulus = baseModulus := rfl
 
 theorem scalar_modulus_eq : scalar.modulus = scalarModulus := rfl
 
@@ -484,12 +483,12 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
     | exact (by assumption : AffineSlope.AndBitSpec ρ x y _).2
     | exact ⟨_, by assumption, by assumption⟩
 
-@[spec] theorem selectCanonical_sound {choose : LC ℤ}
-    {whenOne whenZero : AffineSlope.Rep} :
+@[spec] theorem selectRep_sound {width outBound : Nat} {description : String}
+    {choose : LC ℤ} {whenOne whenZero : AffineSlope.Rep} :
     ⦃⌜True⌝⦄ Sound.interp ρ
-      (AffineSlope.selectCanonical choose whenOne whenZero)
+      (AffineSlope.selectRep width outBound description choose whenOne whenZero)
     ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out⌝⦄ := by
-  mvcgen [AffineSlope.selectCanonical, AffineSlope.SelectZModSpec]
+  mvcgen [AffineSlope.selectRep, AffineSlope.SelectZModSpec]
   intro bits
   mvcgen
   rename_i out hout heq
@@ -506,6 +505,76 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
       omega
     unfold Modular.Lazy.evalZMod
     rw [hval]
+
+@[spec] theorem selectRep_complete {width outBound limit : Nat}
+    {description : String} {choose : LC ℤ}
+    {whenOne whenZero : AffineSlope.Rep}
+    (hchoose : choose.eval ρ.int = 0 ∨ choose.eval ρ.int = 1)
+    (hone : whenOne.Valid ρ)
+    (honeFit : whenOne.intVal.eval ρ.int < limit)
+    (hzero : whenZero.Valid ρ)
+    (hzeroFit : whenZero.intVal.eval ρ.int < limit)
+    (hwidth : limit ≤ 2 ^ width)
+    (hbound : limit ≤ outBound * base.modulus) :
+    ⦃⌜True⌝⦄ Complete.interp ρ
+      (AffineSlope.selectRep width outBound description choose whenOne whenZero)
+    ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out ∧
+      out.Valid ρ ∧ out.intVal.eval ρ.int < limit ∧
+      out.bound = outBound⌝⦄ := by
+  mvcgen [AffineSlope.selectRep]
+  let value := if choose.eval ρ.int = 1 then
+    whenOne.intVal.eval ρ.int else whenZero.intVal.eval ρ.int
+  let bits : Vector Bool width := Vector.ofFn fun i => value.toNat.testBit i.val
+  refine ⟨bits, ?_, ?_⟩
+  · rcases hchoose with hc | hc
+    · simp [WF.interpHint, WF.evalArgs, bits, value, hc, hzero.1]
+    · simp [WF.interpHint, WF.evalArgs, bits, value, hc, hone.1]
+  · mvcgen
+    rename_i out hout
+    have hvalue0 : 0 ≤ value := by
+      unfold value
+      split
+      · exact hone.1
+      · exact hzero.1
+    have hvalueFit : value < limit := by
+      unfold value
+      split
+      · exact honeFit
+      · exact hzeroFit
+    have hfit : value.toNat < 2 ^ width := by
+      apply (Int.toNat_lt hvalue0).2
+      exact hvalueFit.trans_le (by exact_mod_cast hwidth)
+    have hword :
+        (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits }).toNat =
+          value.toNat := by
+      rw [show Vector.map LC.ofConst bits =
+          Vector.ofFn (n := width) fun i =>
+            LC.ofConst (value.toNat.testBit i.val) by
+        ext i
+        simp [bits]]
+      exact Modular.Aux.constWord_eval_toNat value.toNat hfit ρ
+    have houtVal : out.intVal.eval ρ.int = value := by
+      rw [U.Rel.intVal hout, hword, Int.toNat_of_nonneg hvalue0]
+    constructor
+    · rcases hchoose with hc | hc
+      · simp [LC.eval_sub, hc, value, houtVal]
+      · simp [LC.eval_sub, hc, value, houtVal]
+    · mvcgen
+      constructor
+      · unfold AffineSlope.SelectZModSpec Modular.Lazy.evalZMod
+        constructor <;> intro hc <;> simp [value, hc] at houtVal ⊢ <;>
+          rw [houtVal]
+      · refine ⟨⟨U.intVal_nonneg out hout.1, ?_⟩, ?_⟩
+        · rw [houtVal]
+          exact hvalueFit.trans_le (by exact_mod_cast hbound)
+        · simpa [houtVal] using hvalueFit
+
+@[spec] theorem selectCanonical_sound {choose : LC ℤ}
+    {whenOne whenZero : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ
+      (AffineSlope.selectCanonical choose whenOne whenZero)
+    ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out⌝⦄ := by
+  exact selectRep_sound
 
 @[spec] theorem selectCanonical_complete {choose : LC ℤ}
     {whenOne whenZero : AffineSlope.Rep}
@@ -519,79 +588,16 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
     ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out ∧
       out.Valid ρ ∧ out.intVal.eval ρ.int < base.modulus ∧
       out.bound = 2⌝⦄ := by
-  mvcgen [AffineSlope.selectCanonical]
-  let value := if choose.eval ρ.int = 1 then
-    whenOne.intVal.eval ρ.int else whenZero.intVal.eval ρ.int
-  let bits : Vector Bool 256 := Vector.ofFn fun i => value.toNat.testBit i.val
-  refine ⟨bits, ?_, ?_⟩
-  · rcases hchoose with hc | hc
-    · simp [WF.interpHint, WF.evalArgs, bits, value, hc, hzero.1]
-    · simp [WF.interpHint, WF.evalArgs, bits, value, hc, hone.1]
-  · mvcgen
-    rename_i out hout
-    have hvalue0 : 0 ≤ value := by
-      unfold value
-      split
-      · exact hone.1
-      · exact hzero.1
-    have hvalueLt : value < base.modulus := by
-      unfold value
-      split
-      · exact honeCanonical
-      · exact hzeroCanonical
-    have hfit : value.toNat < 2 ^ 256 := by
-      apply (Int.toNat_lt hvalue0).2
-      exact hvalueLt.trans (by
-        norm_num [base, baseModulus])
-    have hword :
-        (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits }).toNat =
-          value.toNat := by
-      rw [show Vector.map LC.ofConst bits =
-          Vector.ofFn (n := 256) fun i =>
-            LC.ofConst (value.toNat.testBit i.val) by
-        ext i
-        simp [bits]]
-      exact Modular.Aux.constWord_eval_toNat value.toNat hfit ρ
-    have houtVal : out.intVal.eval ρ.int = value := by
-      rw [U.Rel.intVal hout, hword, Int.toNat_of_nonneg hvalue0]
-    constructor
-    · rcases hchoose with hc | hc
-      · simp [LC.eval_sub, hc, value, houtVal]
-      · simp [LC.eval_sub, hc, value, houtVal]
-    · mvcgen
-      constructor
-      · unfold AffineSlope.SelectZModSpec Modular.Lazy.evalZMod
-        constructor <;> intro hc <;> simp [value, hc] at houtVal ⊢ <;>
-          rw [houtVal]
-      · refine ⟨⟨U.intVal_nonneg out hout.1, ?_⟩, ?_⟩
-        · rw [houtVal]
-          have hp : (0 : Int) < base.modulus := by
-            exact_mod_cast base.positive
-          push_cast
-          nlinarith
-        · simpa [houtVal] using hvalueLt
+  unfold AffineSlope.selectCanonical
+  exact selectRep_complete hchoose hone honeCanonical hzero hzeroCanonical
+    base.fits (by norm_num [base, baseModulus])
+
 @[spec] theorem selectFormula_sound {choose : LC ℤ}
     {whenOne whenZero : AffineSlope.Rep} :
     ⦃⌜True⌝⦄ Sound.interp ρ
       (AffineSlope.selectFormula choose whenOne whenZero)
     ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out⌝⦄ := by
-  mvcgen [AffineSlope.selectFormula, AffineSlope.SelectZModSpec]
-  intro bits
-  mvcgen
-  rename_i out hout heq
-  constructor
-  · intro hc
-    have hval : out.intVal.eval ρ.int = whenOne.intVal.eval ρ.int := by
-      simp only [LC.eval_sub, hc, one_mul] at heq
-      omega
-    unfold Modular.Lazy.evalZMod
-    rw [hval]
-  · intro hc
-    have hval : out.intVal.eval ρ.int = whenZero.intVal.eval ρ.int := by
-      simp only [LC.eval_sub, hc, zero_mul] at heq
-      omega
-    unfold Modular.Lazy.evalZMod
-    rw [hval]
+  exact selectRep_sound
 
 @[spec] theorem selectFormula_complete {choose : LC ℤ}
     {whenOne whenZero : AffineSlope.Rep}
@@ -605,54 +611,9 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
     ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out ∧
       out.Valid ρ ∧ out.intVal.eval ρ.int < (2 ^ 262 : Nat) ∧
       out.bound = 66⌝⦄ := by
-  mvcgen [AffineSlope.selectFormula]
-  let value := if choose.eval ρ.int = 1 then
-    whenOne.intVal.eval ρ.int else whenZero.intVal.eval ρ.int
-  let bits : Vector Bool 262 := Vector.ofFn fun i => value.toNat.testBit i.val
-  refine ⟨bits, ?_, ?_⟩
-  · rcases hchoose with hc | hc
-    · simp [WF.interpHint, WF.evalArgs, bits, value, hc, hzero.1]
-    · simp [WF.interpHint, WF.evalArgs, bits, value, hc, hone.1]
-  · mvcgen
-    rename_i out hout
-    have hvalue0 : 0 ≤ value := by
-      unfold value
-      split
-      · exact hone.1
-      · exact hzero.1
-    have hvalueFit : value < (2 ^ 262 : Nat) := by
-      unfold value
-      split
-      · exact honeFit
-      · exact hzeroFit
-    have hfit : value.toNat < 2 ^ 262 := by
-      exact (Int.toNat_lt hvalue0).2 hvalueFit
-    have hword :
-        (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits }).toNat =
-          value.toNat := by
-      rw [show Vector.map LC.ofConst bits =
-          Vector.ofFn (n := 262) fun i =>
-            LC.ofConst (value.toNat.testBit i.val) by
-        ext i
-        simp [bits]]
-      exact Modular.Aux.constWord_eval_toNat value.toNat hfit ρ
-    have houtVal : out.intVal.eval ρ.int = value := by
-      rw [U.Rel.intVal hout, hword, Int.toNat_of_nonneg hvalue0]
-    constructor
-    · rcases hchoose with hc | hc
-      · simp [LC.eval_sub, hc, value, houtVal]
-      · simp [LC.eval_sub, hc, value, houtVal]
-    · mvcgen
-      constructor
-      · unfold AffineSlope.SelectZModSpec Modular.Lazy.evalZMod
-        constructor <;> intro hc <;> simp [value, hc] at houtVal ⊢ <;>
-          rw [houtVal]
-      · refine ⟨⟨U.intVal_nonneg out hout.1, ?_⟩, ?_⟩
-        · rw [houtVal]
-          exact hvalueFit.trans_le (by
-            norm_num [base, baseModulus]
-            native_decide)
-        · simpa [houtVal] using hvalueFit
+  unfold AffineSlope.selectFormula
+  exact selectRep_complete hchoose hone honeFit hzero hzeroFit le_rfl
+    (by norm_num [base, baseModulus]; native_decide)
 def AddControlSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     (control : AffineSlope.AddControl) : Prop :=
   Modular.Lazy.ZeroTestZModSpec base ρ
@@ -921,7 +882,6 @@ theorem SlopeOperandsSpec.denominator_ne_zero
         simp only [WeierstrassCurve.Affine.negY, Reference.curve, zero_mul]
         linear_combination hzero
 
-set_option maxHeartbeats 1000000 in
 @[spec] theorem selectRawSlopeOperands_complete
     {P Q : AffineSlope.Point} {control : AffineSlope.AddControl}
     (hPvalid : P.Valid ρ) (hQvalid : Q.Valid ρ)
@@ -1030,7 +990,6 @@ set_option maxHeartbeats 1000000 in
             hden.1.2 hd
           _ = _ := by simp [AffineSlope.sub]
 
-set_option maxHeartbeats 1000000 in
 @[spec] theorem activateSlopeOperands_complete
     {P Q : AffineSlope.Point} {control : AffineSlope.AddControl}
     {selected : AffineSlope.SlopeOperands}
@@ -1170,7 +1129,6 @@ def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
       Modular.Lazy.MulSubToElemZModSpec, AffineSlope.add,
       AffineSlope.sub, AffineSlope.ofElem]
 
-set_option maxRecDepth 100000 in
 @[spec] theorem finishAddCandidate_complete {P Q : AffineSlope.Point}
     {control : AffineSlope.AddControl}
     {operands : AffineSlope.SlopeOperands}
@@ -1365,7 +1323,6 @@ theorem SelectAddOutputSpec.infinity_bit
     bothInfinity, oppositePair, finiteOpposite,
     hbothInfinity, hoppositePair, hfiniteOpposite, by simp⟩
 
-set_option maxHeartbeats 1000000 in
 @[spec] theorem selectAddOutput_complete {P Q : AffineSlope.Point}
     {control : AffineSlope.AddControl}
     {candidate : AffineSlope.Rep × AffineSlope.Rep}
@@ -1695,27 +1652,6 @@ theorem add_specs_normalized {P Q out : AffineSlope.Point}
         simp_all [AffineSlope.AndBitSpec, AffineSlope.SelectZModSpec,
           Modular.Lazy.ZeroTestZModSpec, AffineSlope.add, AffineSlope.sub,
           AffineSlope.ofElem, WeierstrassCurve.Affine.negY, Reference.curve]
-
-theorem two_mul_ne_zero_of_eq_of_ne_neg
-    {a b : Reference.Field} (hab : a = b) (hne : a ≠ -b) :
-    2 * a ≠ 0 := by
-  intro hzero
-  apply hne
-  rw [← hab]
-  linear_combination hzero
-
-theorem add_self_ne_zero_of_eq_of_ne_neg
-    {a b : Reference.Field} (hab : a = b) (hne : a ≠ -b) :
-    a + a ≠ 0 := by
-  intro hzero
-  apply hne
-  rw [← hab]
-  linear_combination hzero
-
-theorem sub_ne_zero_of_ne_rev {a b : Reference.Field}
-    (hne : a ≠ b) : b - a ≠ 0 :=
-  sub_ne_zero.mpr (Ne.symm hne)
-
 
 end AffineSlope.Aux
 

@@ -12,6 +12,7 @@ semantics, defined in `P256.Reference`.
 namespace Freigen.F2Z.Examples.P256
 
 set_option maxRecDepth 10000
+set_option maxHeartbeats 1000000
 
 open Std.Do
 open scoped Std.Do
@@ -69,8 +70,6 @@ namespace Projective.Lazy
         (0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b :
           ZMod base.modulus) := by rw [hx3]; ring
 
-set_option maxRecDepth 10000 in
-set_option maxHeartbeats 1000000 in
 @[spec] theorem assertOnCurve_complete {x y : Fp}
     (hx : x.Valid ρ) (hy : y.Valid ρ)
     (hcurve : OnCurveZModSpec ρ x y) :

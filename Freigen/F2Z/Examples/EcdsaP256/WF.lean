@@ -204,6 +204,28 @@ def RepLookupRel : WF.Post (LC ℤ × U 16 × Vector AffineSlope.Rep 16) :=
     U.FullWFRel lv rv left.2.1 right.2.1 ∧
     WF.VectorRel Modular.Lazy.Rep.WFRel lv rv left.2.2 right.2.2
 
+local macro "rw_fin16 " h:term : tactic =>
+  `(tactic| rw [
+    ($h 0 (by omega)), ($h 1 (by omega)), ($h 2 (by omega)),
+    ($h 3 (by omega)), ($h 4 (by omega)), ($h 5 (by omega)),
+    ($h 6 (by omega)), ($h 7 (by omega)), ($h 8 (by omega)),
+    ($h 9 (by omega)), ($h 10 (by omega)), ($h 11 (by omega)),
+    ($h 12 (by omega)), ($h 13 (by omega)), ($h 14 (by omega)),
+    ($h 15 (by omega))])
+
+private theorem lookupArgs_argsEq (lv rv : WF.Valuation)
+    (digitL digitR : LC ℤ) (valuesL valuesR : Vector (LC ℤ) 16)
+    (hd : WF.LCEq lv.int rv.int digitL digitR)
+    (hv : ∀ i : Fin 16, WF.LCEq lv.int rv.int valuesL[i] valuesR[i]) :
+    WF.ArgsEq lv rv (lookupArgs digitL valuesL) (lookupArgs digitR valuesR) := by
+  unfold WF.LCEq at hd
+  have hv' (i : Nat) (hi : i < 16) :
+      LC.eval lv.int valuesL[i] = LC.eval rv.int valuesR[i] := by
+    exact hv ⟨i, hi⟩
+  simp only [WF.ArgsEq, lookupArgs, WF.evalArgs]
+  rw [hd]
+  rw_fin16 hv'
+
 theorem assertLookupRep_wf_aux :
     WF.GadgetSpec
       (fun lv rv (left right : U 16 × U 256 × Vector AffineSlope.Rep 16) =>
@@ -240,41 +262,12 @@ private theorem repLookup_argsEq (lv rv : WF.Valuation)
     (left right : LC ℤ × U 16 × Vector AffineSlope.Rep 16)
     (h : RepLookupRel lv rv left right) :
     WF.ArgsEq lv rv
-      h![left.1, left.2.2[0].intVal, left.2.2[1].intVal,
-        left.2.2[2].intVal, left.2.2[3].intVal, left.2.2[4].intVal,
-        left.2.2[5].intVal, left.2.2[6].intVal, left.2.2[7].intVal,
-        left.2.2[8].intVal, left.2.2[9].intVal, left.2.2[10].intVal,
-        left.2.2[11].intVal, left.2.2[12].intVal, left.2.2[13].intVal,
-        left.2.2[14].intVal, left.2.2[15].intVal]
-      h![right.1, right.2.2[0].intVal, right.2.2[1].intVal,
-        right.2.2[2].intVal, right.2.2[3].intVal, right.2.2[4].intVal,
-        right.2.2[5].intVal, right.2.2[6].intVal, right.2.2[7].intVal,
-        right.2.2[8].intVal, right.2.2[9].intVal, right.2.2[10].intVal,
-        right.2.2[11].intVal, right.2.2[12].intVal, right.2.2[13].intVal,
-        right.2.2[14].intVal, right.2.2[15].intVal] := by
-  rcases h with ⟨hd, _, hx⟩
-  unfold WF.LCEq at hd
-  have h0 := (hx ⟨0, by omega⟩).2
-  have h1 := (hx ⟨1, by omega⟩).2
-  have h2 := (hx ⟨2, by omega⟩).2
-  have h3 := (hx ⟨3, by omega⟩).2
-  have h4 := (hx ⟨4, by omega⟩).2
-  have h5 := (hx ⟨5, by omega⟩).2
-  have h6 := (hx ⟨6, by omega⟩).2
-  have h7 := (hx ⟨7, by omega⟩).2
-  have h8 := (hx ⟨8, by omega⟩).2
-  have h9 := (hx ⟨9, by omega⟩).2
-  have h10 := (hx ⟨10, by omega⟩).2
-  have h11 := (hx ⟨11, by omega⟩).2
-  have h12 := (hx ⟨12, by omega⟩).2
-  have h13 := (hx ⟨13, by omega⟩).2
-  have h14 := (hx ⟨14, by omega⟩).2
-  have h15 := (hx ⟨15, by omega⟩).2
-  unfold WF.LCEq at h0 h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15
-  simp only [Fin.getElem_fin] at h0 h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15
-  simp only [WF.ArgsEq, WF.evalArgs]
-  rw [hd, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11,
-    h12, h13, h14, h15]
+      (lookupArgs left.1 (left.2.2.map (·.intVal)))
+      (lookupArgs right.1 (right.2.2.map (·.intVal))) := by
+  apply lookupArgs_argsEq lv rv
+  · exact h.1
+  · intro i
+    simpa using (h.2.2 i).2
 
 theorem lookupRepWord_wf_aux :
     WF.GadgetSpec RepLookupRel
@@ -295,43 +288,11 @@ theorem lookupRepWord_wf_aux :
     let S : WF.Assumption := fun lv rv =>
       RepLookupRel lv rv left right ∧ ∃ values,
         WF.HintReturns
-          ((fun h![(d : Int), (x0 : Int), (x1 : Int), (x2 : Int),
-              (x3 : Int), (x4 : Int), (x5 : Int), (x6 : Int), (x7 : Int),
-              (x8 : Int), (x9 : Int), (x10 : Int), (x11 : Int),
-              (x12 : Int), (x13 : Int), (x14 : Int), (x15 : Int)] =>
-            let values := #[x0, x1, x2, x3, x4, x5, x6, x7,
-              x8, x9, x10, x11, x12, x13, x14, x15]
-            let chosen := values[d.toNat]!
-            pure $ Vector.ofFn (n := 256) fun i =>
-              chosen.toNat.testBit i)
-            (WF.evalArgs lv h![left.1,
-              left.2.2[0].intVal, left.2.2[1].intVal,
-              left.2.2[2].intVal, left.2.2[3].intVal,
-              left.2.2[4].intVal, left.2.2[5].intVal,
-              left.2.2[6].intVal, left.2.2[7].intVal,
-              left.2.2[8].intVal, left.2.2[9].intVal,
-              left.2.2[10].intVal, left.2.2[11].intVal,
-              left.2.2[12].intVal, left.2.2[13].intVal,
-              left.2.2[14].intVal, left.2.2[15].intVal])) values ∧
+          (lookupRepHint (WF.evalArgs lv
+            (lookupArgs left.1 (left.2.2.map (·.intVal))))) values ∧
         WF.HintReturns
-          ((fun h![(d : Int), (x0 : Int), (x1 : Int), (x2 : Int),
-              (x3 : Int), (x4 : Int), (x5 : Int), (x6 : Int), (x7 : Int),
-              (x8 : Int), (x9 : Int), (x10 : Int), (x11 : Int),
-              (x12 : Int), (x13 : Int), (x14 : Int), (x15 : Int)] =>
-            let values := #[x0, x1, x2, x3, x4, x5, x6, x7,
-              x8, x9, x10, x11, x12, x13, x14, x15]
-            let chosen := values[d.toNat]!
-            pure $ Vector.ofFn (n := 256) fun i =>
-              chosen.toNat.testBit i)
-            (WF.evalArgs rv h![right.1,
-              right.2.2[0].intVal, right.2.2[1].intVal,
-              right.2.2[2].intVal, right.2.2[3].intVal,
-              right.2.2[4].intVal, right.2.2[5].intVal,
-              right.2.2[6].intVal, right.2.2[7].intVal,
-              right.2.2[8].intVal, right.2.2[9].intVal,
-              right.2.2[10].intVal, right.2.2[11].intVal,
-              right.2.2[12].intVal, right.2.2[13].intVal,
-              right.2.2[14].intVal, right.2.2[15].intVal])) values ∧
+          (lookupRepHint (WF.evalArgs rv
+            (lookupArgs right.1 (right.2.2.map (·.intVal))))) values ∧
         WF.RealizesBools lv.bool bitsL values ∧
         WF.RealizesBools rv.bool bitsR values
     have hbits : ∀ lv rv, S lv rv → ∀ i : Fin 256,
@@ -414,43 +375,15 @@ private theorem flagLookup_argsEq (lv rv : WF.Valuation)
     (left right : LC ℤ × U 16 × Vector (LC ℤ) 16)
     (h : FlagLookupRel lv rv left right) :
     WF.ArgsEq lv rv
-      h![left.1, left.2.2[0], left.2.2[1], left.2.2[2], left.2.2[3],
-        left.2.2[4], left.2.2[5], left.2.2[6], left.2.2[7],
-        left.2.2[8], left.2.2[9], left.2.2[10], left.2.2[11],
-        left.2.2[12], left.2.2[13], left.2.2[14], left.2.2[15]]
-      h![right.1, right.2.2[0], right.2.2[1], right.2.2[2], right.2.2[3],
-        right.2.2[4], right.2.2[5], right.2.2[6], right.2.2[7],
-        right.2.2[8], right.2.2[9], right.2.2[10], right.2.2[11],
-        right.2.2[12], right.2.2[13], right.2.2[14], right.2.2[15]] := by
-  rcases h with ⟨hd, _, hf⟩
-  unfold WF.LCEq at hd hf
-  have h0 := hf ⟨0, by omega⟩
-  have h1 := hf ⟨1, by omega⟩
-  have h2 := hf ⟨2, by omega⟩
-  have h3 := hf ⟨3, by omega⟩
-  have h4 := hf ⟨4, by omega⟩
-  have h5 := hf ⟨5, by omega⟩
-  have h6 := hf ⟨6, by omega⟩
-  have h7 := hf ⟨7, by omega⟩
-  have h8 := hf ⟨8, by omega⟩
-  have h9 := hf ⟨9, by omega⟩
-  have h10 := hf ⟨10, by omega⟩
-  have h11 := hf ⟨11, by omega⟩
-  have h12 := hf ⟨12, by omega⟩
-  have h13 := hf ⟨13, by omega⟩
-  have h14 := hf ⟨14, by omega⟩
-  have h15 := hf ⟨15, by omega⟩
-  simp only [Fin.getElem_fin] at h0 h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15
-  simp only [WF.ArgsEq, WF.evalArgs]
-  rw [hd, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11,
-    h12, h13, h14, h15]
+      (lookupArgs left.1 left.2.2) (lookupArgs right.1 right.2.2) := by
+  exact lookupArgs_argsEq lv rv _ _ _ _ h.1 h.2.2
 
 theorem lookupFlag_wf_aux :
     WF.GadgetSpec FlagLookupRel
       (fun input => lookupFlag input.1 input.2.1 input.2.2)
       (fun lv rv left right => WF.LCEq lv.int rv.int left right) := by
   wfgen' using [assertLookupFlag_wf_aux]
-    unfold [lookupFlag, FlagLookupRel]
+    unfold [lookupFlag, lookupFlagHint, FlagLookupRel]
   case vc1 =>
     rename_i hrel hB
     have h := hrel leftVal rightVal hB
@@ -491,45 +424,35 @@ theorem lookupPoint_wf_aux :
   all_goals simp_all [RepLookupRel, FlagLookupRel, U.FullWFRel, WF.VectorRel]
   all_goals grind
 
+theorem windowValue_wf_aux (start width : Nat) (hfit : start + width ≤ 256) :
+    WF.GadgetSpec Modular.Elem.ScalarWFRel
+      (fun k => pure (windowValue k start width hfit))
+      (fun lv rv left right => WF.LCEq lv.int rv.int left right) := by
+  unfold WF.GadgetSpec
+  intro left right
+  apply WF.Rel.pure
+  intro lv rv h
+  unfold WF.LCEq at h ⊢
+  unfold windowValue
+  simp only [LC.eval_sum, LC.eval_nsmul]
+  apply Finset.sum_congr rfl
+  intro j _
+  exact congrArg (fun x => 2 ^ j.val • x)
+    (h.2 ⟨start + j.val, by omega⟩)
+
 theorem windowDigit_wf_aux (i : Nat) (hi : i < 64) :
     WF.GadgetSpec Modular.Elem.ScalarWFRel
       (fun k => windowDigit k i hi)
       (fun lv rv left right => WF.LCEq lv.int rv.int left right) := by
-  unfold WF.GadgetSpec
-  intro left right
-  unfold windowDigit
-  apply WF.Rel.pure
-  intro lv rv h
-  unfold WF.LCEq
-  have h0 := h.2 ⟨252 - 4 * i, by omega⟩
-  have h1 := h.2 ⟨252 - 4 * i + 1, by omega⟩
-  have h2 := h.2 ⟨252 - 4 * i + 2, by omega⟩
-  have h3 := h.2 ⟨252 - 4 * i + 3, by omega⟩
-  simp only [WF.LCEq, Fin.getElem_fin] at h0 h1 h2 h3
-  simp only [LC.eval_add, LC.eval_nsmul]
-  rw [h0, h1, h2, h3]
+  simpa [windowDigit] using
+    windowValue_wf_aux (252 - 4 * i) 4 (by omega)
 
 theorem windowByte_wf_aux (i : Nat) (hi : i < 32) :
     WF.GadgetSpec Modular.Elem.ScalarWFRel
       (fun k => windowByte k i hi)
       (fun lv rv left right => WF.LCEq lv.int rv.int left right) := by
-  unfold WF.GadgetSpec
-  intro left right
-  unfold windowByte
-  apply WF.Rel.pure
-  intro lv rv h
-  unfold WF.LCEq
-  have h0 := h.2 ⟨248 - 8 * i, by omega⟩
-  have h1 := h.2 ⟨248 - 8 * i + 1, by omega⟩
-  have h2 := h.2 ⟨248 - 8 * i + 2, by omega⟩
-  have h3 := h.2 ⟨248 - 8 * i + 3, by omega⟩
-  have h4 := h.2 ⟨248 - 8 * i + 4, by omega⟩
-  have h5 := h.2 ⟨248 - 8 * i + 5, by omega⟩
-  have h6 := h.2 ⟨248 - 8 * i + 6, by omega⟩
-  have h7 := h.2 ⟨248 - 8 * i + 7, by omega⟩
-  simp only [WF.LCEq, Fin.getElem_fin] at h0 h1 h2 h3 h4 h5 h6 h7
-  simp only [LC.eval_add, LC.eval_nsmul]
-  rw [h0, h1, h2, h3, h4, h5, h6, h7]
+  simpa [windowByte] using
+    windowValue_wf_aux (248 - 8 * i) 8 (by omega)
 
 theorem doublePair_wf_aux :
     WF.GadgetSpec AffineSlope.Point.WFRel doublePair
@@ -1143,8 +1066,6 @@ theorem finishVerification_wf_aux :
     intro lv rv h
     exact ⟨h.1.2.2.2, h.2⟩
 
-set_option maxRecDepth 100000 in
-set_option maxHeartbeats 2000000 in
 theorem verifyDigest_wf_aux :
     WF.GadgetSpec VerifyInput.WFRel
       (fun input => verifyDigest input.1 input.2.1 input.2.2.1 input.2.2.2)

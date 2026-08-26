@@ -19,6 +19,7 @@ set_option maxRecDepth 10000
 
 open Std.Do
 open scoped Std.Do
+open BigOperators
 open Modular
 open P256
 open P256.Projective
@@ -105,6 +106,39 @@ def indicators (n : Nat) (digit : LC ℤ) : Circuit (U n) := do
 def windowIndicators (digit : LC ℤ) : Circuit (U 16) :=
   indicators 16 digit
 
+private abbrev LookupArgTypes : List Eff.WitnessSide :=
+  [.z, .z, .z, .z, .z, .z, .z, .z, .z,
+    .z, .z, .z, .z, .z, .z, .z, .z]
+
+def lookupArgs (digit : LC ℤ) (values : Vector (LC ℤ) 16) :
+    HList Eff.WitnessSide.denoteW LookupArgTypes :=
+  h![digit, values[0], values[1], values[2], values[3], values[4],
+    values[5], values[6], values[7], values[8], values[9], values[10],
+    values[11], values[12], values[13], values[14], values[15]]
+
+def lookupRepHint :
+    HList Eff.WitnessSide.denoteF LookupArgTypes →
+      Hint (Vector Bool 256)
+  | h![(d : Int), (x0 : Int), (x1 : Int), (x2 : Int), (x3 : Int),
+      (x4 : Int), (x5 : Int), (x6 : Int), (x7 : Int), (x8 : Int),
+      (x9 : Int), (x10 : Int), (x11 : Int), (x12 : Int), (x13 : Int),
+      (x14 : Int), (x15 : Int)] =>
+    let values := #[x0, x1, x2, x3, x4, x5, x6, x7,
+      x8, x9, x10, x11, x12, x13, x14, x15]
+    let chosen := values[d.toNat]!
+    pure $ Vector.ofFn (n := 256) fun i => chosen.toNat.testBit i
+
+def lookupFlagHint :
+    HList Eff.WitnessSide.denoteF LookupArgTypes →
+      Hint (Vector Bool 1)
+  | h![(d : Int), (f0 : Int), (f1 : Int), (f2 : Int), (f3 : Int),
+      (f4 : Int), (f5 : Int), (f6 : Int), (f7 : Int), (f8 : Int),
+      (f9 : Int), (f10 : Int), (f11 : Int), (f12 : Int), (f13 : Int),
+      (f14 : Int), (f15 : Int)] =>
+    let values := #[f0, f1, f2, f3, f4, f5, f6, f7,
+      f8, f9, f10, f11, f12, f13, f14, f15]
+    pure #v[values[d.toNat]! = 1]
+
 def assertLookupRep (indicators : U 16) (out : U 256)
     (xs : Vector AffineSlope.Rep 16) : Circuit Unit :=
   WF.foldRange [:16] () fun i h _ =>
@@ -112,19 +146,8 @@ def assertLookupRep (indicators : U 16) (out : U 256)
 
 def lookupRepWord (digit : LC ℤ) (xs : Vector AffineSlope.Rep 16) :
     Circuit (U 256) := do
-  let bits ← hint h![digit,
-      xs[0].intVal, xs[1].intVal, xs[2].intVal, xs[3].intVal,
-      xs[4].intVal, xs[5].intVal, xs[6].intVal, xs[7].intVal,
-      xs[8].intVal, xs[9].intVal, xs[10].intVal, xs[11].intVal,
-      xs[12].intVal, xs[13].intVal, xs[14].intVal, xs[15].intVal]
-    fun h![(d : Int), (x0 : Int), (x1 : Int), (x2 : Int),
-      (x3 : Int), (x4 : Int), (x5 : Int), (x6 : Int), (x7 : Int),
-      (x8 : Int), (x9 : Int), (x10 : Int), (x11 : Int),
-      (x12 : Int), (x13 : Int), (x14 : Int), (x15 : Int)] =>
-      let values := #[x0, x1, x2, x3, x4, x5, x6, x7,
-        x8, x9, x10, x11, x12, x13, x14, x15]
-      let chosen := values[d.toNat]!
-      pure $ Vector.ofFn (n := 256) fun i => chosen.toNat.testBit i
+  let bits ← hint (lookupArgs digit (xs.map (·.intVal)))
+    lookupRepHint
   U.fromWord { bitsLE := bits }
 
 def lookupRep (digit : LC ℤ) (indicators : U 16)
@@ -140,17 +163,8 @@ def assertLookupFlag (indicators : U 16) (out : LC ℤ)
 
 def lookupFlag (digit : LC ℤ) (indicators : U 16)
     (flags : Vector (LC ℤ) 16) : Circuit (LC ℤ) := do
-  let bits ← hint h![digit,
-      flags[0], flags[1], flags[2], flags[3], flags[4], flags[5],
-      flags[6], flags[7], flags[8], flags[9], flags[10], flags[11],
-      flags[12], flags[13], flags[14], flags[15]]
-    fun h![(d : Int), (f0 : Int), (f1 : Int), (f2 : Int),
-      (f3 : Int), (f4 : Int), (f5 : Int), (f6 : Int), (f7 : Int),
-      (f8 : Int), (f9 : Int), (f10 : Int), (f11 : Int), (f12 : Int),
-      (f13 : Int), (f14 : Int), (f15 : Int)] =>
-      let values := #[f0, f1, f2, f3, f4, f5, f6, f7,
-        f8, f9, f10, f11, f12, f13, f14, f15]
-      pure #v[values[d.toNat]! = 1]
+  let bits ← hint (lookupArgs digit flags)
+    lookupFlagHint
   let out ← f2z bits[0]
   assertLookupFlag indicators out flags
   pure out
@@ -198,38 +212,15 @@ def doubleFour (P : AffineSlope.Point) :
   let P ← doublePair P
   doublePair P
 
-def windowDigit (k : Fn) (i : Nat) (_hi : i < 64) : Circuit (LC ℤ) := do
-  let baseIndex := 252 - 4 * i
-  have h0 : baseIndex < 256 := by omega
-  have h1 : baseIndex + 1 < 256 := by omega
-  have h2 : baseIndex + 2 < 256 := by omega
-  have h3 : baseIndex + 3 < 256 := by omega
-  let b0 := k.val.intBits[baseIndex]
-  let b1 := k.val.intBits[baseIndex + 1]
-  let b2 := k.val.intBits[baseIndex + 2]
-  let b3 := k.val.intBits[baseIndex + 3]
-  pure (b0 + 2 • b1 + 4 • b2 + 8 • b3)
+def windowValue (k : Fn) (start width : Nat) (hfit : start + width ≤ 256) :
+    LC ℤ :=
+  ∑ j : Fin width, 2 ^ j.val • k.val.intBits[start + j.val]'(by omega)
 
-def windowByte (k : Fn) (i : Nat) (_hi : i < 32) : Circuit (LC ℤ) := do
-  let baseIndex := 248 - 8 * i
-  have h0 : baseIndex < 256 := by omega
-  have h1 : baseIndex + 1 < 256 := by omega
-  have h2 : baseIndex + 2 < 256 := by omega
-  have h3 : baseIndex + 3 < 256 := by omega
-  have h4 : baseIndex + 4 < 256 := by omega
-  have h5 : baseIndex + 5 < 256 := by omega
-  have h6 : baseIndex + 6 < 256 := by omega
-  have h7 : baseIndex + 7 < 256 := by omega
-  let b0 := k.val.intBits[baseIndex]
-  let b1 := k.val.intBits[baseIndex + 1]
-  let b2 := k.val.intBits[baseIndex + 2]
-  let b3 := k.val.intBits[baseIndex + 3]
-  let b4 := k.val.intBits[baseIndex + 4]
-  let b5 := k.val.intBits[baseIndex + 5]
-  let b6 := k.val.intBits[baseIndex + 6]
-  let b7 := k.val.intBits[baseIndex + 7]
-  pure (b0 + 2 • b1 + 4 • b2 + 8 • b3 + 16 • b4 + 32 • b5 +
-    64 • b6 + 128 • b7)
+def windowDigit (k : Fn) (i : Nat) (hi : i < 64) : Circuit (LC ℤ) :=
+  pure (windowValue k (252 - 4 * i) 4 (by omega))
+
+def windowByte (k : Fn) (i : Nat) (hi : i < 32) : Circuit (LC ℤ) :=
+  pure (windowValue k (248 - 8 * i) 8 (by omega))
 
 structure JointTerms where
   qhi : AffineSlope.Point

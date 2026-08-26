@@ -13,14 +13,6 @@ namespace Freigen.F2Z.Examples.EcdsaP256.Reference.Aux
 open Freigen.F2Z.Examples.P256
 open Freigen.F2Z.Examples.EcdsaP256.Reference
 
-theorem cast_ne_zero_of_pos_of_lt {x : Nat}
-    (hx : 0 < x) (hlt : x < scalarModulus) : (x : Scalar) ≠ 0 := by
-  intro hzero
-  have hval := congrArg ZMod.val hzero
-  rw [ZMod.val_cast_of_lt hlt] at hval
-  simp at hval
-  omega
-
 theorem inverse_eq_of_mul_eq_one {x inverse : Scalar}
     (hx : x ≠ 0) (h : x * inverse = 1) : inverse = x⁻¹ := by
   calc
@@ -54,16 +46,6 @@ theorem addOrderOf_eq_scalarModulus {q : Point} (hq : q ≠ 0)
     addOrderOf q = scalarModulus :=
   addOrderOf_eq_prime horder hq
 
-theorem nsmul_ne_zero_of_order {q : Point} (hq : q ≠ 0)
-    (horder : scalarModulus • q = 0) {k : Nat}
-    (hk0 : k ≠ 0) (hk : k < scalarModulus) : k • q ≠ 0 := by
-  intro hzero
-  have hdvd : scalarModulus ∣ k := by
-    rw [← addOrderOf_eq_scalarModulus hq horder,
-      addOrderOf_dvd_iff_nsmul_eq_zero]
-    exact hzero
-  exact (Nat.not_dvd_of_pos_of_lt (Nat.pos_of_ne_zero hk0) hk) hdvd
-
 theorem order_nsmul {q : Point}
     (horder : scalarModulus • q = 0) (k : Nat) :
     scalarModulus • (k • q) = 0 := by
@@ -91,6 +73,9 @@ theorem no_two_torsion_of_order {q : Point}
 end Freigen.F2Z.Examples.EcdsaP256.Reference.Aux
 
 namespace Freigen.F2Z.Examples.EcdsaP256
+
+set_option maxRecDepth 100000
+set_option maxHeartbeats 3000000
 
 open Std.Do BigOperators
 open scoped Std.Do
@@ -160,6 +145,30 @@ theorem sum_mul_oneHot {n : Nat} (f b : Fin n → Int) (i : Fin n)
 
 end Aux
 
+theorem windowValue_eval {k : P256.Fn} (hk : k.val.Valid ρ)
+    (start width : Nat) (hfit : start + width ≤ 256) :
+    (windowValue k start width hfit).eval ρ.int =
+      ((BitVec.extractLsb' start width (k.val.eval ρ)).toNat : Int) := by
+  let f : Fin width → Bool := fun j =>
+    k.val.bits.bitsLE[start + j.val]'(by omega) |>.eval ρ.bool
+  have heval := U.eval_eq_ofFnLE k.val hk
+  have hextract : BitVec.extractLsb' start width (k.val.eval ρ) =
+      BitVec.ofFnLE f := by
+    apply BitVec.eq_of_getElem_eq
+    intro j hj
+    rw [BitVec.getElem_extractLsb' hj, heval,
+      BitVec.getLsbD_eq_getElem (by omega)]
+    simp [BitVec.getElem_ofFnLE, f]
+  rw [hextract, BitVec.toNat_ofFnLE, Aux.natCast_ofBits_eq_sum]
+  unfold windowValue
+  rw [LC.eval_sum]
+  apply Finset.sum_congr rfl
+  intro j _
+  rw [LC.eval_nsmul]
+  simp only [nsmul_eq_mul]
+  exact congrArg (fun x : Int => 2 ^ j.val * x)
+    (by simpa [f] using hk ⟨start + j.val, by omega⟩)
+
 def WindowByteSpec (ρ : WF.Valuation) (k : P256.Fn) (i : Nat)
     (out : LC ℤ) : Prop :=
   out.eval ρ.int =
@@ -181,51 +190,14 @@ theorem WindowByteSpec.lt {out : LC ℤ}
     ⦃⌜True⌝⦄ Sound.interp ρ (windowByte k i hi)
     ⦃⇓ out => ⌜WindowByteSpec ρ k i out⌝⦄ := by
   mvcgen [windowByte, WindowByteSpec]
-  let start := 248 - 8 * i
-  let f : Fin 8 → Bool := fun j =>
-    k.val.bits.bitsLE[start + j.val]'(by
-      dsimp [start]
-      have := j.isLt
-      omega) |>.eval ρ.bool
-  have heval := U.eval_eq_ofFnLE k.val hk
-  have hextract : BitVec.extractLsb' start 8 (k.val.eval ρ) =
-      BitVec.ofFnLE f := by
-    apply BitVec.eq_of_getElem_eq
-    intro j hj
-    rw [BitVec.getElem_extractLsb' hj, heval]
-    rw [BitVec.getLsbD_eq_getElem (by
-      dsimp [start]
-      omega)]
-    simp [BitVec.getElem_ofFnLE, f, start]
-  dsimp [start] at hextract
-  unfold WindowByteSpec
-  rw [hextract, BitVec.toNat_ofFnLE,
-    Aux.natCast_ofBits_eq_sum]
-  simp only [Fin.sum_univ_succ, Fin.val_zero, pow_zero, one_mul,
-    Fin.val_succ, pow_succ]
-  simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul]
-  have hb (j : Nat) (hj : j < 8) :
-      k.val.intBits[start + j].eval ρ.int =
-        (k.val.bits.bitsLE[start + j].eval ρ.bool).toInt := by
-    exact hk ⟨start + j, by dsimp [start]; omega⟩
-  dsimp [start] at hb
-  have hb0 := hb 0 (by omega)
-  simp only [Nat.add_zero] at hb0
-  rw [hb0, hb 1 (by omega), hb 2 (by omega),
-    hb 3 (by omega), hb 4 (by omega), hb 5 (by omega),
-    hb 6 (by omega), hb 7 (by omega)]
-  simp [f]
-  ring
+  exact windowValue_eval hk _ _ _
 
 @[spec] theorem windowByte_complete {k : P256.Fn} {i : Nat} {hi : i < 32}
     (hk : k.val.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (windowByte k i hi)
     ⦃⇓ out => ⌜WindowByteSpec ρ k i out⌝⦄ := by
-  mvcgen [windowByte]
-  case vc1 =>
-    have hs := windowByte_sound (ρ := ρ) (i := i) (hi := hi) hk
-    rw [Triple.iff] at hs
-    simpa [windowByte] using hs
+  mvcgen [windowByte, WindowByteSpec]
+  exact windowValue_eval hk _ _ _
 
 def WindowDigitSpec (ρ : WF.Valuation) (k : P256.Fn) (i : Nat)
     (out : LC ℤ) : Prop :=
@@ -248,50 +220,14 @@ theorem WindowDigitSpec.lt {out : LC ℤ}
     ⦃⌜True⌝⦄ Sound.interp ρ (windowDigit k i hi)
     ⦃⇓ out => ⌜WindowDigitSpec ρ k i out⌝⦄ := by
   mvcgen [windowDigit, WindowDigitSpec]
-  let start := 252 - 4 * i
-  let f : Fin 4 → Bool := fun j =>
-    k.val.bits.bitsLE[start + j.val]'(by
-      dsimp [start]
-      have := j.isLt
-      omega) |>.eval ρ.bool
-  have heval := U.eval_eq_ofFnLE k.val hk
-  have hextract : BitVec.extractLsb' start 4 (k.val.eval ρ) =
-      BitVec.ofFnLE f := by
-    apply BitVec.eq_of_getElem_eq
-    intro j hj
-    rw [BitVec.getElem_extractLsb' hj, heval]
-    rw [BitVec.getLsbD_eq_getElem (by
-      dsimp [start]
-      omega)]
-    simp [BitVec.getElem_ofFnLE, f, start]
-  dsimp [start] at hextract
-  unfold WindowDigitSpec
-  rw [hextract, BitVec.toNat_ofFnLE,
-    Aux.natCast_ofBits_eq_sum]
-  simp only [Fin.sum_univ_succ, Fin.val_zero, pow_zero, one_mul,
-    Fin.val_succ, pow_succ]
-  simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul]
-  have hb (j : Nat) (hj : j < 4) :
-      k.val.intBits[start + j].eval ρ.int =
-        (k.val.bits.bitsLE[start + j].eval ρ.bool).toInt := by
-    exact hk ⟨start + j, by dsimp [start]; omega⟩
-  dsimp [start] at hb
-  have hb0 := hb 0 (by omega)
-  simp only [Nat.add_zero] at hb0
-  rw [hb0, hb 1 (by omega), hb 2 (by omega),
-    hb 3 (by omega)]
-  simp [f]
-  ring
+  exact windowValue_eval hk _ _ _
 
 @[spec] theorem windowDigit_complete {k : P256.Fn} {i : Nat} {hi : i < 64}
     (hk : k.val.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (windowDigit k i hi)
     ⦃⇓ out => ⌜WindowDigitSpec ρ k i out⌝⦄ := by
-  mvcgen [windowDigit]
-  case vc1 =>
-    have hs := windowDigit_sound (ρ := ρ) (i := i) (hi := hi) hk
-    rw [Triple.iff] at hs
-    simpa [windowDigit] using hs
+  mvcgen [windowDigit, WindowDigitSpec]
+  exact windowValue_eval hk _ _ _
 
 @[spec] theorem addMultiple_sound {P Q : P256.AffineSlope.Point}
     {q : P256.Reference.Point} {k : Nat}
@@ -459,8 +395,6 @@ def Materialize5ValidSpec (rho : WF.Valuation)
     | skip
   all_goals simp_all [Materialize5ValidSpec]
 
-set_option maxRecDepth 10000 in
-set_option maxHeartbeats 1000000 in
 @[spec] theorem materializeMultiples_sound {P : P256.Projective}
     {q : P256.Reference.Point}
     (hP : P256.Reference.Represents ρ
@@ -482,8 +416,6 @@ set_option maxHeartbeats 1000000 in
     P256.Reference.circuitCoordinates,
     P256.Reference.coordinates]
 
-set_option maxRecDepth 10000 in
-set_option maxHeartbeats 1000000 in
 @[spec] theorem materializeMultiples_complete {P : P256.Projective}
     {q : P256.Reference.Point}
     (hPvalid : P.Valid ρ)
@@ -782,7 +714,8 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
     rw [getElem!_pos values _ (by simpa [values] using hdNat)]
     exact hvalues chosen
   refine ⟨bits, ?_, ?_⟩
-  · simp [WF.interpHint, WF.evalArgs, bits, value, values]
+  · simp [WF.interpHint, WF.evalArgs, lookupRepHint, lookupArgs,
+      bits, value, values]
   · have houtFacts (out : U 256)
         (hout : U.Rel ρ out
           (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits })) :
@@ -940,7 +873,8 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     rw [getElem!_pos values _ (by simpa [values] using hdNat)]
     exact hvalues chosen
   refine ⟨bits, ?_, ?_⟩
-  · simp [WF.interpHint, WF.evalArgs, bits, bitValue, values, hget]
+  · simp [WF.interpHint, WF.evalArgs, lookupFlagHint, lookupArgs,
+      bits, bitValue, values, hget]
   · have houtFacts (out : LC ℤ)
         (hout : out.eval ρ.int =
           (LC.eval ρ.bool (Vector.map LC.ofConst #v[bitValue])[0]).toInt) :
@@ -1150,7 +1084,6 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
       rw [Aux.generatorByteY_get]
       norm_num [Reference.yNat]
 
-set_option maxRecDepth 100000 in
 @[spec] theorem lookupGeneratorByte_complete {digit : LC ℤ}
     (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < 256) :
     ⦃⌜True⌝⦄ Complete.interp ρ (lookupGeneratorByte digit)
@@ -1455,7 +1388,6 @@ def JointTermsSpec (rho : WF.Valuation) (u1 u2 : P256.Fn) (i : Nat)
     omega
   simpa only [hjhi', hjlo', hjg'] using And.intro hqhi (And.intro hqlo hg)
 
-set_option maxHeartbeats 3000000 in
 @[spec] theorem selectJointTerms_complete {u1 u2 : P256.Fn}
     {qTable : Vector P256.AffineSlope.Point 16}
     {i : Nat} {hi : i < 32} {q : P256.Reference.Point}
@@ -1566,7 +1498,6 @@ private theorem sound_of_pure_pre {alpha : Type} {P : Prop}
             exact hout,
             ExceptConds.entails.refl _⟩
 
-set_option maxHeartbeats 1000000 in
 @[spec] theorem accumulateJoint_complete {acc : P256.AffineSlope.Point}
     {terms : JointTerms} {accPoint qhi qlo g : P256.Reference.Point}
     (haccValid : acc.Valid ρ)
@@ -1652,7 +1583,6 @@ set_option maxHeartbeats 1000000 in
             exact hout.2⟩,
             ExceptConds.entails.refl _⟩
 
-set_option maxHeartbeats 1000000 in
 @[spec] theorem jointByteStep_sound {u1 u2 : P256.Fn}
     {qTable : Vector P256.AffineSlope.Point 16}
     {i : Nat} {hi : i < 32} {acc : P256.AffineSlope.Point}
@@ -1689,7 +1619,6 @@ set_option maxHeartbeats 1000000 in
       simpa only [add_nsmul, add_assoc] using hout,
       ExceptConds.entails.refl _⟩
 
-set_option maxHeartbeats 1000000 in
 @[spec] theorem jointByteStep_complete {u1 u2 : P256.Fn}
     {qTable : Vector P256.AffineSlope.Point 16}
     {i : Nat} {hi : i < 32} {acc : P256.AffineSlope.Point}
@@ -1740,12 +1669,6 @@ def JointFoldPoint (rho : WF.Valuation) (u1 u2 : P256.Fn)
     (q : P256.Reference.Point) (indices : List Nat) : P256.Reference.Point :=
   indices.foldl (fun acc i => JointStepPoint rho u1 u2 i acc q) 0
 
-theorem JointFoldPoint_append_singleton (u1 u2 : P256.Fn)
-    (q : P256.Reference.Point) (pref : List Nat) (i : Nat) :
-    JointFoldPoint ρ u1 u2 q (pref ++ [i]) =
-      JointStepPoint ρ u1 u2 i (JointFoldPoint ρ u1 u2 q pref) q := by
-  simp [JointFoldPoint]
-
 theorem JointStepPoint.order {u1 u2 : P256.Fn} {i : Nat}
     {acc q : P256.Reference.Point}
     (hacc : P256.scalarModulus • acc = 0)
@@ -1767,8 +1690,6 @@ theorem affineInfinity_valid : P256.AffineSlope.infinity.Valid ρ := by
     rfl, Modular.Lazy.ofElem_valid P256.base hz, hz.2,
     by simp [P256.AffineSlope.infinity]⟩
 
-set_option maxRecDepth 10000 in
-set_option maxHeartbeats 1000000 in
 @[spec] theorem jointScalarMul_sound {u1 u2 : P256.Fn}
     {Q : P256.Projective} {q : P256.Reference.Point}
     (hu1 : u1.val.Valid ρ) (hu2 : u2.val.Valid ρ)
@@ -1799,8 +1720,6 @@ set_option maxHeartbeats 1000000 in
       P256.Reference.coordinates, P256.AffineSlope.infinity]
   case vc11.post.success => exact fun h => h
 
-set_option maxRecDepth 10000 in
-set_option maxHeartbeats 3000000 in
 @[spec] theorem jointScalarMul_complete {u1 u2 : P256.Fn}
     {Q : P256.Projective} {q : P256.Reference.Point}
     (hu1 : u1.val.Valid ρ) (hu2 : u2.val.Valid ρ)
@@ -1975,6 +1894,13 @@ theorem elem_evalNat_eq_u_eval {a : P256.Fn} {u : U 256}
   rw [hau, U.intVal_eval_eq_eval_toNat u hu]
   simp
 
+theorem elem_evalZMod_eq_cast {a : P256.Fn} (ha : a.Valid ρ) :
+    Modular.Lazy.evalElemZMod P256.scalar a ρ =
+      (a.evalNat ρ : ZMod P256.scalar.modulus) := by
+  unfold Modular.Lazy.evalElemZMod
+  rw [← Modular.Elem.evalNat_cast P256.scalar ha]
+  rfl
+
 theorem assertMulEqSpec_of_u_mul {a b : P256.Fn} {u v : U 256}
     (ha : a.Valid ρ) (hb : b.Valid ρ)
     (hau : a.val = u) (hbv : b.val = v)
@@ -1985,21 +1911,81 @@ theorem assertMulEqSpec_of_u_mul {a b : P256.Fn} {u v : U 256}
       (Modular.Lazy.ofElem P256.scalar a)
       (Modular.Lazy.ofElem P256.scalar b)
       (Modular.Lazy.ofElem P256.scalar P256.fnOne) := by
-  have elemCast {x : P256.Fn} (hx : x.Valid ρ) :
-      Modular.Lazy.evalElemZMod P256.scalar x ρ =
-        (x.evalNat ρ : Reference.Scalar) := by
-    unfold Modular.Lazy.evalElemZMod
-    rw [← Modular.Elem.evalNat_cast P256.scalar hx]
-    rfl
   unfold Modular.Lazy.AssertMulEqZModSpec
   simp only [Modular.Lazy.evalZMod_ofElem]
-  rw [elemCast ha, elemCast hb, elemCast fnOne_valid, fnOne_evalNat,
+  rw [elem_evalZMod_eq_cast ha, elem_evalZMod_eq_cast hb,
+    elem_evalZMod_eq_cast fnOne_valid, fnOne_evalNat,
     elem_evalNat_eq_u_eval ha hau hu,
     elem_evalNat_eq_u_eval hb hbv hv]
   exact hmul
 
-set_option maxRecDepth 100000 in
-set_option maxHeartbeats 3000000 in
+theorem jointFoldPoint_eq_verificationPoint
+    {digest : U 256} {sig : Signature}
+    {r s sInv z u1Relaxed u2Relaxed u1 u2 : P256.Fn}
+    (hdigest : digest.Valid ρ)
+    (hr : r.Valid ρ) (hsInv : sInv.Valid ρ)
+    (hu1 : u1.Valid ρ) (hu2 : u2.Valid ρ)
+    (hrNat : r.evalNat ρ = (sig.r.eval ρ).toNat)
+    (hsNat : s.evalNat ρ = (sig.s.eval ρ).toNat)
+    (hsMul : (s.evalNat ρ : ZMod P256.scalar.modulus) *
+      (sInv.evalNat ρ : ZMod P256.scalar.modulus) = 1)
+    (hz : Modular.Lazy.evalElemZMod P256.scalar z ρ =
+      Int.castRingHom (ZMod P256.scalar.modulus) (digest.intVal.eval ρ.int))
+    (hu1Relaxed : Modular.Lazy.evalElemZMod P256.scalar u1Relaxed ρ =
+      Modular.Lazy.evalElemZMod P256.scalar z ρ *
+        Modular.Lazy.evalElemZMod P256.scalar sInv ρ)
+    (hu2Relaxed : Modular.Lazy.evalElemZMod P256.scalar u2Relaxed ρ =
+      Modular.Lazy.evalElemZMod P256.scalar r ρ *
+        Modular.Lazy.evalElemZMod P256.scalar sInv ρ)
+    (hu1Canonical : Modular.Lazy.evalElemZMod P256.scalar u1 ρ =
+      Modular.Lazy.evalElemZMod P256.scalar u1Relaxed ρ)
+    (hu2Canonical : Modular.Lazy.evalElemZMod P256.scalar u2 ρ =
+      Modular.Lazy.evalElemZMod P256.scalar u2Relaxed ρ)
+    (publicKey : Reference.Point) :
+    JointFoldPoint ρ u1 u2 publicKey [:32].toList =
+      Reference.verificationPoint (digest.eval ρ).toNat
+        (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey := by
+  have hsFieldNe : (s.evalNat ρ : ZMod P256.scalar.modulus) ≠ 0 := by
+    intro hzero
+    rw [hzero, zero_mul] at hsMul
+    exact zero_ne_one hsMul
+  have hsInvEq : (sInv.evalNat ρ : ZMod P256.scalar.modulus) =
+      (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ :=
+    Reference.Aux.inverse_eq_of_mul_eq_one hsFieldNe hsMul
+  have hdigestCast : Int.castRingHom (ZMod P256.scalar.modulus)
+      (digest.intVal.eval ρ.int) =
+      ((digest.eval ρ).toNat : ZMod P256.scalar.modulus) := by
+    rw [U.intVal_eval_eq_eval_toNat digest hdigest]
+    simp
+  have hu1Field : (u1.evalNat ρ : ZMod P256.scalar.modulus) =
+      ((digest.eval ρ).toNat : ZMod P256.scalar.modulus) *
+        (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ := by
+    rw [← elem_evalZMod_eq_cast hu1, hu1Canonical, hu1Relaxed, hz,
+      hdigestCast, elem_evalZMod_eq_cast hsInv, hsInvEq]
+  have hu2Field : (u2.evalNat ρ : ZMod P256.scalar.modulus) =
+      (r.evalNat ρ : ZMod P256.scalar.modulus) *
+        (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ := by
+    rw [← elem_evalZMod_eq_cast hu2, hu2Canonical, hu2Relaxed,
+      elem_evalZMod_eq_cast hr, elem_evalZMod_eq_cast hsInv, hsInvEq]
+  have hu1Val : (((digest.eval ρ).toNat : ZMod P256.scalar.modulus) *
+        (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹).val =
+      (u1.val.eval ρ).toNat := by
+    have hval := congrArg ZMod.val hu1Field
+    rw [ZMod.val_cast_of_lt
+      (Modular.Elem.evalNat_lt P256.scalar hu1)] at hval
+    exact hval.symm.trans (elem_evalNat_eq_u_eval hu1 rfl hu1.1)
+  have hu2Val : (((r.evalNat ρ : ZMod P256.scalar.modulus) *
+        (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹)).val =
+      (u2.val.eval ρ).toNat := by
+    have hval := congrArg ZMod.val hu2Field
+    rw [ZMod.val_cast_of_lt
+      (Modular.Elem.evalNat_lt P256.scalar hu2)] at hval
+    exact hval.symm.trans (elem_evalNat_eq_u_eval hu2 rfl hu2.1)
+  rw [JointFoldPoint_full]
+  simp only [Reference.verificationPoint, ← hrNat, ← hsNat]
+  rw [← hu1Val, ← hu2Val]
+  rfl
+
 theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
     {sig : Signature} {aux : Aux} {publicKey : Reference.Point}
     (hdigest : digest.Valid ρ)
@@ -2080,12 +2066,6 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
     rename_i qx hqx qy hqy r hr' s hs' rInv hrInv' sInv hsInv'
       _ hcurve _ hrMul _ hsMul z hz u1Relaxed hu1Relaxed
       u2Relaxed hu2Relaxed u1 hu1 u2 hu2 sum hsum
-    have elemCast {a : P256.Fn} (ha : a.Valid ρ) :
-        Modular.Lazy.evalElemZMod P256.scalar a ρ =
-          (a.evalNat ρ : ZMod P256.scalar.modulus) := by
-      unfold Modular.Lazy.evalElemZMod
-      rw [← Modular.Elem.evalNat_cast P256.scalar ha]
-      rfl
     have hrNat : r.evalNat ρ = (sig.r.eval ρ).toNat :=
       elem_evalNat_eq_u_eval hr'.1 hr'.2 hr
     have hsNat : s.evalNat ρ = (sig.s.eval ρ).toNat :=
@@ -2100,60 +2080,9 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
       change ((sig.s.eval ρ).toNat : ZMod P256.scalarModulus) *
         ((aux.sInv.eval ρ).toNat : ZMod P256.scalarModulus) = 1 at hsInvMul
       exact hsInvMul
-    have hsFieldNe : (s.evalNat ρ : ZMod P256.scalar.modulus) ≠ 0 := by
-      intro hzero
-      rw [hzero, zero_mul] at hsMul'
-      exact zero_ne_one hsMul'
-    have hsInvEq : (sInv.evalNat ρ : ZMod P256.scalar.modulus) =
-        (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ :=
-      Reference.Aux.inverse_eq_of_mul_eq_one hsFieldNe hsMul'
-    have hdigestCast :
-        (Int.castRingHom (ZMod P256.scalar.modulus)
-          (digest.intVal.eval ρ.int)) =
-          ((digest.eval ρ).toNat : ZMod P256.scalar.modulus) := by
-      rw [U.intVal_eval_eq_eval_toNat digest hdigest]
-      simp
-    have hu1Field : (u1.evalNat ρ : ZMod P256.scalar.modulus) =
-        ((digest.eval ρ).toNat : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ := by
-      rw [← elemCast hu1.1, hu1.2]
-      simp only [Modular.Lazy.evalZMod_ofElem]
-      rw [hu1Relaxed.2, hz.2, hdigestCast, elemCast hsInv'.1, hsInvEq]
-    have hu2Field : (u2.evalNat ρ : ZMod P256.scalar.modulus) =
-        (r.evalNat ρ : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ := by
-      rw [← elemCast hu2.1, hu2.2]
-      simp only [Modular.Lazy.evalZMod_ofElem]
-      rw [hu2Relaxed.2, elemCast hr'.1, elemCast hsInv'.1, hsInvEq]
-    have hu1Eval : (u1.val.eval ρ).toNat = u1.evalNat ρ := by
-      unfold Modular.Elem.evalNat
-      rw [U.intVal_eval_eq_eval_toNat u1.val hu1.1.1]
-      simp
-    have hu2Eval : (u2.val.eval ρ).toNat = u2.evalNat ρ := by
-      unfold Modular.Elem.evalNat
-      rw [U.intVal_eval_eq_eval_toNat u2.val hu2.1.1]
-      simp
-    have hu1Val : (((digest.eval ρ).toNat : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹).val =
-        (u1.val.eval ρ).toNat := by
-      have hval := congrArg ZMod.val hu1Field
-      rw [ZMod.val_cast_of_lt
-        (Modular.Elem.evalNat_lt P256.scalar hu1.1)] at hval
-      exact hval.symm.trans hu1Eval.symm
-    have hu2Val : (((r.evalNat ρ : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹)).val =
-        (u2.val.eval ρ).toNat := by
-      have hval := congrArg ZMod.val hu2Field
-      rw [ZMod.val_cast_of_lt
-        (Modular.Elem.evalNat_lt P256.scalar hu2.1)] at hval
-      exact hval.symm.trans hu2Eval.symm
-    have hsumPoint : JointFoldPoint ρ u1 u2 publicKey [:32].toList =
-        Reference.verificationPoint (digest.eval ρ).toNat
-          (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey := by
-      rw [JointFoldPoint_full]
-      simp only [Reference.verificationPoint, ← hrNat, ← hsNat]
-      rw [← hu1Val, ← hu2Val]
-      try rfl
+    have hsumPoint := jointFoldPoint_eq_verificationPoint hdigest hr'.1
+      hsInv'.1 hu1.1 hu2.1 hrNat hsNat hsMul' hz.2 hu1Relaxed.2
+      hu2Relaxed.2 hu1.2 hu2.2 publicKey
     rw [hsumPoint] at hsum
     have hverificationNonzero : Reference.verificationPoint
         (digest.eval ρ).toNat (sig.r.eval ρ).toNat
@@ -2254,8 +2183,6 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
     norm_num [Modular.Lazy.ofElem, Modular.Lazy.quotientExtraBits]
   all_goals try assumption
 
-set_option maxRecDepth 10000 in
-set_option maxHeartbeats 2000000 in
 theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
     {sig : Signature} {aux : Aux}
     (hdigest : digest.Valid ρ)
@@ -2291,33 +2218,19 @@ theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
       xCanonical hxCanonical xModN hxModN _
     intro hfinalEq
     let publicKey := P256.Reference.pointOfCircuit ρ qx qy hcurve
-    have elemCast {a : P256.Fn} (ha : a.Valid ρ) :
-        Modular.Lazy.evalElemZMod P256.scalar a ρ =
-          (a.evalNat ρ : ZMod P256.scalar.modulus) := by
-      unfold Modular.Lazy.evalElemZMod
-      rw [← Modular.Elem.evalNat_cast P256.scalar ha]
-      rfl
-    have hOneValid : P256.fnOne.Valid ρ := by
-      simpa [P256.fnOne, P256.fnConst] using
-        (Modular.ofNat_valid (ρ := ρ) P256.scalar 1
-          (by native_decide) (by native_decide))
-    have hOneEval : P256.fnOne.evalNat ρ = 1 := by
-      simpa [P256.fnOne, P256.fnConst] using
-        (Modular.ofNat_evalNat (ρ := ρ) P256.scalar 1
-          (by native_decide) (by native_decide))
     have hrMul' : (r.evalNat ρ : ZMod P256.scalar.modulus) *
         (rInv.evalNat ρ : ZMod P256.scalar.modulus) = 1 := by
       unfold Modular.Lazy.AssertMulEqZModSpec at hrMul
       simp only [Modular.Lazy.evalZMod_ofElem] at hrMul
-      rw [elemCast hr'.1, elemCast hrInv'.1, elemCast hOneValid,
-        hOneEval] at hrMul
+      rw [elem_evalZMod_eq_cast hr'.1, elem_evalZMod_eq_cast hrInv'.1,
+        elem_evalZMod_eq_cast fnOne_valid, fnOne_evalNat] at hrMul
       simpa using hrMul
     have hsMul' : (s.evalNat ρ : ZMod P256.scalar.modulus) *
         (sInv.evalNat ρ : ZMod P256.scalar.modulus) = 1 := by
       unfold Modular.Lazy.AssertMulEqZModSpec at hsMul
       simp only [Modular.Lazy.evalZMod_ofElem] at hsMul
-      rw [elemCast hs'.1, elemCast hsInv'.1, elemCast hOneValid,
-        hOneEval] at hsMul
+      rw [elem_evalZMod_eq_cast hs'.1, elem_evalZMod_eq_cast hsInv'.1,
+        elem_evalZMod_eq_cast fnOne_valid, fnOne_evalNat] at hsMul
       simpa using hsMul
     have hrFieldNe : (r.evalNat ρ : ZMod P256.scalar.modulus) ≠ 0 := by
       intro hzero
@@ -2331,62 +2244,11 @@ theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
       hrFieldNe (by simp [hzero])
     have hsPos : 0 < s.evalNat ρ := Nat.pos_of_ne_zero fun hzero =>
       hsFieldNe (by simp [hzero])
-    have hsInvEq : (sInv.evalNat ρ : ZMod P256.scalar.modulus) =
-        (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ :=
-      Reference.Aux.inverse_eq_of_mul_eq_one hsFieldNe hsMul'
-    have hdigestCast :
-        (Int.castRingHom (ZMod P256.scalar.modulus)
-          (digest.intVal.eval ρ.int)) =
-          ((digest.eval ρ).toNat : ZMod P256.scalar.modulus) := by
-      rw [U.intVal_eval_eq_eval_toNat digest hdigest]
-      simp
-    have hu1Field : (u1.evalNat ρ : ZMod P256.scalar.modulus) =
-        ((digest.eval ρ).toNat : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ := by
-      rw [← elemCast hu1.1, hu1.2]
-      simp only [Modular.Lazy.evalZMod_ofElem]
-      rw [hu1Relaxed.2, hz.2, hdigestCast, elemCast hsInv'.1, hsInvEq]
-    have hu2Field : (u2.evalNat ρ : ZMod P256.scalar.modulus) =
-        (r.evalNat ρ : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ := by
-      rw [← elemCast hu2.1, hu2.2]
-      simp only [Modular.Lazy.evalZMod_ofElem]
-      rw [hu2Relaxed.2, elemCast hr'.1, elemCast hsInv'.1, hsInvEq]
-    have hu1Eval : (u1.val.eval ρ).toNat = u1.evalNat ρ := by
-      unfold Modular.Elem.evalNat
-      rw [U.intVal_eval_eq_eval_toNat u1.val hu1.1.1]
-      simp
-    have hu2Eval : (u2.val.eval ρ).toNat = u2.evalNat ρ := by
-      unfold Modular.Elem.evalNat
-      rw [U.intVal_eval_eq_eval_toNat u2.val hu2.1.1]
-      simp
-    have hu1Val : (((digest.eval ρ).toNat : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹).val =
-        (u1.val.eval ρ).toNat := by
-      have hval := congrArg ZMod.val hu1Field
-      rw [ZMod.val_cast_of_lt (Modular.Elem.evalNat_lt P256.scalar hu1.1)] at hval
-      exact hval.symm.trans hu1Eval.symm
-    have hu2Val : (((r.evalNat ρ : ZMod P256.scalar.modulus) *
-          (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹)).val =
-        (u2.val.eval ρ).toNat := by
-      have hval := congrArg ZMod.val hu2Field
-      rw [ZMod.val_cast_of_lt (Modular.Elem.evalNat_lt P256.scalar hu2.1)] at hval
-      exact hval.symm.trans hu2Eval.symm
-    have hrNat : r.evalNat ρ = (sig.r.eval ρ).toNat := by
-      unfold Modular.Elem.evalNat
-      rw [hr'.2, U.intVal_eval_eq_eval_toNat sig.r hr]
-      simp
-    have hsNat : s.evalNat ρ = (sig.s.eval ρ).toNat := by
-      unfold Modular.Elem.evalNat
-      rw [hs'.2, U.intVal_eval_eq_eval_toNat sig.s hs]
-      simp
-    have hsumPoint : JointFoldPoint ρ u1 u2 publicKey [:32].toList =
-        Reference.verificationPoint (digest.eval ρ).toNat
-          (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey := by
-      rw [JointFoldPoint_full]
-      simp only [Reference.verificationPoint, ← hrNat, ← hsNat]
-      rw [← hu1Val, ← hu2Val]
-      rfl
+    have hrNat := elem_evalNat_eq_u_eval hr'.1 hr'.2 hr
+    have hsNat := elem_evalNat_eq_u_eval hs'.1 hs'.2 hs
+    have hsumPoint := jointFoldPoint_eq_verificationPoint hdigest hr'.1
+      hsInv'.1 hu1.1 hu2.1 hrNat hsNat hsMul' hz.2 hu1Relaxed.2
+      hu2Relaxed.2 hu1.2 hu2.2 publicKey
     rw [hsumPoint] at hsum
     have hsumInfinity : sum.infinity.eval ρ.int = 0 := by
       simpa using hfinite.symm

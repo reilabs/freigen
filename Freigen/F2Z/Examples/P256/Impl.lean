@@ -59,18 +59,9 @@ def three : Fp := fpConst 3 (by native_decide)
 def four : Fp := fpConst 4 (by native_decide)
 def eight : Fp := fpConst 8 (by native_decide)
 
-def curveA : Fp := fpConst (baseModulus - 3) (by native_decide)
 def curveB : Fp := fpConst
   0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
   (by native_decide)
-
-def curveB3 : Fp := fpConst
-  ((3 * 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b) %
-    baseModulus) (by native_decide)
-
-def mulByA (x : Fp) : Circuit Fp := mul base curveA x
-
-def mulByB3 (x : Fp) : Circuit Fp := mul base curveB3 x
 
 def generatorX : Fp := fpConst
   0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296
@@ -200,33 +191,29 @@ def and3Bit (x y z : LC ℤ) : Circuit (LC ℤ) := do
   let xy ← andBit x y
   andBit z xy
 
-/-- Exact selection between canonical representatives.  The result is again
-a 256-bit representative and can safely remain in the affine state. -/
-def selectCanonical (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep := do
+/-- Exact selection at a statically chosen witness width and slack bound. -/
+def selectRep (width outBound : Nat) (description : String)
+    (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep := do
   let bits ← hint h![choose, whenOne.intVal, whenZero.intVal]
     fun h![(b : Int), (x : Int), (y : Int)] =>
       let value := if b = 1 then x else y
       if _ : 0 ≤ value then
-        pure $ Vector.ofFn (n := 256) fun i => value.toNat.testBit i
-      else fail s!"negative canonical selection {value}"
+        pure $ Vector.ofFn (n := width) fun i => value.toNat.testBit i
+      else fail s!"negative {description} selection {value}"
   let out ← U.fromWord { bitsLE := bits }
   assertR1C choose (whenOne.intVal - whenZero.intVal)
     (out.intVal - whenZero.intVal)
-  pure ⟨out.intVal, 2⟩
+  pure ⟨out.intVal, outBound⟩
+
+/-- Exact selection between canonical representatives.  The result is again
+a 256-bit representative and can safely remain in the affine state. -/
+def selectCanonical (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep :=
+  selectRep 256 2 "canonical" choose whenOne whenZero
 
 /-- Exact selection for temporary formula operands.  Six slack bits cover
 the biased differences and the `3*x^2 - 3` tangent numerator. -/
-def selectFormula (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep := do
-  let bits ← hint h![choose, whenOne.intVal, whenZero.intVal]
-    fun h![(b : Int), (x : Int), (y : Int)] =>
-      let value := if b = 1 then x else y
-      if _ : 0 ≤ value then
-        pure $ Vector.ofFn (n := 262) fun i => value.toNat.testBit i
-      else fail s!"negative affine formula selection {value}"
-  let out ← U.fromWord { bitsLE := bits }
-  assertR1C choose (whenOne.intVal - whenZero.intVal)
-    (out.intVal - whenZero.intVal)
-  pure ⟨out.intVal, 66⟩
+def selectFormula (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep :=
+  selectRep 262 66 "affine formula" choose whenOne whenZero
 
 /-- Complete affine doubling.  At infinity `(x,y)=(0,0)`: adding three times
 the infinity bit cancels the curve's `a = -3` tangent numerator, while adding
