@@ -2204,4 +2204,233 @@ theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
         · rw [hpoint]
           simpa [P256.scalar_modulus_eq, hrNat] using hxModVal.symm
 
+theorem verifyDigestInputWord_eval_inputs
+    {ρ : WF.Valuation} (inputs : Vector Bool verifyDigestInputBits)
+    (hbits : ∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i])
+    (slot : Fin 7) :
+    Word.eval ρ.bool
+      (verifyDigestInputWord (Vector.ofFn fun i => ({i.val} : LC Bool)) slot) =
+      verifyDigestInputValue inputs slot := by
+  apply BitVec.eq_of_getElem_eq
+  intro i hi
+  simp only [Word.eval, BitVec.getElem_ofFnLE, Fin.getElem_fin,
+    verifyDigestInputWord, Vector.getElem_ofFn, LC.eval_singleton,
+    verifyDigestInputValue]
+  exact hbits ⟨slot.val * 256 + i, by
+    simp [verifyDigestInputBits]
+    omega⟩
+
+theorem verifyDigestInputWords_eval_inputs
+    {ρ : WF.Valuation} (inputs : Vector Bool verifyDigestInputBits)
+    (hbits : ∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i]) :
+    (verifyDigestInputWords (Vector.ofFn fun i => ({i.val} : LC Bool))).map
+        (Word.eval ρ.bool) =
+      Vector.ofFn (verifyDigestInputValue inputs) := by
+  apply Vector.ext
+  intro i hi
+  simpa [verifyDigestInputWords] using
+    verifyDigestInputWord_eval_inputs inputs hbits ⟨i, hi⟩
+
+theorem verifyDigestFromBits_sound_aux
+    (inputs : Vector Bool verifyDigestInputBits) :
+    ⦃⌜∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i]⌝⦄
+      Sound.interp ρ
+        (verifyDigestFromBits (Vector.ofFn fun i => ({i.val} : LC Bool)))
+    ⦃⇓ _ => ⌜∃ publicKey : Reference.Point,
+      Reference.HasCoordinates publicKey
+        (verifyDigestInputValue inputs 1).toNat
+        (verifyDigestInputValue inputs 2).toNat ∧
+      Reference.Verifies (verifyDigestInputValue inputs 0).toNat
+        (verifyDigestInputValue inputs 3).toNat
+        (verifyDigestInputValue inputs 4).toNat publicKey⌝⦄ := by
+  mvcgen -trivial [-Sound.interp_mapM, U.mapM_fromWord_sound,
+    verifyDigestFromBits]
+  case vc1 =>
+    rename_i hbits values
+    intro hvalues
+    have hvalue (slot : Nat) (hslot : slot < 7) :
+        (values[slot]'hslot).eval ρ =
+          verifyDigestInputValue inputs ⟨slot, hslot⟩ := by
+      have hall := hvalues.eval_eq.trans
+        (verifyDigestInputWords_eval_inputs inputs hbits)
+      have h := congrArg
+        (fun xs : Vector (BitVec 256) 7 => xs[slot]'hslot) hall
+      simpa only [Vector.getElem_map, Vector.getElem_ofFn] using h
+    have hqxInt : values[1].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 1).toNat : Int) :=
+      (U.intVal_eval_eq_eval_toNat values[1] (hvalues 1).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 1 (by omega)))
+    have hqyInt : values[2].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 2).toNat : Int) :=
+      (U.intVal_eval_eq_eval_toNat values[2] (hvalues 2).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 2 (by omega)))
+    have hqxField :
+        (Int.castRingHom P256.Reference.Field) (values[1].intVal.eval ρ.int) =
+          ((verifyDigestInputValue inputs 1).toNat : P256.Reference.Field) := by
+      rw [hqxInt]
+      simp
+    have hqyField :
+        (Int.castRingHom P256.Reference.Field) (values[2].intVal.eval ρ.int) =
+          ((verifyDigestInputValue inputs 2).toNat : P256.Reference.Field) := by
+      rw [hqyInt]
+      simp
+    have ht := verifyDigest_sound_aux
+      (digest := values[0]) (key := ⟨values[1], values[2]⟩)
+      (sig := ⟨values[3], values[4]⟩)
+      (aux := ⟨values[5], values[6]⟩)
+      (hvalues 0).1 (hvalues 1).1 (hvalues 2).1
+      (hvalues 3).1 (hvalues 4).1 (hvalues 5).1 (hvalues 6).1
+    have htSpec :
+        ⦃⌜True⌝⦄ Sound.interp ρ
+          (verifyDigest values[0] ⟨values[1], values[2]⟩
+            ⟨values[3], values[4]⟩ ⟨values[5], values[6]⟩)
+        ⦃⇓ _ => ⌜∃ publicKey : Reference.Point,
+          Reference.HasCoordinates publicKey
+            (verifyDigestInputValue inputs 1).toNat
+            (verifyDigestInputValue inputs 2).toNat ∧
+          Reference.Verifies (verifyDigestInputValue inputs 0).toNat
+            (verifyDigestInputValue inputs 3).toNat
+            (verifyDigestInputValue inputs 4).toNat publicKey⌝⦄ := by
+      apply Triple.iff_conseq.mp ht (by simp)
+      simp only [PostCond.entails, SPred.entails_nil]
+      refine ⟨?_, ExceptConds.entails.refl _⟩
+      intro _ hex
+      rcases hex with ⟨publicKey, hcoords, hverifies⟩
+      refine ⟨publicKey, ?_, ?_⟩
+      · rw [hqxField, hqyField] at hcoords
+        exact hcoords
+      · convert hverifies using 1
+        · exact (congrArg BitVec.toNat (hvalue 0 (by omega))).symm
+        · exact (congrArg BitVec.toNat (hvalue 3 (by omega))).symm
+        · exact (congrArg BitVec.toNat (hvalue 4 (by omega))).symm
+    rw [Triple.iff] at htSpec
+    exact htSpec trivial
+
+theorem verifyDigestFromBits_complete_aux
+    (inputs : Vector Bool verifyDigestInputBits)
+    (publicKey : Reference.Point)
+    (hbits : ∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i])
+    (hkeyXlt : (verifyDigestInputValue inputs 1).toNat < P256.base.modulus)
+    (hkeyYlt : (verifyDigestInputValue inputs 2).toNat < P256.base.modulus)
+    (hrInvlt : (verifyDigestInputValue inputs 5).toNat < P256.scalar.modulus)
+    (hsInvlt : (verifyDigestInputValue inputs 6).toNat < P256.scalar.modulus)
+    (hcoords : Reference.HasCoordinates publicKey
+      (verifyDigestInputValue inputs 1).toNat
+      (verifyDigestInputValue inputs 2).toNat)
+    (horder : P256.scalarModulus • publicKey = 0)
+    (hrInvMul :
+      ((verifyDigestInputValue inputs 3).toNat : Reference.Scalar) *
+        ((verifyDigestInputValue inputs 5).toNat : Reference.Scalar) = 1)
+    (hsInvMul :
+      ((verifyDigestInputValue inputs 4).toNat : Reference.Scalar) *
+        ((verifyDigestInputValue inputs 6).toNat : Reference.Scalar) = 1)
+    (hverifies : Reference.Verifies
+      (verifyDigestInputValue inputs 0).toNat
+      (verifyDigestInputValue inputs 3).toNat
+      (verifyDigestInputValue inputs 4).toNat publicKey) :
+    ⦃⌜True⌝⦄ Complete.interp ρ
+      (verifyDigestFromBits (Vector.ofFn fun i => ({i.val} : LC Bool)))
+    ⦃⇓ _ => ⌜True⌝⦄ := by
+  mvcgen -trivial [-Complete.interp_mapM, U.mapM_fromWord_complete,
+    verifyDigestFromBits]
+  case vc1 =>
+    rename_i values
+    intro hvalues
+    have hvalue (slot : Nat) (hslot : slot < 7) :
+        (values[slot]'hslot).eval ρ =
+          verifyDigestInputValue inputs ⟨slot, hslot⟩ := by
+      have hall := hvalues.eval_eq.trans
+        (verifyDigestInputWords_eval_inputs inputs hbits)
+      have h := congrArg
+        (fun xs : Vector (BitVec 256) 7 => xs[slot]'hslot) hall
+      simpa only [Vector.getElem_map, Vector.getElem_ofFn] using h
+    have hqxInt : values[1].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 1).toNat : Int) := by
+      exact (U.intVal_eval_eq_eval_toNat values[1] (hvalues 1).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 1 (by omega)))
+    have hqyInt : values[2].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 2).toNat : Int) := by
+      exact (U.intVal_eval_eq_eval_toNat values[2] (hvalues 2).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 2 (by omega)))
+    have hrInt : values[3].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 3).toNat : Int) := by
+      exact (U.intVal_eval_eq_eval_toNat values[3] (hvalues 3).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 3 (by omega)))
+    have hsInt : values[4].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 4).toNat : Int) := by
+      exact (U.intVal_eval_eq_eval_toNat values[4] (hvalues 4).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 4 (by omega)))
+    have hrInvInt : values[5].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 5).toNat : Int) := by
+      exact (U.intVal_eval_eq_eval_toNat values[5] (hvalues 5).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 5 (by omega)))
+    have hsInvInt : values[6].intVal.eval ρ.int =
+        ((verifyDigestInputValue inputs 6).toNat : Int) := by
+      exact (U.intVal_eval_eq_eval_toNat values[6] (hvalues 6).1).trans
+        (congrArg (fun x : BitVec 256 => (x.toNat : Int))
+          (hvalue 6 (by omega)))
+    have hdigestNat := congrArg BitVec.toNat (hvalue 0 (by omega))
+    have hrNat := congrArg BitVec.toNat (hvalue 3 (by omega))
+    have hsNat := congrArg BitVec.toNat (hvalue 4 (by omega))
+    have hrInvNat := congrArg BitVec.toNat (hvalue 5 (by omega))
+    have hsInvNat := congrArg BitVec.toNat (hvalue 6 (by omega))
+    have ht := verifyDigest_complete_aux
+      (digest := values[0]) (key := ⟨values[1], values[2]⟩)
+      (sig := ⟨values[3], values[4]⟩)
+      (aux := ⟨values[5], values[6]⟩) (publicKey := publicKey)
+      (hvalues 0).1 (hvalues 1).1 (hvalues 2).1 (hvalues 3).1
+      (hvalues 4).1 (hvalues 5).1 (hvalues 6).1
+      (by rw [hqxInt]; exact_mod_cast hkeyXlt)
+      (by rw [hqyInt]; exact_mod_cast hkeyYlt)
+      (by rw [hrInt]; exact_mod_cast hverifies.2.2.1)
+      (by rw [hsInt]; exact_mod_cast hverifies.2.2.2.2.1)
+      (by rw [hrInvInt]; exact_mod_cast hrInvlt)
+      (by rw [hsInvInt]; exact_mod_cast hsInvlt)
+      (by rw [hqxInt, hqyInt]; simpa using hcoords)
+      horder
+      (by
+        change ((values[3].eval ρ).toNat : Reference.Scalar) *
+          ((values[5].eval ρ).toNat : Reference.Scalar) = 1
+        calc
+          _ = ((verifyDigestInputValue inputs 3).toNat : Reference.Scalar) *
+              ((verifyDigestInputValue inputs 5).toNat : Reference.Scalar) :=
+            congrArg₂ (fun x y : Reference.Scalar => x * y)
+              (congrArg (fun n : Nat => (n : Reference.Scalar)) hrNat)
+              (congrArg (fun n : Nat => (n : Reference.Scalar)) hrInvNat)
+          _ = 1 := hrInvMul)
+      (by
+        change ((values[4].eval ρ).toNat : Reference.Scalar) *
+          ((values[6].eval ρ).toNat : Reference.Scalar) = 1
+        calc
+          _ = ((verifyDigestInputValue inputs 4).toNat : Reference.Scalar) *
+              ((verifyDigestInputValue inputs 6).toNat : Reference.Scalar) :=
+            congrArg₂ (fun x y : Reference.Scalar => x * y)
+              (congrArg (fun n : Nat => (n : Reference.Scalar)) hsNat)
+              (congrArg (fun n : Nat => (n : Reference.Scalar)) hsInvNat)
+          _ = 1 := hsInvMul)
+      (by
+        change Reference.Verifies (values[0].eval ρ).toNat
+          (values[3].eval ρ).toNat (values[4].eval ρ).toNat publicKey
+        convert hverifies using 1
+        · exact hdigestNat
+        · exact hrNat
+        · exact hsNat)
+    have htTrue :
+        ⦃⌜True⌝⦄ Complete.interp ρ
+          (verifyDigest values[0] ⟨values[1], values[2]⟩
+            ⟨values[3], values[4]⟩ ⟨values[5], values[6]⟩)
+        ⦃⇓ _ => ⌜True⌝⦄ := by
+      apply Triple.iff_conseq.mp ht (by simp)
+      simp only [PostCond.entails, SPred.entails_nil]
+      exact ⟨fun _ _ => True.intro, ExceptConds.entails.refl _⟩
+    rw [Triple.iff] at htTrue
+    exact htTrue trivial
+
 end Freigen.F2Z.Examples.EcdsaP256

@@ -351,7 +351,7 @@ def verifyDigest (digest : U 256) (key : PublicKey)
 public-key coordinates, signature scalars, and two inverse witnesses. -/
 def verifyDigestInputBits : Nat := 7 * 256
 
-private def verifyDigestInputWord
+def verifyDigestInputWord
     (inputs : Vector (LC Bool) verifyDigestInputBits)
     (slot : Fin 7) : Word 256 :=
   { bitsLE := Vector.ofFn fun i =>
@@ -359,16 +359,24 @@ private def verifyDigestInputWord
         simp [verifyDigestInputBits]
         omega) }
 
-private def verifyDigestFromBits
+def verifyDigestInputValue
+    (inputs : Vector Bool verifyDigestInputBits)
+    (slot : Fin 7) : BitVec 256 :=
+  BitVec.ofFnLE fun i =>
+    inputs[slot.val * 256 + i.val]'(by
+      simp [verifyDigestInputBits]
+      omega)
+
+def verifyDigestInputWords
+    (inputs : Vector (LC Bool) verifyDigestInputBits) :
+    Vector (Word 256) 7 :=
+  Vector.ofFn fun slot => verifyDigestInputWord inputs slot
+
+def verifyDigestFromBits
     (inputs : Vector (LC Bool) verifyDigestInputBits) : Circuit Unit := do
-  let digest ← U.fromWord (verifyDigestInputWord inputs 0)
-  let qx ← U.fromWord (verifyDigestInputWord inputs 1)
-  let qy ← U.fromWord (verifyDigestInputWord inputs 2)
-  let r ← U.fromWord (verifyDigestInputWord inputs 3)
-  let s ← U.fromWord (verifyDigestInputWord inputs 4)
-  let rInv ← U.fromWord (verifyDigestInputWord inputs 5)
-  let sInv ← U.fromWord (verifyDigestInputWord inputs 6)
-  verifyDigest digest ⟨qx, qy⟩ ⟨r, s⟩ ⟨rInv, sInv⟩
+  let values ← (verifyDigestInputWords inputs).mapM U.fromWord
+  verifyDigest values[0] ⟨values[1], values[2]⟩
+    ⟨values[3], values[4]⟩ ⟨values[5], values[6]⟩
 
 /-- Constraint-system representation of the standalone digest verifier. -/
 def verifyDigestCS : Unit × Semantics.CS :=

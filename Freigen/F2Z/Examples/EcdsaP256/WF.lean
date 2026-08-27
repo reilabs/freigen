@@ -1024,4 +1024,56 @@ theorem verifyDigest_wf_aux :
       intro lv rv h
       exact h.2
 
+def VerifyDigestBits.WFRel (lv rv : WF.Valuation)
+    (left right : Vector (LC Bool) verifyDigestInputBits) : Prop :=
+  WF.VectorRel
+    (fun lv rv left right => WF.LCEq lv.bool rv.bool left right)
+    lv rv left right
+
+private theorem mapM_fromWord_wf_full :
+    WF.GadgetSpec (WF.VectorRel Word.WFRel)
+      (fun xs : Vector (Word n) m => xs.mapM U.fromWord)
+      (WF.VectorRel U.FullWFRel) := by
+  intro left right
+  apply WF.Rel.mono
+    (U.fromWord_wf_full.relHom.vectorMapM
+      (fun lv rv => WF.VectorRel Word.WFRel lv rv left right)
+      left right (fun _ _ h => h))
+  intro lv rv outL outR h i
+  have hi := h.2 i
+  exact ⟨⟨hi.2.2, hi.1⟩, hi.2.1⟩
+
+private theorem verifyDigestInputWords_wf
+    {lv rv : WF.Valuation}
+    {left right : Vector (LC Bool) verifyDigestInputBits}
+    (h : VerifyDigestBits.WFRel lv rv left right) :
+    WF.VectorRel Word.WFRel lv rv
+      (verifyDigestInputWords left) (verifyDigestInputWords right) := by
+  intro slot i
+  simpa [verifyDigestInputWords, verifyDigestInputWord] using
+    h ⟨slot.val * 256 + i.val, by
+      simp [verifyDigestInputBits]
+      omega⟩
+
+theorem verifyDigestFromBits_wf_aux :
+    WF.GadgetSpec VerifyDigestBits.WFRel verifyDigestFromBits
+      (fun _ _ _ _ => True) := by
+  unfold WF.GadgetSpec
+  intro left right
+  unfold verifyDigestFromBits
+  apply WF.GadgetSpec.bind_rule_direct
+    (left := verifyDigestInputWords left)
+    (right := verifyDigestInputWords right) mapM_fromWord_wf_full
+  · intro lv rv h
+    exact verifyDigestInputWords_wf h
+  · intro valuesL valuesR
+    apply WF.GadgetSpec.direct_rule
+      (left := (valuesL[0], ⟨valuesL[1], valuesL[2]⟩,
+        ⟨valuesL[3], valuesL[4]⟩, ⟨valuesL[5], valuesL[6]⟩))
+      (right := (valuesR[0], ⟨valuesR[1], valuesR[2]⟩,
+        ⟨valuesR[3], valuesR[4]⟩, ⟨valuesR[5], valuesR[6]⟩))
+      verifyDigest_wf_aux
+    intro lv rv h
+    exact ⟨h.2 0, h.2 1, h.2 2, h.2 3, h.2 4, h.2 5, h.2 6⟩
+
 end Freigen.F2Z.Examples.EcdsaP256

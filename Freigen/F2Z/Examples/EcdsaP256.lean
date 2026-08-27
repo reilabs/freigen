@@ -15,65 +15,76 @@ open scoped Std.Do
 
 /-! ## Correctness boundary -/
 
-/-- If the real digest-verification circuit accepts, the supplied key
-coordinates denote a Mathlib P-256 point and Mathlib's ECDSA equation accepts
-the same digest and signature. -/
-theorem verifyDigest_sound {digest : U 256} {key : PublicKey}
-    {sig : Signature} {aux : Aux}
-    (hdigest : digest.Valid ρ)
-    (hkeyX : key.x.Valid ρ) (hkeyY : key.y.Valid ρ)
-    (hr : sig.r.Valid ρ) (hs : sig.s.Valid ρ)
-    (hrInv : aux.rInv.Valid ρ) (hsInv : aux.sInv.Valid ρ) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (verifyDigest digest key sig aux)
-    ⦃⇓ _ => ⌜∃ publicKey : Reference.Point,
-      Reference.HasCoordinates publicKey
-        (Int.castRingHom P256.Reference.Field
-          (key.x.intVal.eval ρ.int))
-        (Int.castRingHom P256.Reference.Field
-          (key.y.intVal.eval ρ.int)) ∧
-      Reference.Verifies (digest.eval ρ).toNat
-        (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey⌝⦄ :=
-  verifyDigest_sound_aux hdigest hkeyX hkeyY hr hs hrInv hsInv
+def VerifyDigestAccepts
+    (inputs : Vector Bool verifyDigestInputBits) : Prop :=
+  ∃ publicKey : Reference.Point,
+    Reference.HasCoordinates publicKey
+      (verifyDigestInputValue inputs 1).toNat
+      (verifyDigestInputValue inputs 2).toNat ∧
+    Reference.Verifies (verifyDigestInputValue inputs 0).toNat
+      (verifyDigestInputValue inputs 3).toNat
+      (verifyDigestInputValue inputs 4).toNat publicKey
 
-/-- If Mathlib's ECDSA equation and the explicit inverse witnesses hold,
-witness generation for the real digest-verification circuit succeeds. -/
-theorem verifyDigest_complete {digest : U 256} {key : PublicKey}
-    {sig : Signature} {aux : Aux} {publicKey : Reference.Point}
-    (hdigest : digest.Valid ρ)
-    (hkeyX : key.x.Valid ρ) (hkeyY : key.y.Valid ρ)
-    (hr : sig.r.Valid ρ) (hs : sig.s.Valid ρ)
-    (hrInv : aux.rInv.Valid ρ) (hsInv : aux.sInv.Valid ρ)
-    (hkeyXlt : key.x.intVal.eval ρ.int < P256.base.modulus)
-    (hkeyYlt : key.y.intVal.eval ρ.int < P256.base.modulus)
-    (hrlt : sig.r.intVal.eval ρ.int < P256.scalar.modulus)
-    (hslt : sig.s.intVal.eval ρ.int < P256.scalar.modulus)
-    (hrInvlt : aux.rInv.intVal.eval ρ.int < P256.scalar.modulus)
-    (hsInvlt : aux.sInv.intVal.eval ρ.int < P256.scalar.modulus)
+/-- Every satisfying assignment of the generated constraint system represents
+an input accepted by Mathlib's P-256 ECDSA verifier. -/
+theorem verifyDigest_sound
+    (inputs : Vector Bool verifyDigestInputBits) (wit : Nat → Bool)
+    (hinputs : ∀ i : Fin verifyDigestInputBits, wit i.val = inputs[i])
+    (hsat : verifyDigestCS.2.satisfies wit) :
+    VerifyDigestAccepts inputs := by
+  apply Sound.adequate
+    (circ := verifyDigestFromBits)
+    (P := fun _ _ => VerifyDigestAccepts inputs)
+  · simpa [Sound.csValuation, VerifyDigestAccepts, verifyDigestCS] using
+      verifyDigestFromBits_sound_aux
+        (ρ := Sound.csValuation verifyDigestCS.2 wit) inputs
+  · exact hinputs
+  · simpa [verifyDigestCS] using hsat
+
+/-- If the decoded input satisfies Mathlib's ECDSA equation and supplies the
+checked inverse witnesses, the real witness generator succeeds and its output
+satisfies the generated constraint system. -/
+theorem verifyDigest_complete
+    (inputs : Vector Bool verifyDigestInputBits)
+    (publicKey : Reference.Point)
+    (hkeyXlt : (verifyDigestInputValue inputs 1).toNat < P256.base.modulus)
+    (hkeyYlt : (verifyDigestInputValue inputs 2).toNat < P256.base.modulus)
+    (hrInvlt : (verifyDigestInputValue inputs 5).toNat < P256.scalar.modulus)
+    (hsInvlt : (verifyDigestInputValue inputs 6).toNat < P256.scalar.modulus)
     (hcoords : Reference.HasCoordinates publicKey
-      (Int.castRingHom P256.Reference.Field (key.x.intVal.eval ρ.int))
-      (Int.castRingHom P256.Reference.Field (key.y.intVal.eval ρ.int)))
+      (verifyDigestInputValue inputs 1).toNat
+      (verifyDigestInputValue inputs 2).toNat)
     (horder : P256.scalarModulus • publicKey = 0)
-    (hrInvMul : ((sig.r.eval ρ).toNat : Reference.Scalar) *
-      ((aux.rInv.eval ρ).toNat : Reference.Scalar) = 1)
-    (hsInvMul : ((sig.s.eval ρ).toNat : Reference.Scalar) *
-      ((aux.sInv.eval ρ).toNat : Reference.Scalar) = 1)
-    (hverifies : Reference.Verifies (digest.eval ρ).toNat
-      (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (verifyDigest digest key sig aux)
-    ⦃⇓ _ => ⌜Reference.Verifies (digest.eval ρ).toNat
-      (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey⌝⦄ :=
-  verifyDigest_complete_aux hdigest hkeyX hkeyY hr hs hrInv hsInv
-    hkeyXlt hkeyYlt hrlt hslt hrInvlt hsInvlt hcoords horder
-    hrInvMul hsInvMul hverifies
+    (hrInvMul :
+      ((verifyDigestInputValue inputs 3).toNat : Reference.Scalar) *
+        ((verifyDigestInputValue inputs 5).toNat : Reference.Scalar) = 1)
+    (hsInvMul :
+      ((verifyDigestInputValue inputs 4).toNat : Reference.Scalar) *
+        ((verifyDigestInputValue inputs 6).toNat : Reference.Scalar) = 1)
+    (hverifies : Reference.Verifies
+      (verifyDigestInputValue inputs 0).toNat
+      (verifyDigestInputValue inputs 3).toNat
+      (verifyDigestInputValue inputs 4).toNat publicKey) :
+    ∃ wit,
+      Semantics.Witgen.runWithInputs verifyDigestFromBits inputs = some wit ∧
+      verifyDigestCS.2.satisfies (wit[·]!) := by
+  have hbits : ∀ i : Fin verifyDigestInputBits,
+      (Complete.witnessValuation inputs.toArray).bool i.val = inputs[i] := by
+    intro i
+    simp [Complete.witnessValuation, getElem!_pos]
+  have hcomplete := verifyDigestFromBits_complete_aux
+    (ρ := Complete.witnessValuation inputs.toArray) inputs publicKey hbits
+    hkeyXlt hkeyYlt hrInvlt hsInvlt hcoords horder hrInvMul hsInvMul hverifies
+  have had := Complete.adequate
+    verifyDigestFromBits_wf_aux
+    hcomplete
+  simpa [verifyDigestCS] using had
 
-/-- Quotient well-formedness of the real digest-verification circuit.  Inputs
-are related exactly when every circuit-visible linear combination evaluates
-equally under the two total valuations. -/
+/-- Quotient well-formedness of the actual raw-input verifier circuit. -/
 theorem verifyDigest_wf :
-    WF.GadgetSpec VerifyInput.WFRel
-      (fun input => verifyDigest input.1 input.2.1 input.2.2.1 input.2.2.2)
+    WF.GadgetSpec VerifyDigestBits.WFRel verifyDigestFromBits
       (fun _ _ _ _ => True) :=
-  verifyDigest_wf_aux
+  verifyDigestFromBits_wf_aux
 
 /-! ## Prehashed digest verification circuit size -/
 
