@@ -62,126 +62,59 @@ def VerifyInput.WFRel (lv rv : WF.Valuation)
     U.FullWFRel lv rv left.2.2.2.rInv right.2.2.2.rInv ∧
     U.FullWFRel lv rv left.2.2.2.sInv right.2.2.2.sInv
 
-theorem materializeLow_wf_aux :
-    WF.GadgetSpec AffineSlope.Point.WFRel materializeLow
-      (WF.VectorRel AffineSlope.Point.WFRel) := by
-  wfgen' using [AffineSlope.addComplete_wf_aux]
-    unfold [materializeLow, addMultiple]
-  all_goals fin_cases i <;>
-    simp only [Fin.getElem_fin, Vector.getElem_mk, ← Array.getElem_toList,
-      List.getElem_cons_zero, List.getElem_cons_succ] <;> grind
-
-theorem materializeMid_wf_aux :
-    WF.GadgetSpec
-      (fun lv rv (left right : AffineSlope.Point × AffineSlope.Point) =>
-        AffineSlope.Point.WFRel lv rv left.1 right.1 ∧
-        AffineSlope.Point.WFRel lv rv left.2 right.2)
-      (fun input => materializeMid input.1 input.2)
-      (WF.VectorRel AffineSlope.Point.WFRel) := by
-  wfgen' using [AffineSlope.addComplete_wf_aux]
-    unfold [materializeMid, addMultiple]
-  all_goals fin_cases i <;>
-    simp only [Fin.getElem_fin, Vector.getElem_mk, ← Array.getElem_toList,
-      List.getElem_cons_zero, List.getElem_cons_succ] <;> grind
-
-theorem materializeHigh_wf_aux :
-    WF.GadgetSpec
-      (fun lv rv (left right : AffineSlope.Point × AffineSlope.Point) =>
-        AffineSlope.Point.WFRel lv rv left.1 right.1 ∧
-        AffineSlope.Point.WFRel lv rv left.2 right.2)
-      (fun input => materializeHigh input.1 input.2)
-      (WF.VectorRel AffineSlope.Point.WFRel) := by
-  wfgen' using [AffineSlope.addComplete_wf_aux]
-    unfold [materializeHigh, addMultiple]
-  all_goals fin_cases i <;>
-    simp only [Fin.getElem_fin, Vector.getElem_mk, ← Array.getElem_toList,
-      List.getElem_cons_zero, List.getElem_cons_succ] <;> grind
-
-theorem materializeTail_wf_aux :
-    WF.GadgetSpec
-      (fun lv rv
-          (left right : AffineSlope.Point × Vector AffineSlope.Point 5) =>
-        AffineSlope.Point.WFRel lv rv left.1 right.1 ∧
-        WF.VectorRel AffineSlope.Point.WFRel lv rv left.2 right.2)
-      (fun input => materializeTail input.1 input.2)
-      (fun lv rv left right =>
-        WF.VectorRel AffineSlope.Point.WFRel lv rv left.1 right.1 ∧
-        WF.VectorRel AffineSlope.Point.WFRel lv rv left.2 right.2) := by
-  wfgen' using [materializeMid_wf_aux, materializeHigh_wf_aux]
-    unfold [materializeTail]
-  case vc1 =>
-    rename_i hrel hB
-    exact (hrel leftVal rightVal hB).2 ⟨4, by omega⟩
-  case vc2 =>
-    rename_i h
-    exact h.2 ⟨4, by omega⟩
+private theorem projective_ofElems_wfRel {lv rv : WF.Valuation}
+    {left right : Projective} (h : Projective.WFRel lv rv left right) :
+    AffineSlope.Point.WFRel lv rv
+      (AffineSlope.ofElems left.X left.Y)
+      (AffineSlope.ofElems right.X right.Y) :=
+  AffineSlope.ofElems_wfRel h.1 h.2.1
 
 theorem materializeMultiples_wf_aux :
     WF.GadgetSpec Projective.WFRel materializeMultiples
       (WF.VectorRel AffineSlope.Point.WFRel) := by
-  wfgen' using [materializeLow_wf_aux, materializeTail_wf_aux]
+  wfgen' using [AffineSlope.addComplete_wf_aux]
     unfold [materializeMultiples]
   case vc1 =>
-    rename_i hlow htail hB
-    have ht := htail leftVal rightVal hB
-    have hl := hlow leftVal rightVal ht.1
-    fin_cases i
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
+    rename_i _ _ _ h1 _ _ _ h2 _ _ _ h3 _ _ _ h4
+      _ _ _ h5 _ _ _ h6 _ _ _ h7 _ _ _ h8 _ _ _ h9
+      _ _ _ h10 _ _ _ h11 _ _ _ h12 _ _ _ h13 h14 hB
+    have r15 := h14 leftVal rightVal hB
+    have r14 := h13 leftVal rightVal r15.1
+    have r13 := h12 leftVal rightVal r14.1
+    have r12 := h11 leftVal rightVal r13.1
+    have r11 := h10 leftVal rightVal r12.1
+    have r10 := h9 leftVal rightVal r11.1
+    have r9 := h8 leftVal rightVal r10.1
+    have r8 := h7 leftVal rightVal r9.1
+    have r7 := h6 leftVal rightVal r8.1
+    have r6 := h5 leftVal rightVal r7.1
+    have r5 := h4 leftVal rightVal r6.1
+    have r4 := h3 leftVal rightVal r5.1
+    have r3 := h2 leftVal rightVal r4.1
+    have r2 := h1 leftVal rightVal r3.1
+    have r1 := projective_ofElems_wfRel r2.1
+    fin_cases i <;>
+      simp only [Fin.getElem_fin, Vector.getElem_mk,
         ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using
-        AffineSlope.infinity_wfRel leftVal rightVal
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using hl.2 ⟨0, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using hl.2 ⟨1, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using hl.2 ⟨2, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using hl.2 ⟨3, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using hl.2 ⟨4, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.1 ⟨0, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.1 ⟨1, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.1 ⟨2, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.1 ⟨3, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.1 ⟨4, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.2 ⟨0, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.2 ⟨1, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.2 ⟨2, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.2 ⟨3, by omega⟩
-    · simpa only [Fin.getElem_fin, Vector.getElem_mk,
-        ← Array.getElem_toList, List.getElem_cons_zero,
-        List.getElem_cons_succ] using ht.2.2 ⟨4, by omega⟩
-  case vc2 =>
-    rename_i hrel hB
-    have h := hrel leftVal rightVal hB
-    exact AffineSlope.ofElems_wfRel h.1.1 h.1.2.1
-  case vc3 =>
-    rename_i h
-    exact AffineSlope.ofElems_wfRel h.1 h.2.1
+        List.getElem_cons_succ] <;>
+      first
+      | exact AffineSlope.infinity_wfRel leftVal rightVal
+      | exact r1
+      | exact r2.2
+      | exact r3.2
+      | exact r4.2
+      | exact r5.2
+      | exact r6.2
+      | exact r7.2
+      | exact r8.2
+      | exact r9.2
+      | exact r10.2
+      | exact r11.2
+      | exact r12.2
+      | exact r13.2
+      | exact r14.2
+      | exact r15.2
+  all_goals grind (ematch := 100) [projective_ofElems_wfRel]
 
 theorem indicators_wf_aux (n : Nat) :
     WF.GadgetSpec

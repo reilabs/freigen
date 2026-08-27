@@ -229,29 +229,27 @@ theorem WindowDigitSpec.lt {out : LC ℤ}
   mvcgen [windowDigit, WindowDigitSpec]
   exact windowValue_eval hk _ _ _
 
-@[spec] theorem addMultiple_sound {P Q : P256.AffineSlope.Point}
-    {q : P256.Reference.Point} {k : Nat}
+theorem addComplete_multiple_sound
+    {P Q : P256.AffineSlope.Point} {q : P256.Reference.Point} {k : Nat}
     (hP : P256.Reference.NormalizedRep ρ P (k • q))
     (hQ : P256.Reference.NormalizedRep ρ Q q) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (addMultiple k P Q)
+    ⦃⌜True⌝⦄ Sound.interp ρ (P256.AffineSlope.addComplete P Q)
     ⦃⇓ out => ⌜P256.Reference.NormalizedRep ρ out ((k + 1) • q)⌝⦄ := by
-  unfold addMultiple
   apply Triple.iff_conseq.mp
     (P256.AffineSlope.addComplete_sound_normalized hP hQ) (by simp)
   simp only [PostCond.entails, SPred.entails_nil]
   exact ⟨fun _ h => by simpa only [add_nsmul, one_nsmul] using h,
     ExceptConds.entails.refl _⟩
 
-@[spec] theorem addMultiple_complete {P Q : P256.AffineSlope.Point}
-    {q : P256.Reference.Point} {k : Nat}
+theorem addComplete_multiple_complete
+    {P Q : P256.AffineSlope.Point} {q : P256.Reference.Point} {k : Nat}
     (hPvalid : P.Valid ρ) (hQvalid : Q.Valid ρ)
     (hP : P256.Reference.NormalizedRep ρ P (k • q))
     (hQ : P256.Reference.NormalizedRep ρ Q q)
     (horder : P256.scalarModulus • q = 0) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (addMultiple k P Q)
+    ⦃⌜True⌝⦄ Complete.interp ρ (P256.AffineSlope.addComplete P Q)
     ⦃⇓ out => ⌜out.Valid ρ ∧ P256.Reference.NormalizedRep ρ out
       ((k + 1) • q)⌝⦄ := by
-  unfold addMultiple
   apply Triple.iff_conseq.mp
     (P256.AffineSlope.addComplete_complete_mathlib hPvalid hQvalid hP hQ
       (Reference.Aux.no_two_torsion_of_order
@@ -267,134 +265,6 @@ theorem ofElems_valid {P : P256.Projective} (hP : P.Valid ρ) :
     rfl, Modular.Lazy.ofElem_valid P256.base hP.2.1, hP.2.1.2,
     by simp [P256.AffineSlope.ofElems]⟩
 
-def Materialize5Spec (rho : WF.Valuation) (q : P256.Reference.Point)
-    (start : Nat) (table : Vector P256.AffineSlope.Point 5) : Prop :=
-  P256.Reference.NormalizedRep rho table[0] (start • q) ∧
-  P256.Reference.NormalizedRep rho table[1] ((start + 1) • q) ∧
-  P256.Reference.NormalizedRep rho table[2] ((start + 2) • q) ∧
-  P256.Reference.NormalizedRep rho table[3] ((start + 3) • q) ∧
-  P256.Reference.NormalizedRep rho table[4] ((start + 4) • q)
-
-def Materialize5ValidSpec (rho : WF.Valuation)
-    (q : P256.Reference.Point) (start : Nat)
-    (table : Vector P256.AffineSlope.Point 5) : Prop :=
-  table[0].Valid rho ∧ P256.Reference.NormalizedRep rho table[0] (start • q) ∧
-  table[1].Valid rho ∧ P256.Reference.NormalizedRep rho table[1] ((start + 1) • q) ∧
-  table[2].Valid rho ∧ P256.Reference.NormalizedRep rho table[2] ((start + 2) • q) ∧
-  table[3].Valid rho ∧ P256.Reference.NormalizedRep rho table[3] ((start + 3) • q) ∧
-  table[4].Valid rho ∧ P256.Reference.NormalizedRep rho table[4] ((start + 4) • q)
-
-@[spec] theorem materializeLow_sound {P : P256.AffineSlope.Point}
-    {q : P256.Reference.Point}
-    (hP : P256.Reference.NormalizedRep ρ P q) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (materializeLow P)
-    ⦃⇓ table => ⌜Materialize5Spec ρ q 1 table⌝⦄ := by
-  mvcgen [materializeLow]
-
-@[spec] theorem materializeMid_sound {P P5 : P256.AffineSlope.Point}
-    {q : P256.Reference.Point}
-    (hP : P256.Reference.NormalizedRep ρ P q)
-    (hP5 : P256.Reference.NormalizedRep ρ P5 (5 • q)) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (materializeMid P P5)
-    ⦃⇓ table => ⌜Materialize5Spec ρ q 6 table⌝⦄ := by
-  mvcgen [materializeMid]
-
-@[spec] theorem materializeHigh_sound {P P10 : P256.AffineSlope.Point}
-    {q : P256.Reference.Point}
-    (hP : P256.Reference.NormalizedRep ρ P q)
-    (hP10 : P256.Reference.NormalizedRep ρ P10 (10 • q)) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (materializeHigh P P10)
-    ⦃⇓ table => ⌜Materialize5Spec ρ q 11 table⌝⦄ := by
-  mvcgen [materializeHigh]
-
-@[spec] theorem materializeTail_sound {P : P256.AffineSlope.Point}
-    {low : Vector P256.AffineSlope.Point 5}
-    {q : P256.Reference.Point}
-    (hP : P256.Reference.NormalizedRep ρ P q)
-    (hlow : Materialize5Spec ρ q 1 low) :
-    ⦃⌜True⌝⦄ Sound.interp ρ (materializeTail P low)
-    ⦃⇓ tail => ⌜Materialize5Spec ρ q 6 tail.1 ∧
-      Materialize5Spec ρ q 11 tail.2⌝⦄ := by
-  mvcgen [materializeTail]
-  all_goals simp_all [Materialize5Spec]
-
-@[spec] theorem materializeLow_complete {P : P256.AffineSlope.Point}
-    {q : P256.Reference.Point}
-    (hPvalid : P.Valid ρ)
-    (hP : P256.Reference.NormalizedRep ρ P q)
-    (horder : P256.scalarModulus • q = 0) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (materializeLow P)
-    ⦃⇓ table => ⌜Materialize5ValidSpec ρ q 1 table⌝⦄ := by
-  mvcgen -trivial [materializeLow]
-  all_goals first
-    | exact q
-    | exact hPvalid
-    | exact hP
-    | exact horder
-    | assumption
-    | skip
-  all_goals simp_all [Materialize5ValidSpec]
-
-@[spec] theorem materializeMid_complete {P P5 : P256.AffineSlope.Point}
-    {q : P256.Reference.Point}
-    (hPvalid : P.Valid ρ) (hP5valid : P5.Valid ρ)
-    (hP : P256.Reference.NormalizedRep ρ P q)
-    (hP5 : P256.Reference.NormalizedRep ρ P5 (5 • q))
-    (horder : P256.scalarModulus • q = 0) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (materializeMid P P5)
-    ⦃⇓ table => ⌜Materialize5ValidSpec ρ q 6 table⌝⦄ := by
-  mvcgen -trivial [materializeMid]
-  all_goals first
-    | exact q
-    | exact hPvalid
-    | exact hP5valid
-    | exact hP
-    | exact hP5
-    | exact horder
-    | assumption
-    | skip
-  all_goals simp_all [Materialize5ValidSpec]
-
-@[spec] theorem materializeHigh_complete {P P10 : P256.AffineSlope.Point}
-    {q : P256.Reference.Point}
-    (hPvalid : P.Valid ρ) (hP10valid : P10.Valid ρ)
-    (hP : P256.Reference.NormalizedRep ρ P q)
-    (hP10 : P256.Reference.NormalizedRep ρ P10 (10 • q))
-    (horder : P256.scalarModulus • q = 0) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (materializeHigh P P10)
-    ⦃⇓ table => ⌜Materialize5ValidSpec ρ q 11 table⌝⦄ := by
-  mvcgen -trivial [materializeHigh]
-  all_goals first
-    | exact q
-    | exact hPvalid
-    | exact hP10valid
-    | exact hP
-    | exact hP10
-    | exact horder
-    | assumption
-    | skip
-  all_goals simp_all [Materialize5ValidSpec]
-
-@[spec] theorem materializeTail_complete {P : P256.AffineSlope.Point}
-    {low : Vector P256.AffineSlope.Point 5}
-    {q : P256.Reference.Point}
-    (hPvalid : P.Valid ρ)
-    (hP : P256.Reference.NormalizedRep ρ P q)
-    (hlow : Materialize5ValidSpec ρ q 1 low)
-    (horder : P256.scalarModulus • q = 0) :
-    ⦃⌜True⌝⦄ Complete.interp ρ (materializeTail P low)
-    ⦃⇓ tail => ⌜Materialize5ValidSpec ρ q 6 tail.1 ∧
-      Materialize5ValidSpec ρ q 11 tail.2⌝⦄ := by
-  mvcgen -trivial [materializeTail]
-  all_goals first
-    | exact q
-    | exact hPvalid
-    | exact hP
-    | exact horder
-    | assumption
-    | skip
-  all_goals simp_all [Materialize5ValidSpec]
-
 @[spec] theorem materializeMultiples_sound {P : P256.Projective}
     {q : P256.Reference.Point}
     (hP : P256.Reference.Represents ρ
@@ -408,8 +278,13 @@ def Materialize5ValidSpec (rho : WF.Valuation)
     intro hq
     have hinf := P256.Reference.Aux.represents_zero (hq ▸ hP)
     simp [P256.AffineSlope.ofElems] at hinf
-  mvcgen [materializeMultiples]
-  all_goals simp_all [Materialize5Spec]
+  mvcgen [-P256.AffineSlope.addComplete_sound_normalized,
+    addComplete_multiple_sound, materializeMultiples]
+  all_goals first
+    | exact 1
+    | simpa using hP'
+    | assumption
+    | skip
   all_goals intro i
   all_goals fin_cases i <;> simp_all [P256.AffineSlope.infinity,
     P256.Reference.NormalizedRep, P256.Reference.Represents,
@@ -438,14 +313,30 @@ def Materialize5ValidSpec (rho : WF.Valuation)
     exact ⟨rfl, Modular.Lazy.ofElem_valid P256.base hz, hz.2,
       rfl, Modular.Lazy.ofElem_valid P256.base hz, hz.2,
       by simp [P256.AffineSlope.infinity]⟩
-  mvcgen [materializeMultiples]
+  mvcgen [-P256.AffineSlope.addComplete_complete_mathlib,
+    addComplete_multiple_complete, materializeMultiples]
+  case vc2.k => exact 1
+  case vc9.k => exact 2
+  case vc16.k => exact 3
+  case vc23.k => exact 4
+  case vc30.k => exact 5
+  case vc37.k => exact 6
+  case vc44.k => exact 7
+  case vc51.k => exact 8
+  case vc58.k => exact 9
+  case vc65.k => exact 10
+  case vc72.k => exact 11
+  case vc79.k => exact 12
+  case vc86.k => exact 13
+  case vc93.k => exact 14
   all_goals first
     | exact q
     | exact horder
     | exact hPvalid'
     | exact hP'
     | exact hInfinityValid
-    | simp_all [Materialize5ValidSpec]
+    | simpa using hP'
+    | simp_all
   all_goals intro i
   all_goals fin_cases i <;> simp_all [P256.AffineSlope.infinity,
     P256.Reference.NormalizedRep, P256.Reference.Represents,

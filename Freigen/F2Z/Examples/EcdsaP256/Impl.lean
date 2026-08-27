@@ -41,58 +41,25 @@ structure Aux where
 /-- Packed input to the standalone prehashed verifier. -/
 abbrev VerifyInput := U 256 × PublicKey × Signature × Aux
 
-/-- A proof-visible index for extending a table of public-key multiples.  The
-index is compile-time data and does not change the generated circuit. -/
-def addMultiple (_k : Nat) (P Q : AffineSlope.Point) :
-    Circuit AffineSlope.Point :=
-  AffineSlope.addComplete P Q
-
-def materializeLow (p1 : AffineSlope.Point) :
-    Circuit (Vector AffineSlope.Point 5) := do
-  let p2 ← addMultiple 1 p1 p1
-  let p3 ← addMultiple 2 p2 p1
-  let p4 ← addMultiple 3 p3 p1
-  let p5 ← addMultiple 4 p4 p1
-  pure #v[p1, p2, p3, p4, p5]
-
-def materializeMid (p1 p5 : AffineSlope.Point) :
-    Circuit (Vector AffineSlope.Point 5) := do
-  let p6 ← addMultiple 5 p5 p1
-  let p7 ← addMultiple 6 p6 p1
-  let p8 ← addMultiple 7 p7 p1
-  let p9 ← addMultiple 8 p8 p1
-  let p10 ← addMultiple 9 p9 p1
-  pure #v[p6, p7, p8, p9, p10]
-
-def materializeHigh (p1 p10 : AffineSlope.Point) :
-    Circuit (Vector AffineSlope.Point 5) := do
-  let p11 ← addMultiple 10 p10 p1
-  let p12 ← addMultiple 11 p11 p1
-  let p13 ← addMultiple 12 p12 p1
-  let p14 ← addMultiple 13 p13 p1
-  let p15 ← addMultiple 14 p14 p1
-  pure #v[p11, p12, p13, p14, p15]
-
-/-- The upper ten public-key multiples are kept behind one circuit boundary.
-This keeps both the correctness and quotient proofs compositional without
-changing the emitted constraints. -/
-def materializeTail (p1 : AffineSlope.Point)
-    (low : Vector AffineSlope.Point 5) :
-    Circuit (Vector AffineSlope.Point 5 × Vector AffineSlope.Point 5) := do
-  let mid ← materializeMid p1 low[4]
-  let high ← materializeHigh p1 mid[4]
-  pure (mid, high)
-
 def materializeMultiples (P : Projective) :
     Circuit (Vector AffineSlope.Point 16) := do
   let p1 := AffineSlope.ofElems P.X P.Y
-  let low ← materializeLow p1
-  let tail ← materializeTail p1 low
-  let mid := tail.1
-  let high := tail.2
-  pure #v[AffineSlope.infinity, low[0], low[1], low[2], low[3], low[4],
-    mid[0], mid[1], mid[2], mid[3], mid[4],
-    high[0], high[1], high[2], high[3], high[4]]
+  let p2 ← AffineSlope.addComplete p1 p1
+  let p3 ← AffineSlope.addComplete p2 p1
+  let p4 ← AffineSlope.addComplete p3 p1
+  let p5 ← AffineSlope.addComplete p4 p1
+  let p6 ← AffineSlope.addComplete p5 p1
+  let p7 ← AffineSlope.addComplete p6 p1
+  let p8 ← AffineSlope.addComplete p7 p1
+  let p9 ← AffineSlope.addComplete p8 p1
+  let p10 ← AffineSlope.addComplete p9 p1
+  let p11 ← AffineSlope.addComplete p10 p1
+  let p12 ← AffineSlope.addComplete p11 p1
+  let p13 ← AffineSlope.addComplete p12 p1
+  let p14 ← AffineSlope.addComplete p13 p1
+  let p15 ← AffineSlope.addComplete p14 p1
+  pure #v[AffineSlope.infinity, p1, p2, p3, p4, p5, p6, p7, p8,
+    p9, p10, p11, p12, p13, p14, p15]
 
 def indicators (n : Nat) (digit : LC ℤ) : Circuit (U n) := do
   let bits ← hint h![digit] fun h![(d : Int)] =>
