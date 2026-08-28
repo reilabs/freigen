@@ -30,11 +30,8 @@ unif_hint denoteW_f₂ (ctx : Context) (side : WitnessSide) where
   side =?= WitnessSide.f₂
   ⊢ ctx.WBool =?= side.denoteW ctx
 
-/- Keep the witness sort visible to unification hints instead of reducing an
-unknown sort to a stuck recursor.  The equations remain available explicitly
-with `simp [WitnessSide.denoteW]`. -/
--- `denoteW` stays reducible: context parameters now make both the witness
--- representation and the witness sort visible to unification.
+/- The explicit context keeps both the witness representation and sort visible
+to unification while allowing `denoteW` to remain reducible. -/
 
 inductive ConstraintEff (ctx : Context) : Type u where
 | assertR1C (a b c : ctx.Wℤ)

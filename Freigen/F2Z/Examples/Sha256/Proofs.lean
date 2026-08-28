@@ -204,7 +204,7 @@ theorem optimized_maj2_wf :
   refine ⟨h.1, ?_⟩
   simp only [← LC.Valuation.apply_eq_eval] at hass ⊢
   simp only [Valuation.zero_apply, zero_mul, Valuation.sub_apply,
-    map_nsmul, two_nsmul, Valuation.add_apply] at hass
+    two_nsmul, Valuation.add_apply] at hass
   omega
 
 @[spec] theorem optimized_fromDoubledInt35_complete {x : LC ℤ} (q : Nat)
@@ -250,7 +250,7 @@ theorem optimized_maj2_wf :
       · calc
           ρ.int (0 : LC Int) * ρ.int (0 : LC Int) = 0 := by simp
           _ = ρ.int (x - 2 • r.intVal) := by
-            simp [Valuation.sub_apply, Valuation.smul_apply, hx', hintVal]
+            simp [Valuation.sub_apply, hx', hintVal]
       · refine ⟨h.2, ?_⟩
         rw [← LC.Valuation.apply_eq_eval (valuation := ρ.int)
           (value := r.intVal), hintVal, hx]
@@ -277,7 +277,6 @@ theorem optimized_fromDoubledInt35_wf_full :
           (@U.intVal leftCtx 35 l) (@U.intVal rightCtx 35 r)) := by
   intro leftCtx rightCtx left right
   unfold U.fromDoubledInt35
-  simp only [bind_assoc, pure_bind]
   apply WF.Rel.hint
   · intro leftVal rightVal h
     simpa [WF.ArgsEq, WF.evalArgs, WF.LCEq,
@@ -285,7 +284,7 @@ theorem optimized_fromDoubledInt35_wf_full :
   · intro leftVal rightVal h
     unfold WF.LCEq at h
     unfold WF.HintRel
-    simp only [WF.evalArgs, Eff.WitnessSide.denoteF]
+    simp only [WF.evalArgs]
     rw [h]
     cases rightVal.int right <;> simp
   · intro outL outR
@@ -1556,8 +1555,7 @@ theorem inputWords_eval (values : Vector Bool 768) (valuation : Nat → Bool)
   apply BitVec.eq_of_getElem_eq
   intro bi hbi
   simp only [Vector.getElem_map, Vector.getElem_ofFn, Word.eval,
-    BitVec.getElem_ofFnLE, Fin.getElem_fin,
-    Vector.getElem_ofFn, LC.Valuation.apply_eq_eval, LC.eval_singleton]
+    BitVec.getElem_ofFnLE, Fin.getElem_fin]
   rw [BitVec.getElem_eq_testBit_toNat, BitVec.toNat_ofNat,
     Nat.mod_eq_of_lt (Nat.ofBits_lt_two_pow _),
     Nat.testBit_ofBits_lt _ _ hbi]

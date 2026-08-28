@@ -53,12 +53,4 @@ local instance ctx {F} [Field F] : Circuit.Context F where
   W := F
   Cert := fun P => PLift $ P idValuation
 
--- def interp {P: Nat} [Fact (Nat.Prime P)] {α} : Circuit (ZMod P) α → NondetM α := Free.interp (M:=InterpM) @fun
--- | Scope.constraint, ConstraintEff.assertR1C (a : ZMod P) b c, blocks => fun k =>
---     ∃(p : a * b = c), k (PLift.up p)
--- | Scope.constraint, ConstraintEff.rangeCheck n a, blocks => fun k =>
---     ∃(p : a.val < 2 ^ n), k (PLift.up $ by exists a.val; simp [p, idValuation])
--- -- | Scope.constraint, ConstraintEff.assertSpread n a b, blocks => fun k =>
-
-
 end Freigen.Circuit.Semantics

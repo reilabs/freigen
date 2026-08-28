@@ -455,7 +455,7 @@ theorem WF.ArgsEq.three
     ArgsEq lv rv
       (argTps := [.f₂, .f₂, .f₂]) h![xL, yL, zL] h![xR, yR, zR] := by
   unfold ArgsEq
-  simp only [evalArgs, Eff.WitnessSide.denoteF]
+  simp only [evalArgs]
   unfold LCEq at hx hy hz
   rw [hx, hy, hz]
 

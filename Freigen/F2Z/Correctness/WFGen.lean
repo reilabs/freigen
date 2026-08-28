@@ -186,7 +186,7 @@ theorem Rel.forIn'_range_f2z_set!_bind_rule
 
 /-- Congruence for the derived integer value of the new `U` representation.
 This is a semantic rule, rather than an instruction for the tactic to unfold
-whatever definition happens to occur below `LC.eval`. -/
+the concrete representation's evaluation function. -/
 theorem LCEq.uIntVal
     {leftCtx rightCtx : Context}
     {leftVal : @Valuation leftCtx} {rightVal : @Valuation rightCtx}

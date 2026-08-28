@@ -562,7 +562,7 @@ private theorem interp_runAt_adequate
         rw [Free.interp_bind]
         unfold F2Z.hint
         rw [Free.interp_op]
-        simp [Semantics.Witgen.handler, hrunL, appendHint]
+        simp [Semantics.Witgen.handler, hrunL]
         simpa [outL, Semantics.Witgen.runAt] using hrun
 
 /-- Lockstep direct execution and symbolic construction preserve constraint

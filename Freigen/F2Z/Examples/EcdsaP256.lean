@@ -10,8 +10,6 @@ contains their main boundary correctness statements.
 
 namespace Freigen.F2Z.Examples.EcdsaP256
 
-set_option maxHeartbeats 1000000
-
 -- Boundary execution and constraint generation use the canonical LC context.
 local instance : Context := lcContext
 

@@ -72,8 +72,7 @@ theorem assertOnCurve_wf_aux :
     have h1 := hmul1 lv rv h2.1
     simp_all [leftY, rightY, leftRhs, rightRhs, elemIntL, elemIntR,
       repIntL, repIntR, Modular.Lazy.Rep.WFRel, U.WFRel, WF.LCEq,
-      Valuation.add_apply, Valuation.sub_apply, Valuation.ofScalar_apply,
-      curveB_intVal_eval_eq]
+      Valuation.add_apply, Valuation.sub_apply, Valuation.ofScalar_apply]
     exact curveB_intVal_eval_eq lv rv
   case vc2 =>
     rename_i hrel hB
@@ -216,7 +215,7 @@ theorem selectRep_wf_aux (width outBound : Nat) (description : String) :
     exact Modular.Aux.WF.lceq_of_common_realizes
       (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
   case vc3 =>
-    simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
+    simp_all [WF.LCEq, WF.evalArgs]
     split <;> (split <;>
       simp only [WF.interpHint_pure, WF.interpHint_fail])
   all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
@@ -283,7 +282,7 @@ theorem doubleSlope_wf_aux :
     simp_all [leftDen, rightDen, leftNum, rightNum, repIntL, repIntR,
       repBoundL, repBoundR, pointYL, pointYR, infL, infR,
       Modular.Lazy.Rep.WFRel, WF.LCEq, Valuation.add_apply,
-      Valuation.sub_apply, Valuation.ofScalar_apply, three_intVal_eval_eq]
+      Valuation.sub_apply, Valuation.ofScalar_apply]
     exact three_intVal_eval_eq lv rv
 
 theorem finishDouble_wf_aux :

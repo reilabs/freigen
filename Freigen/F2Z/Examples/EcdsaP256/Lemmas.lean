@@ -2224,8 +2224,7 @@ theorem verifyDigestInputWord_eval_inputs
   apply BitVec.eq_of_getElem_eq
   intro i hi
   simp only [Word.eval, BitVec.getElem_ofFnLE, Fin.getElem_fin,
-    verifyDigestInputWord, Vector.getElem_ofFn, LC.eval_singleton,
-    verifyDigestInputValue]
+    verifyDigestInputWord, Vector.getElem_ofFn, verifyDigestInputValue]
   exact hbits ⟨slot.val * 256 + i, by
     simp [verifyDigestInputBits]
     omega⟩

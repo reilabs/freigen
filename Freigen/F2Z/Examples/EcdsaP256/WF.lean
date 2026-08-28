@@ -15,7 +15,7 @@ namespace Freigen.F2Z.Examples.EcdsaP256
 open P256
 
 set_option maxRecDepth 100000
-set_option maxHeartbeats 200000
+set_option maxHeartbeats 2000000
 
 private def IntWFRel {leftCtx rightCtx : Context}
     (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
@@ -27,10 +27,10 @@ private def BoolWFRel {leftCtx rightCtx : Context}
     (left : leftCtx.WBool) (right : rightCtx.WBool) : Prop :=
   WF.LCEq lv.bool rv.bool left right
 
-/-- Equality of every linear combination stored in a word, under the two
-total valuations.  `U.WFRel` deliberately omits the cached integer bits; the
-ECDSA window code consumes those bits directly, so its quotient relation must
-retain them as well. -/
+/-- Agreement of every integer witness stored in a word under the two total
+valuations. `U.WFRel` deliberately omits the cached integer bits; the ECDSA
+window code consumes those bits directly, so its quotient relation retains
+them as well. -/
 def U.FullWFRel {leftCtx rightCtx : Context}
     (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
     (left : @U leftCtx n) (right : @U rightCtx n) : Prop :=
@@ -106,7 +106,6 @@ private theorem projective_ofElems_wfRel {leftCtx rightCtx : Context}
         (@Projective.Y rightCtx right)) :=
   AffineSlope.ofElems_wfRel h.1 h.2.1
 
-set_option maxHeartbeats 2000000 in
 theorem materializeMultiples_wf_aux :
     WF.GadgetSpec Projective.WFRel materializeMultiples
       (WF.VectorRel AffineSlope.Point.WFRel) := by
@@ -725,7 +724,7 @@ theorem Modular.assertLt_wf_scalar_aux {n : Nat} (bound : Nat) :
       (fun _ _ _ _ => True) := by
   wfgen' using [U.fromInt_wf_full]
     unfold [Modular.assertLt, U.ScalarWFRel]
-  all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
+  all_goals simp_all [WF.LCEq]
 
 theorem Modular.ofU_wf_scalar_aux {n : Nat} (p : Modular.Params n) :
     WF.GadgetSpec U.ScalarWFRel (Modular.ofU p)
@@ -767,7 +766,7 @@ theorem Modular.Lazy.reduce_wf_scalar_aux {n : Nat}
       Modular.Aux.WF.wordSlice_lceq_of_common_realizes
         (Modular.Aux.WF.common_realizes_of_hint h) 0 n (by omega) i
   case vc6 =>
-    simp_all [WF.LCEq, Modular.Lazy.Rep.WFRel, WF.evalArgs]
+    simp_all [WF.LCEq, WF.evalArgs]
     split <;> simp
   all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
 

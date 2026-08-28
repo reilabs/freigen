@@ -84,7 +84,7 @@ theorem add_valid {x y : Rep p} (hx : x.Valid ρ) (hy : y.Valid ρ) :
   rcases hy with ⟨hy0, hylt⟩
   constructor
   · simpa [add, Rep.Valid] using add_nonneg hx0 hy0
-  · simp only [add, Rep.Valid, Valuation.add_apply]
+  · simp only [add, Valuation.add_apply]
     push_cast
     ring_nf
     nlinarith
@@ -94,11 +94,11 @@ theorem sub_valid {x y : Rep p} (hx : x.Valid ρ) (hy : y.Valid ρ) :
   rcases hx with ⟨hx0, hxlt⟩
   rcases hy with ⟨hy0, hylt⟩
   constructor
-  · simp only [sub, Rep.Valid, Valuation.sub_apply, Valuation.add_apply,
+  · simp only [sub, Valuation.sub_apply, Valuation.add_apply,
       Valuation.ofScalar_apply]
     push_cast
     omega
-  · simp only [sub, Rep.Valid, Valuation.sub_apply, Valuation.add_apply,
+  · simp only [sub, Valuation.sub_apply, Valuation.add_apply,
       Valuation.ofScalar_apply]
     push_cast
     ring_nf
@@ -108,9 +108,9 @@ theorem scale_valid {x : Rep p} (hx : x.Valid ρ) {k : Nat} (hk : 0 < k) :
     (scale p k x).Valid ρ := by
   rcases hx with ⟨hx0, hxlt⟩
   constructor
-  · simp only [scale, Rep.Valid, map_nsmul, nsmul_eq_mul]
+  · simp only [scale, map_nsmul, nsmul_eq_mul]
     positivity
-  · simp only [scale, Rep.Valid, map_nsmul, nsmul_eq_mul]
+  · simp only [scale, map_nsmul, nsmul_eq_mul]
     push_cast
     ring_nf
     have hk0 : (0 : Int) < k := by exact_mod_cast hk

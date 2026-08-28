@@ -55,9 +55,9 @@ theorem Rel.f2z_rel {P : Assumption leftCtx rightCtx}
         (F2Z.f2z (ctx := rightCtx) right) :=
   RelHom.f2z.relAmbient hinput
 
-/-- Converting a Boolean LC and adding a fixed natural multiple of it to an
-integer-LC accumulator preserves the ambient assumptions and accumulator
-equivalence. -/
+/-- Converting a Boolean witness and adding a fixed natural multiple of it to
+an integer accumulator preserves the ambient assumptions and accumulator
+equivalence across representations. -/
 theorem RelHom.f2z_add_nsmul {P : Assumption leftCtx rightCtx}
     {left : leftCtx.WBool} {right : rightCtx.WBool} (c : Nat)
     (hinput : ∀ leftVal rightVal, P leftVal rightVal →
@@ -88,8 +88,8 @@ theorem RelHom.f2z_add_nsmul {P : Assumption leftCtx rightCtx}
     simp only [Valuation.add_apply, map_nsmul]
     rw [hbase.2, hvalue.2]
 
-/-- Converting a Boolean LC and storing it at the same in-bounds position in
-two vector accumulators preserves pointwise evaluated equality. -/
+/-- Converting related Boolean witnesses and storing them at the same
+in-bounds position preserves pointwise equality of the vector accumulators. -/
 theorem RelHom.f2z_set! {P : Assumption leftCtx rightCtx}
     {left : leftCtx.WBool} {right : rightCtx.WBool}
     {i n : Nat} (_hi : i < n)
@@ -343,8 +343,8 @@ theorem Rel.forIn'_range_map_yield_intLC_bind
   · exact hstep
   · exact hcont
 
-/-- Canonical F2Z range loop: convert a Boolean LC, add a natural-scaled copy
-to an integer-LC accumulator, then continue. -/
+/-- Canonical F2Z range loop: convert a Boolean witness, add a natural-scaled
+copy to an integer accumulator, then continue. -/
 theorem Rel.forIn'_range_f2z_add_nsmul_bind
     {Q : Post leftCtx rightCtx γL γR}
     {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
@@ -376,7 +376,7 @@ theorem Rel.forIn'_range_f2z_add_nsmul_bind
   · exact hcont
 
 /-- Canonical F2Z range loop with a vector accumulator: convert each Boolean
-LC and store it at the loop index, then continue. -/
+witness and store it at the loop index, then continue. -/
 theorem Rel.forIn'_range_f2z_set!_bind
     {Q : Post leftCtx rightCtx γL γR}
     {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
@@ -417,7 +417,7 @@ theorem Rel.forIn'_range_f2z_set!_bind
 
 /-- Applying the same pure function to pointwise-equal vectors preserves equality
 after reversing them.  The functions are explicit so ordinary first-order
-unification can infer them from an `LC.eval` goal. -/
+unification can infer them from the relational equality goal. -/
 theorem eval_reverse {f g : α → β} {left right : Vector α n}
     (h : ∀ i : Fin n, f left[i] = g right[i]) (i : Fin n) :
     f left.reverse[i] = g right.reverse[i] := by

@@ -375,7 +375,7 @@ private theorem U.fromWord_wf_pointwise :
           (@U.intBits rightCtx n right)[i])) := by
   intro leftCtx rightCtx left right
   unfold U.fromWord
-  simp only [bind_assoc, pure_bind]
+  simp only [pure_bind]
   apply WF.Rel.forIn'_range_f2z_set!_bind
   · intro leftVal rightVal _ i
     simp [WF.IntEq, WF.LCEq]
@@ -424,8 +424,7 @@ theorem U.fromInt_sound {ρ} {n : Nat} {x : LC ℤ} :
   mvcgen [fromInt]
   intro b
   mvcgen
-  simp only [← LC.Valuation.apply_eq_eval, Valid, Valuation.sub_apply,
-    Valuation.zero_apply, Valuation.one_apply, zero_mul] at *
+  simp only [Valid, Valuation.sub_apply, Valuation.zero_apply, zero_mul] at *
   constructor
   · aesop
   · omega
@@ -508,7 +507,6 @@ theorem U.fromInt_wf :
           (@U.intVal leftCtx n left) (@U.intVal rightCtx n right)) := by
   intro leftCtx rightCtx left right
   unfold U.fromInt
-  simp only [bind_assoc, pure_bind]
   apply WF.Rel.hint
   · intro leftVal rightVal h
     simpa [WF.ArgsEq, WF.evalArgs, WF.LCEq,

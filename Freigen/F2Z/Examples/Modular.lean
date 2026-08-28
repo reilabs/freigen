@@ -353,8 +353,7 @@ theorem mul_wf {n : Nat} (p : Params n) :
       (fun input => mul p input.1 input.2) Rep.WFRel := by
   wfgen' using [U.fromWord_wf_rel] unfold [mul, Rep.WFRel]
   case vc1 =>
-    simp_all [WF.LCEq, U.WFRel, WF.RealizesBools, WF.evalArgs,
-      Valuation.add_apply, map_nsmul]
+    simp_all [WF.LCEq, U.WFRel, WF.RealizesBools, WF.evalArgs]
     grind
   case vc2 outBitsL outBitsR B =>
     rename_i qL qR
@@ -368,7 +367,7 @@ theorem mul_wf {n : Nat} (p : Params n) :
       Aux.WF.wordSlice_lceq_of_common_realizes
         (Aux.WF.common_realizes_of_hint h) 0 n (by omega) i
   case vc4 =>
-    simp_all [WF.LCEq, Rep.WFRel, WF.evalArgs]
+    simp_all [WF.LCEq, WF.evalArgs]
     all_goals try split
     all_goals try split
     all_goals simp
@@ -394,7 +393,7 @@ theorem reduce_wf {n : Nat} (p : Params n) :
       Aux.WF.wordSlice_lceq_of_common_realizes
         (Aux.WF.common_realizes_of_hint h) 0 n (by omega) i
   case vc6 =>
-    simp_all [WF.LCEq, Rep.WFRel, WF.evalArgs]
+    simp_all [WF.LCEq, WF.evalArgs]
     split <;> simp
   all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
 
@@ -425,7 +424,7 @@ theorem mulSubToElem_wf {n : Nat} (p : Params n) :
       Aux.WF.wordSlice_lceq_of_common_realizes
         (Aux.WF.common_realizes_of_hint h) 0 n (by omega) i
   case vc4 =>
-    simp_all [WF.LCEq, Rep.WFRel, WF.evalArgs]
+    simp_all [WF.LCEq, WF.evalArgs]
     split <;> simp
   all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
 
@@ -459,7 +458,7 @@ theorem divide_wf {n : Nat} (p : Params n) :
       Aux.WF.wordSlice_lceq_of_common_realizes
         (Aux.WF.common_realizes_of_hint h) 0 n (by omega) i
   case vc5 =>
-    simp_all [WF.LCEq, Rep.WFRel, WF.evalArgs]
+    simp_all [WF.LCEq, WF.evalArgs]
     all_goals try split
     all_goals try split
     all_goals try split
@@ -521,8 +520,7 @@ theorem zeroTest_wf {n : Nat} (p : Params n) :
     rename_i hZ hInv hB
     have hinv := hInv leftVal rightVal hB
     exact ⟨rfl, hinv.2.2.2⟩
-  all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.RealizesBools,
-    WF.evalArgs, map_nsmul]
+  all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.RealizesBools, WF.evalArgs]
   all_goals try grind
 
 @[spec] theorem mul_sound_zmod {x y : Rep p} :
