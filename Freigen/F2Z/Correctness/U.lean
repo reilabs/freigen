@@ -6,6 +6,8 @@ namespace Freigen.F2Z
 open Std.Do
 open scoped Std.Do
 
+local instance : Context := lcContext
+
 theorem Nat.intCast_ofBits_eq_sum (f : Fin n → Bool) :
     (Nat.ofBits f : Int) = ∑ k : Fin n, 2 ^ k.val * (f k).toInt := by
   induction n with
@@ -42,18 +44,13 @@ def Vector.Rel (valuation : WF.Valuation) (us : Vector (U n) m)
 
 theorem U.valid_bitVec (w : BitVec n) : ((w : U n).Valid ρ) := by
   intro i
-  simp only [Fin.getElem_fin, Vector.getElem_ofFn]
-  change LC.eval ρ.int (LC.ofConst w[i.val].toInt) =
-    (LC.eval ρ.bool (LC.ofConst w[i.val])).toInt
-  rw [LC.eval_ofConst, LC.eval_ofConst]
+  simp [Fin.getElem_fin]
 
 theorem U.eval_bitVec (w : BitVec n) : ((w : U n).eval ρ) = w := by
   rw [U.eval_eq_ofFnLE _ (U.valid_bitVec w)]
   apply BitVec.eq_of_getElem_eq
   intro i hi
-  simp only [BitVec.getElem_ofFnLE, Fin.getElem_fin, Vector.getElem_ofFn]
-  change LC.eval ρ.bool (LC.ofConst w[i]) = w[i]
-  rw [LC.eval_ofConst]
+  simp [BitVec.getElem_ofFnLE, Fin.getElem_fin]
 
 @[spec 2000] theorem U.fromWord_sound_rel {w : Word n} :
   ⦃⌜True⌝⦄ Sound.interp ρ (U.fromWord w)
@@ -117,17 +114,21 @@ theorem U.Rel.rotateXor3 {n a b c : Nat}
 theorem U.Rel.refl (h : u.Valid ρ) : U.Rel ρ u (u.eval ρ) :=
   ⟨h, rfl⟩
 
-theorem U.Rel.intVal (h : U.Rel ρ u value) :
-    u.intVal.eval ρ.int = value.toNat :=
+theorem U.Rel.intVal_apply (h : U.Rel ρ u value) :
+    ρ.int u.intVal = value.toNat :=
   (U.intVal_eval_eq_eval_toNat u h.1).trans
     (congrArg (fun x => (x.toNat : Int)) h.2)
+
+theorem U.Rel.intVal (h : U.Rel ρ u value) :
+    u.intVal.eval ρ.int = value.toNat :=
+  (LC.Valuation.apply_eq_eval ρ.int u.intVal).symm.trans h.intVal_apply
 
 theorem U.Rel.ternary {u v w out : U n} {bits : Vector (LC Bool) n}
     (f : Bool → Bool → Bool → Bool)
     (hu : u.Valid ρ) (hv : v.Valid ρ) (hw : w.Valid ρ)
-    (hbits : ∀ i : Fin n, bits[i].eval ρ.bool =
-      f (u.bits[i].eval ρ.bool) (v.bits[i].eval ρ.bool)
-        (w.bits[i].eval ρ.bool))
+    (hbits : ∀ i : Fin n, ρ.bool bits[i] =
+      f (ρ.bool u.bits[i]) (ρ.bool v.bits[i])
+        (ρ.bool w.bits[i]))
     (hout : U.Rel ρ out (Word.eval ρ.bool { bitsLE := bits })) :
     U.Rel ρ out (BitVec.ofFnLE fun i =>
       f (u.eval ρ)[i] (v.eval ρ)[i] (w.eval ρ)[i]) := by
@@ -137,11 +138,11 @@ theorem U.Rel.ternary {u v w out : U n} {bits : Vector (LC Bool) n}
   apply BitVec.eq_of_getElem_eq
   intro i hi
   have hb := hbits ⟨i, hi⟩
-  change LC.eval ρ.bool bits[i] = f
-    (LC.eval ρ.bool u.bits.bitsLE[i])
-    (LC.eval ρ.bool v.bits.bitsLE[i])
-    (LC.eval ρ.bool w.bits.bitsLE[i]) at hb
-  simpa [Word.eval] using hb
+  change ρ.bool bits[i] = f
+    (ρ.bool u.bits.bitsLE[i])
+    (ρ.bool v.bits.bitsLE[i])
+    (ρ.bool w.bits.bitsLE[i]) at hb
+  simpa [Word.eval, BitVec.getElem_ofFnLE] using hb
 
 theorem Vector.Rel.getElem! {n m : Nat} {us : Vector (U n) m}
     {values : Vector (BitVec n) m} (h : Vector.Rel ρ us values)
@@ -172,9 +173,8 @@ theorem U.eval_default : (default : U n).eval ρ = 0 := by
   apply BitVec.eq_of_getElem_eq
   intro i hi
   simp only [BitVec.getElem_ofFnLE]
-  change LC.eval ρ.bool (Vector.replicate n (0 : LC Bool))[i] =
-    (0 : BitVec n)[i]
-  simp only [Vector.getElem_replicate, LC.eval_zero]
+  change ρ.bool (Vector.replicate n (0 : LC Bool))[i] = (0 : BitVec n)[i]
+  simp only [Vector.getElem_replicate, Valuation.zero_apply]
   rw [show (0 : BitVec n) = BitVec.ofNat n 0 by rfl,
     BitVec.getElem_eq_testBit_toNat, BitVec.toNat_ofNat, Nat.zero_mod]
   have hzero : (0 : Bool) = false := rfl
@@ -280,108 +280,109 @@ theorem Complete.vectorOfFnM {f : Fin n → Circuit α}
 
 theorem U.fromWord_wf_full :
     WF.GadgetSpec
-      (fun lv rv (l r : Word n) => ∀ i : Fin n,
-        WF.LCEq lv.bool rv.bool l.bitsLE[i] r.bitsLE[i])
-      U.fromWord
-      (fun lv rv l r =>
+      (Input := fun ctx => @Word ctx n)
+      (Output := fun ctx => @U ctx n)
+      (fun {leftCtx rightCtx} lv rv
+          (l : @Word leftCtx n) (r : @Word rightCtx n) => ∀ i : Fin n,
+        WF.LCEq lv.bool rv.bool
+          (@Word.bitsLE leftCtx n l)[i]
+          (@Word.bitsLE rightCtx n r)[i])
+      (fun {ctx} word => @U.fromWord ctx n word)
+      (fun {leftCtx rightCtx} lv rv
+          (l : @U leftCtx n) (r : @U rightCtx n) =>
         (∀ i : Fin n, WF.LCEq lv.bool rv.bool
-          l.bits.bitsLE[i] r.bits.bitsLE[i]) ∧
-        (∀ i : Fin n, WF.LCEq lv.int rv.int l.intBits[i] r.intBits[i]) ∧
-        WF.LCEq lv.int rv.int l.intVal r.intVal) := by
-  unfold WF.GadgetSpec
-  intro left right
-  unfold U.fromWord
-  apply WF.Rel.forIn'_range_f2z_set!_bind
-  · intro lv rv h i
-    simp [WF.LCEq]
-  · intro i hi lv rv h
-    exact h ⟨i, by grind⟩
-  · grind
-  · intro A leftInts rightInts hA
-    apply WF.Rel.pure
-    intro lv rv h
-    have hp := hA lv rv h
-    exact ⟨hp.1, hp.2, WF.LCEq.uIntVal hp.2⟩
+          (@Word.bitsLE leftCtx n (@U.bits leftCtx n l))[i]
+          (@Word.bitsLE rightCtx n (@U.bits rightCtx n r))[i]) ∧
+        (∀ i : Fin n, WF.LCEq lv.int rv.int
+          (@U.intBits leftCtx n l)[i] (@U.intBits rightCtx n r)[i]) ∧
+        WF.LCEq lv.int rv.int
+          (@U.intVal leftCtx n l) (@U.intVal rightCtx n r)) :=
+  U.fromWord_wf
 
 theorem U.fromInt_wf_full :
     WF.GadgetSpec
-      (fun lv rv (l r : LC ℤ) => WF.LCEq lv.int rv.int l r)
-      (U.fromInt n)
-      (fun lv rv l r =>
+      (Input := fun ctx => ctx.Wℤ)
+      (Output := fun ctx => @U ctx n)
+      (fun {leftCtx rightCtx} lv rv
+          (l : leftCtx.Wℤ) (r : rightCtx.Wℤ) =>
+        WF.LCEq lv.int rv.int l r)
+      (fun {ctx} value => @U.fromInt ctx n value)
+      (fun {leftCtx rightCtx} lv rv
+          (l : @U leftCtx n) (r : @U rightCtx n) =>
         (∀ i : Fin n, WF.LCEq lv.bool rv.bool
-          l.bits.bitsLE[i] r.bits.bitsLE[i]) ∧
-        (∀ i : Fin n, WF.LCEq lv.int rv.int l.intBits[i] r.intBits[i]) ∧
-        WF.LCEq lv.int rv.int l.intVal r.intVal) := by
-  wfgen' using [U.fromWord_wf_full] unfold [U.fromInt]
-  case vc1 hrel =>
-    rcases hrel with ⟨_, values, _, _, hleft, hright⟩
-    exact (hleft i.val i.isLt).trans (hright i.val i.isLt).symm
-  case vc2 h =>
-    unfold WF.LCEq at h
-    simp only [WF.evalArgs]
-    rw [h]
-  case vc3 h =>
-    unfold WF.ArgsEq
-    simp only [WF.evalArgs]
-    exact congrArg (fun x => h![x]) h
+          (@Word.bitsLE leftCtx n (@U.bits leftCtx n l))[i]
+          (@Word.bitsLE rightCtx n (@U.bits rightCtx n r))[i]) ∧
+        (∀ i : Fin n, WF.LCEq lv.int rv.int
+          (@U.intBits leftCtx n l)[i] (@U.intBits rightCtx n r)[i]) ∧
+        WF.LCEq lv.int rv.int
+          (@U.intVal leftCtx n l) (@U.intVal rightCtx n r)) :=
+  U.fromInt_wf
 
-def U.WFRel (lv rv : WF.Valuation) (l r : U n) : Prop :=
-  WF.LCEq lv.int rv.int l.intVal r.intVal ∧
-  ∀ i : Fin n, WF.LCEq lv.bool rv.bool l.bits.bitsLE[i] r.bits.bitsLE[i]
+def U.WFRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (l : @U leftCtx n) (r : @U rightCtx n) : Prop :=
+  WF.LCEq lv.int rv.int
+      (@U.intVal leftCtx n l) (@U.intVal rightCtx n r) ∧
+  ∀ i : Fin n, WF.LCEq lv.bool rv.bool
+    (@Word.bitsLE leftCtx n (@U.bits leftCtx n l))[i]
+    (@Word.bitsLE rightCtx n (@U.bits rightCtx n r))[i]
 
-theorem U.wfRel_bitVec (lv rv : WF.Valuation) (x : BitVec n) :
-    U.WFRel lv rv (x : U n) (x : U n) := by
-  have hbit (v : Nat → Bool) (j : Fin n) :
-      LC.eval v ((x : U n).bits.bitsLE[j]) = x[j] := by
-    simp only [Vector.getElem_ofFn, Fin.getElem_fin, LC.eval_ofConst]
-  have hint (v : Nat → ℤ) (j : Fin n) :
-      LC.eval v ((x : U n).intBits[j]) = x[j].toInt := by
-    simp only [Vector.getElem_ofFn, Fin.getElem_fin, LC.eval_ofConst]
-  unfold U.WFRel WF.LCEq U.intVal
+theorem U.wfRel_bitVec {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (x : BitVec n) :
+    U.WFRel lv rv (x : @U leftCtx n) (x : @U rightCtx n) := by
   constructor
-  · rw [LC.eval_sum, LC.eval_sum]
-    apply Finset.sum_congr rfl
-    intro j _
-    simp only [LC.eval_nsmul, hint]
+  · apply WF.LCEq.uIntVal
+    intro i
+    simp [WF.LCEq]
   · intro i
-    rw [hbit, hbit]
+    simp [WF.LCEq]
 
 theorem U.fromWord_wf_rel :
     WF.GadgetSpec
-      (fun lv rv (l r : Word n) => ∀ i : Fin n,
-        WF.LCEq lv.bool rv.bool l[i] r[i]) U.fromWord U.WFRel := by
-  intro left right
-  apply WF.Rel.mono (U.fromWord_wf_full left right)
+      (Input := fun ctx => @Word ctx n)
+      (Output := fun ctx => @U ctx n)
+      (fun {leftCtx rightCtx} lv rv
+          (l : @Word leftCtx n) (r : @Word rightCtx n) => ∀ i : Fin n,
+        WF.LCEq lv.bool rv.bool
+          (@Word.bitsLE leftCtx n l)[i]
+          (@Word.bitsLE rightCtx n r)[i])
+      (fun {ctx} word => @U.fromWord ctx n word) U.WFRel := by
+  intro leftCtx rightCtx left right
+  apply WF.Rel.mono (U.fromWord_wf_full leftCtx rightCtx left right)
   exact fun _ _ _ _ h => ⟨h.2.2, h.1⟩
 
-theorem U.wfRel_default (lv rv : WF.Valuation) :
-    U.WFRel lv rv (default : U n) default := by
-  unfold U.WFRel WF.LCEq U.intVal
+theorem U.wfRel_default {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    U.WFRel lv rv (default : @U leftCtx n) (default : @U rightCtx n) := by
   constructor
-  · rw [LC.eval_sum, LC.eval_sum]
-    apply Finset.sum_congr rfl
-    intro i _
-    rw [LC.eval_nsmul, LC.eval_nsmul]
-    have hz : (default : U n).intBits[i] = 0 := by
-      change (Vector.replicate n (0 : LC ℤ))[i] = 0
-      simp
-    rw [hz, LC.eval_zero, LC.eval_zero]
+  · apply WF.LCEq.uIntVal
+    intro i
+    change WF.LCEq lv.int rv.int
+      (Vector.replicate n (0 : leftCtx.Wℤ))[i]
+      (Vector.replicate n (0 : rightCtx.Wℤ))[i]
+    simp [WF.LCEq]
   · intro i
-    have hz : (default : U n).bits.bitsLE[i] = 0 := by
-      change (Vector.replicate n (0 : LC Bool))[i] = 0
-      simp
-    rw [hz, LC.eval_zero, LC.eval_zero]
+    change WF.LCEq lv.bool rv.bool
+      (Vector.replicate n (0 : leftCtx.WBool))[i]
+      (Vector.replicate n (0 : rightCtx.WBool))[i]
+    simp [WF.LCEq]
 
-theorem U.vector_default_get (i : Fin m) :
-    (default : Vector (U n) m)[i] = default := by
-  change (Vector.replicate m (default : U n))[i] = default
+theorem U.vector_default_get [ctx : Context] (i : Fin m) :
+    (default : Vector (@U ctx n) m)[i] = default := by
+  change (Vector.replicate m (default : @U ctx n))[i] = default
   simp
 
-theorem U.vector_default_wfRel (lv rv : WF.Valuation) :
+theorem U.vector_default_wfRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
     WF.VectorRel U.WFRel lv rv
-      (default : Vector (U n) m) default := by
+      (default : Vector (@U leftCtx n) m)
+      (default : Vector (@U rightCtx n) m) := by
   intro i
-  simpa only [U.vector_default_get] using U.wfRel_default lv rv
+  have hl := U.vector_default_get (ctx := leftCtx) (n := n) (m := m) i
+  have hr := U.vector_default_get (ctx := rightCtx) (n := n) (m := m) i
+  rw [hl, hr]
+  exact U.wfRel_default lv rv
 
 theorem Vector.Rel.default {n m : Nat} {valuation : WF.Valuation} :
     Vector.Rel valuation (Inhabited.default : Vector (U n) m)
@@ -393,10 +394,11 @@ theorem Vector.Rel.default {n m : Nat} {valuation : WF.Valuation} :
   rw [Vector.get_replicate]
   exact ⟨U.valid_default, U.eval_default⟩
 
-def U.ternaryHints (f : Bool → Bool → Bool → Bool)
-    (u v w : U n) : Circuit (Vector (LC Bool) n) :=
+def U.ternaryHints [ctx : Context] (f : Bool → Bool → Bool → Bool)
+    (u v w : @U ctx n) : @Circuit ctx (Vector ctx.WBool n) :=
   Vector.ofFnM fun i => do
-    let out ← hint h![u.bits[i], v.bits[i], w.bits[i]]
+    let out ← hint (argTps := [.f₂, .f₂, .f₂])
+      h![u.bits.bitsLE[i], v.bits.bitsLE[i], w.bits.bitsLE[i]]
       fun h![x, y, z] => pure #v[f x y z]
     pure out[0]
 
@@ -419,7 +421,18 @@ def U.ternaryHints (f : Bool → Bool → Bool → Bool)
     let ix : Fin n := ⟨i, hi⟩
     refine ⟨#v[f (u.bits[ix].eval valuation.bool)
       (v.bits[ix].eval valuation.bool) (w.bits[ix].eval valuation.bool)],
-      rfl, ?_⟩
+      ?_, ?_⟩
+    · change some #v[f
+          (valuation.bool u.bits[ix])
+          (valuation.bool v.bits[ix])
+          (valuation.bool w.bits[ix])] =
+        some #v[f
+          (LC.eval valuation.bool u.bits[ix])
+          (LC.eval valuation.bool v.bits[ix])
+          (LC.eval valuation.bool w.bits[ix])]
+      rw [LC.Valuation.apply_eq_eval valuation.bool u.bits[ix],
+        LC.Valuation.apply_eq_eval valuation.bool v.bits[ix],
+        LC.Valuation.apply_eq_eval valuation.bool w.bits[ix]]
     intro j
     by_cases hj : j.val < i
     · have hcast : (⟨j.val, hj⟩ : Fin i).castLE (Nat.le_of_lt hi) =
@@ -433,28 +446,37 @@ def U.ternaryHints (f : Bool → Bool → Bool → Bool)
   case vc3 => simp
 
 theorem WF.ArgsEq.three
-    {xL xR yL yR zL zR : LC Bool}
+    {leftCtx rightCtx : Context}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {xL yL zL : leftCtx.WBool} {xR yR zR : rightCtx.WBool}
     (hx : LCEq lv.bool rv.bool xL xR)
     (hy : LCEq lv.bool rv.bool yL yR)
     (hz : LCEq lv.bool rv.bool zL zR) :
-    ArgsEq lv rv h![xL, yL, zL] h![xR, yR, zR] := by
+    ArgsEq lv rv
+      (argTps := [.f₂, .f₂, .f₂]) h![xL, yL, zL] h![xR, yR, zR] := by
   unfold ArgsEq
-  simp only [evalArgs]
+  simp only [evalArgs, Eff.WitnessSide.denoteF]
   unfold LCEq at hx hy hz
   rw [hx, hy, hz]
 
 theorem U.ternaryHints_wf (f : Bool → Bool → Bool → Bool) :
     WF.GadgetSpec
-      (fun lv rv (l r : U n × U n × U n) =>
+      (Input := fun ctx => @U ctx n × @U ctx n × @U ctx n)
+      (Output := fun ctx => Vector ctx.WBool n)
+      (fun {leftCtx rightCtx} lv rv
+          (l : @U leftCtx n × @U leftCtx n × @U leftCtx n)
+          (r : @U rightCtx n × @U rightCtx n × @U rightCtx n) =>
         U.WFRel lv rv l.1 r.1 ∧ U.WFRel lv rv l.2.1 r.2.1 ∧
           U.WFRel lv rv l.2.2 r.2.2)
-      (fun x => U.ternaryHints f x.1 x.2.1 x.2.2)
+      (fun {ctx} x => @U.ternaryHints n ctx f x.1 x.2.1 x.2.2)
       (WF.VectorRel fun lv rv l r => WF.LCEq lv.bool rv.bool l r) := by
   unfold WF.GadgetSpec
-  intro left right
+  intro leftCtx rightCtx left right
   unfold U.ternaryHints
   apply WF.Rel.mono (WF.Rel.vectorOfFnM
-    (S := fun _ lv rv l r => WF.LCEq lv.bool rv.bool l r) ?_)
+    (leftCtx := leftCtx) (rightCtx := rightCtx)
+    (S := fun _ lv rv (l : leftCtx.WBool) (r : rightCtx.WBool) =>
+      WF.LCEq lv.bool rv.bool l r) ?_)
   · exact fun _ _ _ _ h => h.2
   · intro i P _ _ hP
     wfgen'
@@ -467,24 +489,24 @@ theorem U.ternaryHints_wf (f : Bool → Bool → Bool → Bool) :
       have hu := hin.1.2 i
       have hv := hin.2.1.2 i
       have hw := hin.2.2.2 i
-      change WF.LCEq _ _ left.1.bits[i] right.1.bits[i] at hu
-      change WF.LCEq _ _ left.2.1.bits[i] right.2.1.bits[i] at hv
-      change WF.LCEq _ _ left.2.2.bits[i] right.2.2.bits[i] at hw
-      have heq := WF.ArgsEq.three hu hv hw
-      unfold WF.ArgsEq at heq
-      rw [heq]
+      unfold WF.LCEq at hu hv hw
+      simp only [WF.evalArgs, WF.interpHint_pure]
+      rw [hu, hv, hw]
     case vc4 h =>
       have hin := hP leftVal rightVal h
       have hu := hin.1.2 i
       have hv := hin.2.1.2 i
       have hw := hin.2.2.2 i
-      change WF.LCEq _ _ left.1.bits[i] right.1.bits[i] at hu
-      change WF.LCEq _ _ left.2.1.bits[i] right.2.1.bits[i] at hv
-      change WF.LCEq _ _ left.2.2.bits[i] right.2.2.bits[i] at hw
-      exact WF.ArgsEq.three hu hv hw
+      unfold WF.LCEq at hu hv hw
+      unfold WF.ArgsEq
+      simp only [WF.evalArgs]
+      rw [hu, hv, hw]
 
-theorem WF.VectorRel.set! {R : WF.Post α}
-    {left right : Vector α n} {xL xR : α}
+theorem WF.VectorRel.set! {leftCtx rightCtx : Context} {TypeL TypeR : Type}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {R : WF.Post leftCtx rightCtx TypeL TypeR}
+    {left : Vector TypeL n} {right : Vector TypeR n}
+    {xL : TypeL} {xR : TypeR}
     (h : WF.VectorRel R lv rv left right)
     (hx : R lv rv xL xR) (i : Nat) :
     WF.VectorRel R lv rv (left.set! i xL) (right.set! i xR) := by
@@ -496,15 +518,21 @@ theorem WF.VectorRel.set! {R : WF.Post α}
   · exact hx
   · exact h j
 
-theorem WF.VectorRel.getElem! [Inhabited α] {R : WF.Post α}
-    {left right : Vector α n}
+theorem WF.VectorRel.getElem! {leftCtx rightCtx : Context} {TypeL TypeR : Type}
+    [Inhabited TypeL] [Inhabited TypeR]
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {R : WF.Post leftCtx rightCtx TypeL TypeR}
+    {left : Vector TypeL n} {right : Vector TypeR n}
     (h : WF.VectorRel R lv rv left right) {i : Nat} (hi : i < n) :
     R lv rv left[i]! right[i]! := by
   rw [getElem!_pos left i hi, getElem!_pos right i hi]
   exact h ⟨i, hi⟩
 
-def Word.WFRel (lv rv : WF.Valuation) (l r : Word n) : Prop :=
-  ∀ i : Fin n, WF.LCEq lv.bool rv.bool l.bitsLE[i] r.bitsLE[i]
+def Word.WFRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (l : @Word leftCtx n) (r : @Word rightCtx n) : Prop :=
+  ∀ i : Fin n, WF.LCEq lv.bool rv.bool
+    (@Word.bitsLE leftCtx n l)[i] (@Word.bitsLE rightCtx n r)[i]
 
 theorem U.WFRel.bits (h : U.WFRel lv rv l r) :
     Word.WFRel lv rv l.bits r.bits :=
@@ -512,61 +540,64 @@ theorem U.WFRel.bits (h : U.WFRel lv rv l r) :
 
 attribute [grind =>] U.WFRel.bits
 
-theorem Word.WFRel.xor {uL uR vL vR : Word n}
+theorem Word.WFRel.xor {leftCtx rightCtx : Context}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {uL vL : @Word leftCtx n} {uR vR : @Word rightCtx n}
     (hu : Word.WFRel lv rv uL uR)
     (hv : Word.WFRel lv rv vL vR) :
-    Word.WFRel lv rv (uL ^^^ vL) (uR ^^^ vR) := by
+    Word.WFRel lv rv
+      (@Word.xor leftCtx n uL vL) (@Word.xor rightCtx n uR vR) := by
   intro i
-  unfold Word.WFRel at hu hv
-  unfold WF.LCEq at hu hv ⊢
-  change LC.eval lv.bool (uL ^^^ vL).bitsLE[i.val] = _
-  rw [show uL ^^^ vL =
-      { bitsLE := Vector.zipWith (· + ·) uL.bitsLE vL.bitsLE } by rfl,
-    show uR ^^^ vR =
-      { bitsLE := Vector.zipWith (· + ·) uR.bitsLE vR.bitsLE } by rfl]
-  change LC.eval lv.bool
-      (Vector.zipWith (· + ·) uL.bitsLE vL.bitsLE)[i.val] =
-    LC.eval rv.bool
-      (Vector.zipWith (· + ·) uR.bitsLE vR.bitsLE)[i.val]
-  simp only [Vector.getElem_zipWith i.isLt, LC.eval_add]
-  have hui := hu i
-  have hvi := hv i
-  change LC.eval lv.bool uL.bitsLE[i.val] =
-    LC.eval rv.bool uR.bitsLE[i.val] at hui
-  change LC.eval lv.bool vL.bitsLE[i.val] =
-    LC.eval rv.bool vR.bitsLE[i.val] at hvi
-  rw [hui, hvi]
+  change WF.LCEq lv.bool rv.bool
+    (Vector.zipWith (· + ·) (@Word.bitsLE leftCtx n uL)
+      (@Word.bitsLE leftCtx n vL))[i.val]
+    (Vector.zipWith (· + ·) (@Word.bitsLE rightCtx n uR)
+      (@Word.bitsLE rightCtx n vR))[i.val]
+  simp only [Vector.getElem_zipWith i.isLt]
+  exact WF.eval_add (hu i) (hv i)
 
-theorem Word.WFRel.rotateRight (h : Word.WFRel lv rv uL uR) (k : Nat) :
-    Word.WFRel lv rv (uL.rotateRight k) (uR.rotateRight k) := by
+theorem Word.WFRel.rotateRight {leftCtx rightCtx : Context}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {uL : @Word leftCtx n} {uR : @Word rightCtx n}
+    (h : Word.WFRel lv rv uL uR) (k : Nat) :
+    Word.WFRel lv rv
+      (@Word.rotateRight leftCtx n k uL)
+      (@Word.rotateRight rightCtx n k uR) := by
   intro i
-  unfold WF.LCEq
-  change LC.eval lv.bool (uL.rotateRight k).bitsLE[i.val] =
-    LC.eval rv.bool (uR.rotateRight k).bitsLE[i.val]
-  rw [Word.rotateRight_getElem uL k i i.isLt,
-    Word.rotateRight_getElem uR k i i.isLt]
+  change WF.LCEq lv.bool rv.bool
+    (@Word.bitsLE leftCtx n (@Word.rotateRight leftCtx n k uL))[i.val]
+    (@Word.bitsLE rightCtx n (@Word.rotateRight rightCtx n k uR))[i.val]
+  rw [@Word.rotateRight_getElem leftCtx n uL k i i.isLt,
+    @Word.rotateRight_getElem rightCtx n uR k i i.isLt]
   split
   · exact h ⟨_, by omega⟩
   · exact h ⟨_, by omega⟩
 
-theorem Word.WFRel.shiftRight (h : Word.WFRel lv rv uL uR) (k : Nat) :
-    Word.WFRel lv rv (uL >>> k) (uR >>> k) := by
+theorem Word.WFRel.shiftRight {leftCtx rightCtx : Context}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {uL : @Word leftCtx n} {uR : @Word rightCtx n}
+    (h : Word.WFRel lv rv uL uR) (k : Nat) :
+    Word.WFRel lv rv
+      (@Word.shiftRight leftCtx n uL k)
+      (@Word.shiftRight rightCtx n uR k) := by
   intro i
-  unfold WF.LCEq
-  change LC.eval lv.bool (uL >>> k).bitsLE[i.val] =
-    LC.eval rv.bool (uR >>> k).bitsLE[i.val]
-  rw [Word.shiftRight_getElem uL k i i.isLt,
-    Word.shiftRight_getElem uR k i i.isLt]
+  change WF.LCEq lv.bool rv.bool
+    (@Word.bitsLE leftCtx n (@Word.shiftRight leftCtx n uL k))[i.val]
+    (@Word.bitsLE rightCtx n (@Word.shiftRight rightCtx n uR k))[i.val]
+  rw [@Word.shiftRight_getElem leftCtx n uL k i i.isLt,
+    @Word.shiftRight_getElem rightCtx n uR k i i.isLt]
   split
   · exact h ⟨_, by omega⟩
-  · simp
+  · simp [WF.LCEq]
 
-def U.sumFixed (us : Vector (U n) m) : Circuit (U n) := do
+def U.sumFixed [ctx : Context]
+    (us : Vector (@U ctx n) m) : @Circuit ctx (@U ctx n) := do
   let wide ← U.fromInt (n + Nat.clog 2 m)
     (us.toArray.map (fun x => x.intVal)).sum
   pure (wide.takeLE n (by omega))
 
-theorem U.sum_toArray_eq_sumFixed (us : Vector (U n) m) :
+theorem U.sum_toArray_eq_sumFixed [ctx : Context]
+    (us : Vector (@U ctx n) m) :
     U.sum us.toArray = U.sumFixed us := by
   cases us with
   | mk array hsize =>
@@ -577,16 +608,18 @@ theorem U.sum_toArray_eq_sumFixed (us : Vector (U n) m) :
     exact congrArg (fun x : U n => (pure x : Circuit (U n)))
       (U.takeLE_eq_truncate wide (by omega)).symm
 
-@[simp] theorem U.sum2_eq_sumFixed (a b : U n) :
+@[simp] theorem U.sum2_eq_sumFixed [ctx : Context] (a b : @U ctx n) :
     U.sum #[a, b] = U.sumFixed #v[a, b] :=
   U.sum_toArray_eq_sumFixed #v[a, b]
-@[simp] theorem U.sum4_eq_sumFixed (a b c d : U n) :
+@[simp] theorem U.sum4_eq_sumFixed [ctx : Context] (a b c d : @U ctx n) :
     U.sum #[a, b, c, d] = U.sumFixed #v[a, b, c, d] :=
   U.sum_toArray_eq_sumFixed #v[a, b, c, d]
-@[simp] theorem U.sum6_eq_sumFixed (a b c d e f : U n) :
+@[simp] theorem U.sum6_eq_sumFixed [ctx : Context]
+    (a b c d e f : @U ctx n) :
     U.sum #[a, b, c, d, e, f] = U.sumFixed #v[a, b, c, d, e, f] :=
   U.sum_toArray_eq_sumFixed #v[a, b, c, d, e, f]
-@[simp] theorem U.sum7_eq_sumFixed (a b c d e f g : U n) :
+@[simp] theorem U.sum7_eq_sumFixed [ctx : Context]
+    (a b c d e f g : @U ctx n) :
     U.sum #[a, b, c, d, e, f, g] = U.sumFixed #v[a, b, c, d, e, f, g] :=
   U.sum_toArray_eq_sumFixed #v[a, b, c, d, e, f, g]
 
@@ -637,13 +670,15 @@ theorem U.sumPair_complete {a b : U n} {av bv : BitVec n}
   simp only [PostCond.entails, SPred.entails_nil]
   exact ⟨fun _ h => U.sumPair_result ha hb h, ExceptConds.entails.refl _⟩
 
-theorem U.lceq_intVal_sum {left right : Vector (U n) m}
+theorem U.lceq_intVal_sum {leftCtx rightCtx : Context}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {left : Vector (@U leftCtx n) m} {right : Vector (@U rightCtx n) m}
     (h : WF.VectorRel U.WFRel lv rv left right) :
     WF.LCEq lv.int rv.int
-      (left.toArray.map (fun x => x.intVal)).sum
-      (right.toArray.map (fun x => x.intVal)).sum := by
+      (left.toArray.map (fun x => @U.intVal leftCtx n x)).sum
+      (right.toArray.map (fun x => @U.intVal rightCtx n x)).sum := by
   unfold WF.LCEq
-  rw [LC.eval_array_sum, LC.eval_array_sum]
+  simp only [Valuation.array_sum]
   apply congrArg Array.sum
   apply Array.ext
   · simp
@@ -652,10 +687,13 @@ theorem U.lceq_intVal_sum {left right : Vector (U n) m}
     exact (h ⟨i, by simpa using hiLeft⟩).1
 
 theorem U.sumFixed_wf :
-    WF.GadgetSpec (WF.VectorRel (U.WFRel (n := n)))
-      (U.sumFixed (n := n) (m := m)) U.WFRel := by
+    WF.GadgetSpec
+      (Input := fun ctx => Vector (@U ctx n) m)
+      (Output := fun ctx => @U ctx n)
+      (WF.VectorRel (U.WFRel (n := n)))
+      (fun {ctx} us => @U.sumFixed n m ctx us) U.WFRel := by
   unfold WF.GadgetSpec
-  intro left right
+  intro leftCtx rightCtx left right
   unfold U.sumFixed
   apply WF.GadgetSpec.bind_rule U.fromInt_wf_full
   · exact fun _ _ h => U.lceq_intVal_sum h
@@ -671,8 +709,8 @@ theorem U.sumFixed_wf :
     · intro i
       simpa [U.takeLE, Fin.getElem_fin] using h.2.1 (i.castLE hle)
 
-instance instInhabitedWord : Inhabited (Word n) :=
-  ⟨{ bitsLE := Vector.replicate n (0 : LC Bool) }⟩
+instance instInhabitedWord [ctx : Context] : Inhabited (@Word ctx n) :=
+  ⟨{ bitsLE := Vector.replicate n (0 : ctx.WBool) }⟩
 
 @[simp] theorem Vector.getElem!_map [Inhabited α] [Inhabited β]
     (xs : Vector α n) (f : α → β) (i : Nat) (hi : i < n) :
@@ -713,12 +751,15 @@ theorem List.foldl_congr_of_mem {xs : List α} {f g : β → α → β}
   simpa using (U.fromWord_complete_rel (w := words[i]))
 
 theorem U.mapM_fromWord_wf :
-    WF.GadgetSpec (WF.VectorRel Word.WFRel)
-      (fun xs : Vector (Word n) m => xs.mapM U.fromWord)
+    WF.GadgetSpec
+      (Input := fun ctx => Vector (@Word ctx n) m)
+      (Output := fun ctx => Vector (@U ctx n) m)
+      (WF.VectorRel Word.WFRel)
+      (fun {ctx} xs => xs.mapM (@U.fromWord ctx n))
       (WF.VectorRel U.WFRel) := by
-  intro left right
+  intro leftCtx rightCtx left right
   apply WF.Rel.mono
-    (U.fromWord_wf_rel.relHom.vectorMapM
+    ((U.fromWord_wf_rel.relHom leftCtx rightCtx).vectorMapM
       (fun lv rv => WF.VectorRel Word.WFRel lv rv left right)
       left right (fun _ _ h => h))
   exact fun _ _ _ _ h => h.2

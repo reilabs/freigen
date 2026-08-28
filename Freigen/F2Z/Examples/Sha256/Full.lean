@@ -3,8 +3,12 @@ import Freigen.F2Z.Examples.Sha256.Parameters
 
 namespace Freigen.F2Z.Examples
 
+section Circuit
+
+variable [ctx : Context]
+
 def sha256Word (value : BitVec 32) : Word 32 :=
-  { bitsLE := Vector.ofFn fun i => LC.ofConst value[i] }
+  { bitsLE := Vector.ofFn fun i => ofScalar value[i] }
 
 /-- The initial hash value from FIPS 180-4, section 5.3.3. -/
 def sha256InitialState : Vector (Word 32) 8 := #v[
@@ -34,8 +38,8 @@ bytes are ordered from first to last and the bits within each byte are ordered
 most-significant first. The circuit processes 32 message blocks followed by
 the fixed SHA-256 padding block. -/
 def sha2562KBCircuit
-    (message : Vector (LC Bool) sha2562KBMessageBits) :
-    Circuit (Vector (LC Bool) 256) := do
+    (message : Vector ctx.WBool sha2562KBMessageBits) :
+    Circuit (Vector ctx.WBool 256) := do
   let mut state := sha256InitialState
   for hBlock:block in [0:32] do
     let words : Vector (Word 32) 16 := Vector.ofFn fun word =>
@@ -52,6 +56,8 @@ def sha2562KBCircuit
 
 /-- Constraint-system representation of `sha2562KBCircuit`. -/
 abbrev sha2562KBCS : Vector (LC Bool) 256 × Semantics.CS :=
-  Semantics.CSBuilder.runWithInputs sha2562KBCircuit
+  Semantics.CSBuilder.runWithInputs (@sha2562KBCircuit lcContext)
+
+end Circuit
 
 end Freigen.F2Z.Examples

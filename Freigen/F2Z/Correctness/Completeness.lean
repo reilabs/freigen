@@ -8,6 +8,8 @@ namespace Freigen.F2Z.Complete
 open Std.Do
 open scoped Std.Do
 
+local instance : Context := lcContext
+
 /-- The proof-facing semantics has no allocator or mutable state. -/
 abbrev InterpM (_ : Eff.Scope) := Option
 
@@ -20,7 +22,7 @@ instance : (scope : Eff.Scope) → LawfulMonad (InterpM scope)
   | .hint => inferInstance
 
 def interpHandler (valuation : WF.Valuation) :
-    Freigen.Eff.Handler Eff InterpM :=
+    Freigen.Eff.Handler (Eff lcContext) InterpM :=
   @fun
     | .constraint, .assertR1C a b c, _ =>
         if a.eval valuation.int * b.eval valuation.int = c.eval valuation.int then
@@ -30,7 +32,7 @@ def interpHandler (valuation : WF.Valuation) :
     | .constraint, .f2z a, _ =>
         some (LC.ofConst (a.eval valuation.bool).toInt)
     | .constraint, .hint _ args _, block => do
-        let values ← block PUnit.unit (WF.evalArgs valuation args)
+        let values ← block PUnit.unit (WF.evalArgs lcContext valuation args)
         pure (values.map LC.ofConst)
     | .hint, .fail _ _, _ => none
 
@@ -135,7 +137,7 @@ theorem interpHint_eq (valuation : WF.Valuation) (body : Hint α) :
     WF.interpHint body =
       Free.interp (interpHandler valuation) body := by
   let motive := fun (scope : Eff.Scope) (alpha : Type)
-      (body : Free Eff scope alpha) =>
+      (body : Free (Eff lcContext) scope alpha) =>
     match scope with
     | .constraint => True
     | .hint => WF.interpHint body =
@@ -158,12 +160,12 @@ theorem interpHint_eq (valuation : WF.Valuation) (body : Hint α) :
 @[simp]
 theorem interp_hint (valuation : WF.Valuation)
     {argTps : List Eff.WitnessSide}
-    (args : HList Eff.WitnessSide.denoteW argTps)
+    (args : HList (Eff.WitnessSide.denoteW lcContext) argTps)
     (body : HList Eff.WitnessSide.denoteF argTps → Hint (Vector Bool n)) :
     interp valuation (F2Z.hint args body) =
       (do
         let values ← Free.interp (interpHandler valuation)
-          (body (WF.evalArgs valuation args))
+          (body (WF.evalArgs lcContext valuation args))
         pure (values.map LC.ofConst)) := by
   unfold interp F2Z.hint
   rw [Free.interp_op]
@@ -181,29 +183,31 @@ theorem option_some_spec (value : α)
 theorem assertR1C (valuation : WF.Valuation) (a b c : LC ℤ)
     (Q : PostCond Unit (.except PUnit .pure)) :
     Triple (interp valuation (F2Z.assertR1C a b c))
-      spred(⌜a.eval valuation.int * b.eval valuation.int =
-        c.eval valuation.int⌝ ∧ Q.1 ()) Q := by
+      spred(⌜valuation.int a * valuation.int b =
+        valuation.int c⌝ ∧ Q.1 ()) Q := by
   rw [interp_assertR1C, Triple.iff]
   split
   · intro hpre
     exact hpre.2
   · rename_i h
-    simp [h]
+    have h' : ¬valuation.int a * valuation.int b = valuation.int c := by
+      simpa only [← LC.Valuation.apply_eq_eval] using h
+    simp [h']
 
 /-- A complete hint execution must return actual values, and the postcondition
 must hold for their constant-LC embedding. -/
 @[spec]
 theorem hint (valuation : WF.Valuation)
     {argTps : List Eff.WitnessSide}
-    (args : HList Eff.WitnessSide.denoteW argTps)
+    (args : HList (Eff.WitnessSide.denoteW lcContext) argTps)
     (body : HList Eff.WitnessSide.denoteF argTps → Hint (Vector Bool n))
     (Q : PostCond (Vector (LC Bool) n) (.except PUnit .pure)) :
     Triple (interp valuation (F2Z.hint args body))
       spred(∃ values,
-        ⌜WF.interpHint (body (WF.evalArgs valuation args)) = some values⌝ ∧
+        ⌜WF.interpHint (body (WF.evalArgs lcContext valuation args)) = some values⌝ ∧
         Q.1 (values.map LC.ofConst)) Q := by
   rw [interp_hint, ← interpHint_eq, Triple.iff]
-  generalize WF.interpHint (body (WF.evalArgs valuation args)) = result
+  generalize WF.interpHint (body (WF.evalArgs lcContext valuation args)) = result
   cases result with
   | none => simp
   | some values =>
@@ -214,9 +218,12 @@ theorem hint (valuation : WF.Valuation)
 theorem interp_f2z_spec {a : LC Bool} {valuation : WF.Valuation} :
     ⦃ ⌜True⌝ ⦄ interp valuation (F2Z.f2z a)
     ⦃⇓ result =>
-      ⌜result.eval valuation.int = (a.eval valuation.bool).toInt⌝⦄ := by
+      ⌜valuation.int result = (valuation.bool a).toInt⌝⦄ := by
   rw [interp_f2z]
   mvcgen
+  rw [LC.Valuation.ofConst_apply]
+  exact congrArg Bool.toInt
+    (LC.Valuation.apply_eq_eval valuation.bool a).symm
 
 @[simp, spec]
 theorem interp_map (valuation : WF.Valuation)
@@ -264,6 +271,10 @@ theorem interp_ofFnM (valuation : WF.Valuation) (f : Fin n → Circuit α) :
   | succ n ih =>
       simp only [Vector.ofFnM_succ, interp_bind, interp_pure, ih]
 
+/- The former completeness argument interpreted the same `LC` circuit twice.
+It is retained temporarily in the history, but superseded below by the
+cross-context argument.  -/
+/-
 private def BoolsRealize (ws : Semantics.Witgen.State)
     (valuation : Nat → Bool) : Prop :=
   ∀ i, i < ws.bools.size → valuation i = ws.boolWitness i
@@ -273,7 +284,7 @@ private structure RightRealizes (cs : Semantics.CSBuilder)
   bools : BoolsRealize ws valuation.bool
   ints : ∀ (i : Nat) (hi : i < cs.result.m.size),
     valuation.int i =
-      ((cs.result.m[i]'hi).eval valuation.bool).toInt
+      (valuation.bool (cs.result.m[i]'hi)).toInt
 
 private structure Compatible (cs : Semantics.CSBuilder)
     (ws : Semantics.Witgen.State) (leftVal rightVal : WF.Valuation) : Prop where
@@ -536,7 +547,7 @@ private theorem runAt_interp_adequate
         refine ⟨hp, ?_, ?_⟩
         · simp only [outL, LC.eval_ofConst]
           exact congrArg Bool.toInt (hargCanonical.trans harg.symm)
-        · simp [outR]
+        · exact LC.Valuation.ofConst_apply rightVal.int _
       unfold Semantics.Witgen.runAt at hrun
       rw [Free.interp_bind] at hrun
       unfold F2Z.f2z at hrun
@@ -927,7 +938,7 @@ theorem adequate {circ : Vector (LC Bool) n → Circuit α}
     (hwf : WF.GadgetSpec
       (WF.VectorRel fun leftVal rightVal left right =>
         WF.LCEq leftVal.bool rightVal.bool left right)
-      circ Q)
+      (fun {ctx} input => circ ctx input) Q)
     (hcomplete :
       ⦃ ⌜True⌝ ⦄
         interp (witnessValuation inputs.toArray)
@@ -982,6 +993,546 @@ theorem adequate {circ : Vector (LC Bool) n → Circuit α}
       Semantics.CSBuilder.run, Semantics.CSBuilder.run'] at ⊢
     generalize hcs :
       StateT.run (Semantics.CSBuilder.runAt (circ inputWires)) initialCs =
+        csResult at hconstraints ⊢
+    rcases csResult with ⟨csValue, cs⟩
+    exact hconstraints.2.satisfies
+-/
+
+/-- The symbolic valuation induced by a concrete Boolean witness. -/
+def witnessValuation (wit : Array Bool) : WF.Valuation where
+  bool := LC.valuation fun i => wit[i]!
+  int := LC.valuation Semantics.Witgen.zeroWitness
+
+private def BoolsRealize (ws : Semantics.Witgen.State)
+    (valuation : Freigen.F2Z.Valuation Bool (LC Bool)) : Prop :=
+  ∀ i, i < ws.bools.size → valuation ({i} : LC Bool) = ws.boolWitness i
+
+private structure RightRealizes (cs : Semantics.CSBuilder)
+    (ws : Semantics.Witgen.State) (valuation : WF.Valuation) : Prop where
+  bools : BoolsRealize ws valuation.bool
+  ints : ∀ (i : Nat) (hi : i < cs.result.m.size),
+    valuation.int ({i} : LC ℤ) =
+      (valuation.bool (cs.result.m[i]'hi)).toInt
+
+private def ConstraintsValid (cs : Semantics.CSBuilder)
+    (ws : Semantics.Witgen.State) : Prop :=
+  ∀ valuation, RightRealizes cs ws valuation →
+    ∀ r ∈ cs.result.r1cs,
+      valuation.int r.a * valuation.int r.b = valuation.int r.c
+
+private def csValuation (cs : Semantics.CSBuilder)
+    (ws : Semantics.Witgen.State) : WF.Valuation where
+  bool := LC.valuation ws.boolWitness
+  int := LC.valuation (cs.result.intWitness ws.boolWitness)
+
+private theorem BoolsRealize.self (ws : Semantics.Witgen.State) :
+    BoolsRealize ws (LC.valuation ws.boolWitness) := by
+  intro i hi
+  rfl
+
+private theorem RightRealizes.canonical (cs : Semantics.CSBuilder)
+    (ws : Semantics.Witgen.State) :
+    RightRealizes cs ws (csValuation cs ws) := by
+  constructor
+  · exact BoolsRealize.self ws
+  · intro i hi
+    rw [LC.Valuation.apply_eq_eval, LC.eval_singleton]
+    change cs.result.intWitness ws.boolWitness i = _
+    unfold Semantics.CS.intWitness
+    rw [getElem!_pos _ _ (by simpa using hi), Array.getElem_map]
+    rw [LC.Valuation.apply_eq_eval]
+    rfl
+
+private def pushR1C (cs : Semantics.CSBuilder) (a b c : LC ℤ) :
+    Semantics.CSBuilder :=
+  { cs with result := { cs.result with
+      r1cs := cs.result.r1cs.push { a, b, c } } }
+
+private def pushF2Z (cs : Semantics.CSBuilder) (a : LC Bool) :
+    Semantics.CSBuilder :=
+  { cs with result := { cs.result with m := cs.result.m.push a } }
+
+private def pushHint (cs : Semantics.CSBuilder) (n : Nat) :
+    Semantics.CSBuilder := { cs with nextWit := cs.nextWit + n }
+
+private def appendHint (ws : Semantics.Witgen.State)
+    (values : Vector Bool n) : Semantics.Witgen.State :=
+  { ws with bools := ws.bools ++ values.toArray }
+
+private def csHintOut (cs : Semantics.CSBuilder) (n : Nat) :
+    Vector (LC Bool) n :=
+  Vector.ofFn fun i => ({cs.nextWit + i.val} : LC Bool)
+
+private theorem BoolsRealize.of_append {ws : Semantics.Witgen.State}
+    {values : Vector Bool n} {valuation : Freigen.F2Z.Valuation Bool (LC Bool)}
+    (h : BoolsRealize (appendHint ws values) valuation) :
+    BoolsRealize ws valuation := by
+  intro i hi
+  rw [h i (by simp [appendHint]; omega)]
+  unfold Semantics.Witgen.State.boolWitness appendHint
+  rw [getElem!_pos ws.bools i hi]
+  rw [getElem!_pos (ws.bools ++ values.toArray) i (by simp; omega)]
+  exact Array.getElem_append_left hi
+
+private theorem RightRealizes.of_pushR1C
+    (h : RightRealizes (pushR1C cs a b c) ws valuation) :
+    RightRealizes cs ws valuation := by
+  exact ⟨h.bools, by intro i hi; simpa [pushR1C] using h.ints i hi⟩
+
+private theorem RightRealizes.of_pushF2Z
+    (h : RightRealizes (pushF2Z cs a) ws valuation) :
+    RightRealizes cs ws valuation := by
+  refine ⟨h.bools, ?_⟩
+  intro i hi
+  simpa [pushF2Z, Array.getElem_push_lt hi] using
+    h.ints i (by simp [pushF2Z]; omega)
+
+private theorem RightRealizes.of_pushHint
+    (h : RightRealizes (pushHint cs n) (appendHint ws values) valuation) :
+    RightRealizes cs ws valuation := by
+  refine ⟨BoolsRealize.of_append h.bools, ?_⟩
+  intro i hi
+  simpa [pushHint, appendHint] using h.ints i hi
+
+private theorem csHintOut_realizes {n : Nat} {cs : Semantics.CSBuilder}
+    {ws : Semantics.Witgen.State} {values : Vector Bool n}
+    {valuation : Freigen.F2Z.Valuation Bool (LC Bool)}
+    (hnext : cs.nextWit = ws.bools.size)
+    (h : BoolsRealize (appendHint ws values) valuation) :
+    WF.RealizesBools valuation (csHintOut cs n) values := by
+  intro i hi
+  simp only [csHintOut, Vector.getElem_ofFn]
+  rw [hnext]
+  rw [h (ws.bools.size + i) (by simp [appendHint]; omega)]
+  unfold Semantics.Witgen.State.boolWitness appendHint
+  rw [getElem!_pos _ _ (by simp; omega), Array.getElem_append_right (by omega)]
+  simp
+
+private theorem value_evalArgs (ws : Semantics.Witgen.State) :
+    {argTps : List Eff.WitnessSide} →
+    (args : HList (Eff.WitnessSide.denoteW valueContext) argTps) →
+    WF.evalArgs valueContext valueValuation args =
+      Semantics.Witgen.evalArgs ws args
+  | [], .nil => rfl
+  | .z :: _, .cons x xs => by
+      simp only [Eff.WitnessSide.denoteW] at x
+      simp [WF.evalArgs, Semantics.Witgen.evalArgs, valueValuation,
+        Context.identityValuation]
+      exact value_evalArgs ws xs
+  | .f₂ :: _, .cons x xs => by
+      simp only [Eff.WitnessSide.denoteW] at x
+      simp [WF.evalArgs, Semantics.Witgen.evalArgs, valueValuation,
+        Context.identityValuation]
+      exact value_evalArgs ws xs
+
+private theorem hintInterp_witgen
+    (body : @Hint valueContext α) :
+    WF.interpHint body = Semantics.Witgen.runAt body := by
+  let motive := fun (scope : Eff.Scope) (alpha : Type)
+      (body : Free (Eff valueContext) scope alpha) =>
+    match scope with
+    | .constraint => True
+    | .hint => WF.interpHint body = Semantics.Witgen.runAt body
+  apply Free.recOn (motive := motive) body
+  · intro scope alpha value
+    cases scope <;> trivial
+  · intro scope alpha e blocks k _ _
+    cases scope with
+    | constraint => trivial
+    | hint =>
+      cases e with
+      | fail out msg =>
+        dsimp [motive]
+        simp only [WF.interpHint, Semantics.Witgen.runAt, Free.interp_bind]
+        rw [Free.interp_op, Free.interp_op]
+        simp [Semantics.Witgen.handler]
+
+private theorem hintReturns_witgen
+    {body : @Hint valueContext α} (h : WF.HintReturns body value) :
+    Semantics.Witgen.runAt body = some value := by
+  unfold WF.HintReturns at h
+  rwa [hintInterp_witgen] at h
+
+private theorem hintReturns_interp (valuation : WF.Valuation)
+    {body : @Hint lcContext α} (h : WF.HintReturns body value) :
+    Free.interp (interpHandler valuation) body = some value := by
+  unfold WF.HintReturns at h
+  rwa [interpHint_eq valuation] at h
+
+private theorem optionRel_eq_some
+    (h : Option.Rel Eq (some value) result) : result = some value := by
+  cases h with
+  | some h => subst h; rfl
+
+private theorem optionRel_eq_some_right
+    (h : Option.Rel Eq result (some value)) : result = some value := by
+  cases h with
+  | some h => subst h; rfl
+
+/-- A successful symbolic interpretation implies successful execution in the
+direct value representation. -/
+private theorem interp_runAt_adequate
+    {P : WF.Assumption valueContext lcContext}
+    {left : @Circuit valueContext αL} {right : @Circuit lcContext αR}
+    {ws : Semantics.Witgen.State} {result : αR}
+    (hrel : WF.Rel (fun _ _ _ _ => True) P left right)
+    (rightVal : @WF.Valuation lcContext)
+    (hP : P valueValuation rightVal)
+    (hinterp : interp rightVal right = some result) :
+    ∃ value ws', StateT.run (Semantics.Witgen.runAt left) ws =
+      some (value, ws') := by
+  induction hrel generalizing ws result with
+  | pure hpost => simp [interp, Semantics.Witgen.runAt] at hinterp ⊢
+  | @assertR1C P aL bL cL aR bR cR kL kR ha hb hc hcont ih =>
+      change ℤ at aL bL cL
+      change LC ℤ at aR bR cR
+      unfold interp at hinterp
+      rw [Free.interp_bind] at hinterp
+      unfold F2Z.assertR1C at hinterp
+      rw [Free.interp_op] at hinterp
+      by_cases hsatR : aR.eval rightVal.int * bR.eval rightVal.int =
+          cR.eval rightVal.int
+      · have hsatR' : rightVal.int aR * rightVal.int bR =
+            rightVal.int cR := by
+          rw [LC.Valuation.apply_eq_eval, LC.Valuation.apply_eq_eval,
+            LC.Valuation.apply_eq_eval]
+          exact hsatR
+        simp [interpHandler, hsatR'] at hinterp
+        have hsatL : aL * bL = cL := by
+          have ha' := ha valueValuation rightVal hP
+          have hb' := hb valueValuation rightVal hP
+          have hc' := hc valueValuation rightVal hP
+          unfold WF.LCEq at ha' hb' hc'
+          simpa [valueValuation, Context.identityValuation,
+            LC.Valuation.apply_eq_eval] using
+            (show valueValuation.int aL * valueValuation.int bL =
+              valueValuation.int cL by rw [ha', hb', hc']; exact hsatR')
+        obtain ⟨value, ws', hrun⟩ := ih hP hinterp
+        refine ⟨value, ws', ?_⟩
+        unfold Semantics.Witgen.runAt
+        rw [Free.interp_bind]
+        unfold F2Z.assertR1C
+        rw [Free.interp_op]
+        simpa [Semantics.Witgen.handler, hsatL,
+          Semantics.Witgen.runAt] using hrun
+      · have hsatR' : ¬rightVal.int aR * rightVal.int bR =
+            rightVal.int cR := by
+          rw [LC.Valuation.apply_eq_eval, LC.Valuation.apply_eq_eval,
+            LC.Valuation.apply_eq_eval]
+          exact hsatR
+        simp [interpHandler, hsatR'] at hinterp
+  | @f2z P aL aR kL kR ha hcont ih =>
+      change Bool at aL
+      change LC Bool at aR
+      let outL : ℤ := aL.toInt
+      let outR : LC ℤ := LC.ofConst (rightVal.bool aR).toInt
+      have hP' : P valueValuation rightVal ∧
+          valueValuation.int outL = (valueValuation.bool aL).toInt ∧
+          rightVal.int outR = (rightVal.bool aR).toInt := by
+        refine ⟨hP, ?_, ?_⟩
+        · rfl
+        · exact LC.Valuation.ofConst_apply rightVal.int _
+      unfold interp at hinterp
+      rw [Free.interp_bind] at hinterp
+      unfold F2Z.f2z at hinterp
+      rw [Free.interp_op] at hinterp
+      simp [interpHandler] at hinterp
+      obtain ⟨value, ws', hrun⟩ := ih outL outR hP' hinterp
+      refine ⟨value, ws', ?_⟩
+      unfold Semantics.Witgen.runAt
+      rw [Free.interp_bind]
+      unfold F2Z.f2z
+      rw [Free.interp_op]
+      simpa [Semantics.Witgen.handler, outL,
+        Semantics.Witgen.runAt] using hrun
+  | @hint P n argTps argsL argsR bodyL bodyR kL kR hargs hbody hcont ih =>
+      unfold interp at hinterp
+      rw [Free.interp_bind] at hinterp
+      unfold F2Z.hint at hinterp
+      rw [Free.interp_op] at hinterp
+      simp only [interpHandler] at hinterp
+      generalize hrunR : Free.interp (interpHandler rightVal)
+        (bodyR (WF.evalArgs lcContext rightVal argsR)) = bodyResult at hinterp
+      cases bodyResult with
+      | none => simp at hinterp
+      | some values =>
+        have hbodyRel := hbody valueValuation rightVal hP
+        unfold WF.HintRel at hbodyRel
+        rw [interpHint_eq rightVal, hrunR] at hbodyRel
+        have hleftReturns := optionRel_eq_some_right hbodyRel
+        have hleftReturnsRun : WF.HintReturns
+            (bodyL (Semantics.Witgen.evalArgs ws argsL)) values := by
+          unfold WF.HintReturns
+          rw [← value_evalArgs ws]
+          exact hleftReturns
+        have hrunL := hintReturns_witgen hleftReturnsRun
+        unfold Semantics.Witgen.runAt at hrunL
+        let outL : Vector Bool n := values
+        let outR : Vector (LC Bool) n := values.map LC.ofConst
+        have hP' : P valueValuation rightVal ∧ ∃ actual,
+            WF.HintReturns (bodyL (WF.evalArgs valueContext valueValuation argsL)) actual ∧
+            WF.HintReturns (bodyR (WF.evalArgs lcContext rightVal argsR)) actual ∧
+            WF.RealizesBools valueValuation.bool outL actual ∧
+            WF.RealizesBools rightVal.bool outR actual := by
+          refine ⟨hP, values, hleftReturns, ?_, ?_, ?_⟩
+          · unfold WF.HintReturns
+            rw [interpHint_eq rightVal]
+            exact hrunR
+          · intro i hi; rfl
+          · intro i hi
+            rw [LC.Valuation.apply_eq_eval]
+            simp [outR]
+        simp at hinterp
+        obtain ⟨value, ws', hrun⟩ := ih outL outR hP' hinterp
+        refine ⟨value, ws', ?_⟩
+        unfold Semantics.Witgen.runAt
+        rw [Free.interp_bind]
+        unfold F2Z.hint
+        rw [Free.interp_op]
+        simp [Semantics.Witgen.handler, hrunL, appendHint]
+        simpa [outL, Semantics.Witgen.runAt] using hrun
+
+/-- Lockstep direct execution and symbolic construction preserve constraint
+validity for every valuation represented by the generated witness. -/
+private theorem runAt_adequate
+    {P : WF.Assumption valueContext lcContext}
+    {left : @Circuit valueContext αL} {right : @Circuit lcContext αR}
+    {cs : Semantics.CSBuilder} {ws ws' : Semantics.Witgen.State}
+    {value : αL}
+    (hrel : WF.Rel (fun _ _ _ _ => True) P left right)
+    (hnext : cs.nextWit = ws.bools.size)
+    (hP : ∀ rightVal, RightRealizes cs ws rightVal →
+      P valueValuation rightVal)
+    (hvalid : ConstraintsValid cs ws)
+    (hrun : StateT.run (Semantics.Witgen.runAt left) ws =
+      some (value, ws')) :
+    let result := StateT.run (Semantics.CSBuilder.runAt right) cs
+    result.2.nextWit = ws'.bools.size ∧ ConstraintsValid result.2 ws' := by
+  induction hrel generalizing cs ws ws' value with
+  | pure hpost =>
+      simp [Semantics.Witgen.runAt] at hrun
+      rcases hrun with ⟨rfl, rfl⟩
+      exact ⟨hnext, hvalid⟩
+  | @assertR1C P aL bL cL aR bR cR kL kR ha hb hc hcont ih =>
+      change ℤ at aL bL cL
+      change LC ℤ at aR bR cR
+      unfold Semantics.Witgen.runAt at hrun
+      rw [Free.interp_bind] at hrun
+      unfold F2Z.assertR1C at hrun
+      rw [Free.interp_op] at hrun
+      by_cases hsatL : aL * bL = cL
+      · simp [Semantics.Witgen.handler, hsatL] at hrun
+        let cs' := pushR1C cs aR bR cR
+        have hP' : ∀ rv, RightRealizes cs' ws rv → P valueValuation rv :=
+          fun rv hrv => hP rv hrv.of_pushR1C
+        have hvalid' : ConstraintsValid cs' ws := by
+          intro rv hrv r hr
+          simp only [cs', pushR1C, Array.mem_push] at hr
+          rcases hr with hr | rfl
+          · exact hvalid rv hrv.of_pushR1C r hr
+          · have hp := hP rv hrv.of_pushR1C
+            have ha' := ha valueValuation rv hp
+            have hb' := hb valueValuation rv hp
+            have hc' := hc valueValuation rv hp
+            unfold WF.LCEq at ha' hb' hc'
+            calc
+              rv.int aR * rv.int bR =
+                  valueValuation.int aL * valueValuation.int bL := by
+                    rw [ha'.symm, hb'.symm]
+              _ = valueValuation.int cL := by
+                    simpa [valueValuation, Context.identityValuation] using hsatL
+              _ = rv.int cR := hc'
+        unfold Semantics.CSBuilder.runAt
+        rw [Free.interp_bind]
+        unfold F2Z.assertR1C
+        rw [Free.interp_op]
+        simp [Semantics.CSBuilder.handler]
+        exact ih hnext hP' hvalid' hrun
+      · simp [Semantics.Witgen.handler, hsatL] at hrun
+  | @f2z P aL aR kL kR ha hcont ih =>
+      change Bool at aL
+      change LC Bool at aR
+      let outL : ℤ := aL.toInt
+      let outR : LC ℤ := {cs.result.m.size}
+      let cs' := pushF2Z cs aR
+      have hP' : ∀ rv, RightRealizes cs' ws rv →
+          (P valueValuation rv ∧
+            valueValuation.int outL = (valueValuation.bool aL).toInt ∧
+            rv.int outR = (rv.bool aR).toInt) := by
+        intro rv hrv
+        refine ⟨hP rv hrv.of_pushF2Z, rfl, ?_⟩
+        have hnew := hrv.ints cs.result.m.size (by simp [cs', pushF2Z])
+        simpa [outR, cs', pushF2Z] using hnew
+      have hvalid' : ConstraintsValid cs' ws := by
+        intro rv hrv r hr
+        exact hvalid rv hrv.of_pushF2Z r (by simpa [cs', pushF2Z] using hr)
+      unfold Semantics.Witgen.runAt at hrun
+      rw [Free.interp_bind] at hrun
+      unfold F2Z.f2z at hrun
+      rw [Free.interp_op] at hrun
+      simp [Semantics.Witgen.handler] at hrun
+      unfold Semantics.CSBuilder.runAt
+      rw [Free.interp_bind]
+      unfold F2Z.f2z
+      rw [Free.interp_op]
+      simp [Semantics.CSBuilder.handler]
+      exact ih outL outR hnext hP' hvalid' hrun
+  | @hint P n argTps argsL argsR bodyL bodyR kL kR hargs hbody hcont ih =>
+      unfold Semantics.Witgen.runAt at hrun
+      rw [Free.interp_bind] at hrun
+      unfold F2Z.hint at hrun
+      rw [Free.interp_op] at hrun
+      simp only [Semantics.Witgen.handler] at hrun
+      generalize hbodyRun : Free.interp (fun {scope} => Semantics.Witgen.handler)
+        (bodyL (Semantics.Witgen.evalArgs ws argsL)) = bodyResult at hrun
+      cases bodyResult with
+      | none => simp [hbodyRun] at hrun
+      | some values =>
+        let outL : Vector Bool n := values
+        let outR := csHintOut cs n
+        let cs' := pushHint cs n
+        let wsNext := appendHint ws values
+        have hP' : ∀ rv, RightRealizes cs' wsNext rv →
+            (P valueValuation rv ∧ ∃ actual,
+              WF.HintReturns (bodyL (WF.evalArgs valueContext valueValuation argsL)) actual ∧
+              WF.HintReturns (bodyR (WF.evalArgs lcContext rv argsR)) actual ∧
+              WF.RealizesBools valueValuation.bool outL actual ∧
+              WF.RealizesBools rv.bool outR actual) := by
+          intro rv hrv
+          have hrvOld := hrv.of_pushHint
+          have hp := hP rv hrvOld
+          have hrelBody := hbody valueValuation rv hp
+          rw [value_evalArgs ws] at hrelBody
+          unfold WF.HintRel at hrelBody
+          have hleftReturnsRun : WF.HintReturns
+              (bodyL (Semantics.Witgen.evalArgs ws argsL)) values := by
+            unfold WF.HintReturns
+            rw [hintInterp_witgen]
+            exact hbodyRun
+          have hleftReturns : WF.HintReturns
+              (bodyL (WF.evalArgs valueContext valueValuation argsL)) values := by
+            unfold WF.HintReturns at hleftReturnsRun ⊢
+            rw [value_evalArgs ws]
+            exact hleftReturnsRun
+          unfold WF.HintReturns at hleftReturnsRun
+          rw [hleftReturnsRun] at hrelBody
+          have hrightReturns := optionRel_eq_some hrelBody
+          refine ⟨hp, values, ?_, ?_, ?_, ?_⟩
+          · exact hleftReturns
+          · exact hrightReturns
+          · intro i hi; rfl
+          · exact csHintOut_realizes hnext hrv.bools
+        have hvalid' : ConstraintsValid cs' wsNext := by
+          intro rv hrv r hr
+          exact hvalid rv hrv.of_pushHint r (by simpa [cs', pushHint] using hr)
+        have hnext' : cs'.nextWit = wsNext.bools.size := by
+          simp [cs', pushHint, wsNext, appendHint, hnext]
+        simp [hbodyRun] at hrun
+        unfold Semantics.CSBuilder.runAt
+        rw [Free.interp_bind]
+        unfold F2Z.hint
+        rw [Free.interp_op]
+        simp [Semantics.CSBuilder.handler]
+        exact ih outL outR hnext' hP' hvalid' hrun
+
+private theorem ConstraintsValid.satisfies
+    (h : ConstraintsValid cs ws) : cs.result.satisfies ws.boolWitness := by
+  intro r hr
+  have hs := h (csValuation cs ws) (RightRealizes.canonical cs ws) r hr
+  change r.a.eval (cs.result.intWitness ws.boolWitness) *
+      r.b.eval (cs.result.intWitness ws.boolWitness) =
+    r.c.eval (cs.result.intWitness ws.boolWitness) at hs
+  exact hs
+
+private theorem triple_succeeds {x : Option α}
+    (h : ⦃ ⌜True⌝ ⦄ x ⦃ ⇓ _ => ⌜True⌝ ⦄) :
+    ∃ value, x = some value := by
+  cases hx : x with
+  | none =>
+      rw [hx, Triple.iff] at h
+      simp only [SPred.entails_nil] at h
+      exact False.elim (h trivial)
+  | some value => exact ⟨value, rfl⟩
+
+/-- Completeness for a context-polymorphic circuit: successful symbolic
+interpretation produces a direct witness satisfying the generated system. -/
+theorem adequate
+    {Output : Context → Type}
+    {circ : ∀ ctx : Context,
+      Vector ctx.WBool n → @Circuit ctx (Output ctx)}
+    {inputs : Vector Bool n}
+    {Q : ∀ {leftCtx rightCtx},
+      @WF.Valuation leftCtx → @WF.Valuation rightCtx →
+      Output leftCtx → Output rightCtx → Prop}
+    (hwf : WF.GadgetSpec
+      (fun {leftCtx rightCtx} leftVal rightVal
+          (left : Vector leftCtx.WBool n) (right : Vector rightCtx.WBool n) =>
+        WF.VectorRel
+          (fun _ _ l r => WF.LCEq leftVal.bool rightVal.bool l r)
+          leftVal rightVal left right)
+      (fun {ctx} input => circ ctx input) Q)
+    (hcomplete :
+      ⦃ ⌜True⌝ ⦄
+        interp (witnessValuation inputs.toArray)
+          (circ lcContext (Vector.ofFn fun i => ({i.val} : LC Bool)))
+      ⦃ ⇓ _ => ⌜True⌝ ⦄) :
+    ∃ wit,
+      Semantics.Witgen.runWithInputs (circ valueContext) inputs = some wit ∧
+      (Semantics.CSBuilder.runWithInputs (circ lcContext)).2.satisfies
+        (wit[·]!) := by
+  let inputWires : Vector (LC Bool) n :=
+    Vector.ofFn fun i => ({i.val} : LC Bool)
+  let initialWs : Semantics.Witgen.State := { bools := inputs.toArray }
+  let initialCs : Semantics.CSBuilder :=
+    { result := { r1cs := #[], m := #[] }, nextWit := n }
+  let inputVal := witnessValuation inputs.toArray
+  have hrel : WF.Rel (fun _ _ _ _ => True)
+      (fun (lv : @WF.Valuation valueContext)
+          (rv : @WF.Valuation lcContext) => WF.VectorRel
+        (fun _ _ (l : Bool) (r : LC Bool) =>
+          WF.LCEq lv.bool rv.bool l r)
+        lv rv inputs inputWires)
+      (circ valueContext inputs) (circ lcContext inputWires) :=
+    (hwf valueContext lcContext inputs inputWires).mono
+      fun _ _ _ _ _ => True.intro
+  have hP : WF.VectorRel
+      (fun _ _ l r => WF.LCEq valueValuation.bool inputVal.bool l r)
+      valueValuation inputVal inputs inputWires := by
+    intro i
+    unfold WF.LCEq
+    rw [LC.Valuation.apply_eq_eval]
+    simp [inputVal, inputWires, witnessValuation,
+      valueValuation, Context.identityValuation]
+  have hinterp : ∃ result,
+      interp inputVal (circ lcContext inputWires) = some result :=
+    triple_succeeds (by simpa [inputVal, inputWires] using hcomplete)
+  obtain ⟨result, hinterp⟩ := hinterp
+  obtain ⟨value, ws, hwitgen⟩ :=
+    interp_runAt_adequate hrel inputVal hP hinterp (ws := initialWs)
+  refine ⟨ws.bools, ?_, ?_⟩
+  · simp only [Semantics.Witgen.runWithInputs, Semantics.Witgen.run,
+      Semantics.Witgen.run']
+    simp [initialWs, hwitgen]
+  · have hvalid : ConstraintsValid initialCs initialWs := by
+      intro valuation hrealizes r hr
+      simp [initialCs] at hr
+    have hinput : ∀ rv, RightRealizes initialCs initialWs rv →
+        WF.VectorRel (fun _ _ l r => WF.LCEq valueValuation.bool rv.bool l r)
+          valueValuation rv inputs inputWires := by
+      intro rv hrv i
+      unfold WF.LCEq
+      simp [valueValuation, Context.identityValuation, inputWires]
+      rw [hrv.bools i.val (by simp [initialWs])]
+      unfold Semantics.Witgen.State.boolWitness
+      rw [getElem!_pos inputs.toArray i.val (by simp)]
+      rfl
+    have hconstraints := runAt_adequate hrel
+      (cs := initialCs) (ws := initialWs) (ws' := ws) (value := value)
+      (by simp [initialCs, initialWs]) hinput hvalid hwitgen
+    simp only [Semantics.CSBuilder.runWithInputs,
+      Semantics.CSBuilder.run, Semantics.CSBuilder.run'] at ⊢
+    generalize hcs :
+      StateT.run (Semantics.CSBuilder.runAt (circ lcContext inputWires)) initialCs =
         csResult at hconstraints ⊢
     rcases csResult with ⟨csValue, cs⟩
     exact hconstraints.2.satisfies
