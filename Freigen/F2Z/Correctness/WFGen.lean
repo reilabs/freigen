@@ -26,12 +26,17 @@ dependent symbolic execution pauses until those holes have been filled.
 argument, so applying this theorem produces a user-visible invariant goal
 instead of asking the tactic to synthesize a relation from the accumulator. -/
 theorem Rel.forIn'_range_map_yield_bind_rule
-    (I : Post β)
-    {Q : Post γ} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : β}
-    {fL fR : (a : Nat) → a ∈ xs → β → Circuit δ}
-    {nextL nextR : (a : Nat) → a ∈ xs → β → δ → β}
-    {kL kR : β → Circuit γ}
+    {leftCtx rightCtx : Context}
+    (I : Post leftCtx rightCtx βL βR)
+    {Q : Post leftCtx rightCtx γL γR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : βL} {initR : βR}
+    {fL : (a : Nat) → a ∈ xs → βL → @Circuit leftCtx δL}
+    {fR : (a : Nat) → a ∈ xs → βR → @Circuit rightCtx δR}
+    {nextL : (a : Nat) → a ∈ xs → βL → δL → βL}
+    {nextR : (a : Nat) → a ∈ xs → βR → δR → βR}
+    {kL : βL → @Circuit leftCtx γL}
+    {kR : βR → @Circuit rightCtx γR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       I leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom
@@ -45,7 +50,7 @@ theorem Rel.forIn'_range_map_yield_bind_rule
       (fun b => do
         let x ← fR a h b
         Pure.pure (nextR a h b x)))
-    (hcont : ∀ (A : Assumption) left right,
+    (hcont : ∀ (A : Assumption leftCtx rightCtx) left right,
       (∀ leftVal rightVal, A leftVal rightVal →
         P leftVal rightVal ∧ I leftVal rightVal left right) →
       Rel Q A (kL left) (kR right)) :
@@ -64,11 +69,15 @@ theorem Rel.forIn'_range_map_yield_bind_rule
 
 /-- Generic range-loop rule when the loop itself is the whole computation. -/
 theorem Rel.forIn'_range_map_yield_rule
-    (I : Post β)
-    {Q : Post β} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : β}
-    {fL fR : (a : Nat) → a ∈ xs → β → Circuit δ}
-    {nextL nextR : (a : Nat) → a ∈ xs → β → δ → β}
+    {leftCtx rightCtx : Context}
+    (I : Post leftCtx rightCtx βL βR)
+    {Q : Post leftCtx rightCtx βL βR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : βL} {initR : βR}
+    {fL : (a : Nat) → a ∈ xs → βL → @Circuit leftCtx δL}
+    {fR : (a : Nat) → a ∈ xs → βR → @Circuit rightCtx δR}
+    {nextL : (a : Nat) → a ∈ xs → βL → δL → βL}
+    {nextR : (a : Nat) → a ∈ xs → βR → δR → βR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       I leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom
@@ -104,20 +113,24 @@ theorem Rel.forIn'_range_map_yield_rule
 terms.  This matters for large fixed loops: normalizing the elaborated `for`
 expression while serializing a theorem can otherwise allocate a term linear
 in the bound. -/
-def foldRange (xs : Std.Legacy.Range) (init : β)
-    (step : (a : Nat) → a ∈ xs → β → Circuit β) : Circuit β :=
+def foldRange [ctx : Context] (xs : Std.Legacy.Range) (init : β)
+    (step : (a : Nat) → a ∈ xs → β → @Circuit ctx β) : @Circuit ctx β :=
   forIn' xs init fun a h state => do
     let next ← step a h state
     pure (ForInStep.yield next)
 
 theorem Rel.foldRange_rule
-    {I : Post β} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : β}
-    {stepL stepR : (a : Nat) → a ∈ xs → β → Circuit β}
+    {leftCtx rightCtx : Context}
+    {I : Post leftCtx rightCtx βL βR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : βL} {initR : βR}
+    {stepL : (a : Nat) → a ∈ xs → βL → @Circuit leftCtx βL}
+    {stepR : (a : Nat) → a ∈ xs → βR → @Circuit rightCtx βR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       I leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom I I (stepL a h) (stepR a h)) :
-    Rel I P (foldRange xs initL stepL) (foldRange xs initR stepR) := by
+    Rel I P (@foldRange _ leftCtx xs initL stepL)
+      (@foldRange _ rightCtx xs initR stepR) := by
   unfold foldRange
   exact Rel.forIn'_range_yield hinit hstep
 
@@ -131,11 +144,16 @@ rule deliberately fixes only the *syntax of the operation*.  Its semantic
 invariant `I`, initial-state proof, step proof, and continuation proof remain
 explicit obligations. -/
 theorem Rel.forIn'_range_f2z_set!_bind_rule
-    (I : Post (Vector (LC ℤ) n))
-    {Q : Post γ} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : Vector (LC ℤ) n}
-    {inputL inputR : (a : Nat) → a ∈ xs → LC Bool}
-    {kL kR : Vector (LC ℤ) n → Circuit γ}
+    {leftCtx rightCtx : Context}
+    (I : Post leftCtx rightCtx
+      (Vector leftCtx.Wℤ n) (Vector rightCtx.Wℤ n))
+    {Q : Post leftCtx rightCtx γL γR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : Vector leftCtx.Wℤ n} {initR : Vector rightCtx.Wℤ n}
+    {inputL : (a : Nat) → a ∈ xs → leftCtx.WBool}
+    {inputR : (a : Nat) → a ∈ xs → rightCtx.WBool}
+    {kL : Vector leftCtx.Wℤ n → @Circuit leftCtx γL}
+    {kR : Vector rightCtx.Wℤ n → @Circuit rightCtx γR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       I leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom
@@ -144,21 +162,21 @@ theorem Rel.forIn'_range_f2z_set!_bind_rule
       (fun leftVal rightVal left right =>
         P leftVal rightVal ∧ I leftVal rightVal left right)
       (fun acc => do
-        let value ← F2Z.f2z (inputL a h)
+        let value ← F2Z.f2z (ctx := leftCtx) (inputL a h)
         Pure.pure (acc.set! a value))
       (fun acc => do
-        let value ← F2Z.f2z (inputR a h)
+        let value ← F2Z.f2z (ctx := rightCtx) (inputR a h)
         Pure.pure (acc.set! a value)))
-    (hcont : ∀ (A : Assumption) left right,
+    (hcont : ∀ (A : Assumption leftCtx rightCtx) left right,
       (∀ leftVal rightVal, A leftVal rightVal →
         P leftVal rightVal ∧ I leftVal rightVal left right) →
       Rel Q A (kL left) (kR right)) :
     Rel Q P
       ((forIn' xs initL fun a h acc => do
-        let value ← F2Z.f2z (inputL a h)
+        let value ← F2Z.f2z (ctx := leftCtx) (inputL a h)
         Pure.pure (ForInStep.yield (acc.set! a value))) >>= kL)
       ((forIn' xs initR fun a h acc => do
-        let value ← F2Z.f2z (inputR a h)
+        let value ← F2Z.f2z (ctx := rightCtx) (inputR a h)
         Pure.pure (ForInStep.yield (acc.set! a value))) >>= kR) :=
   Rel.forIn'_range_map_yield_bind
     (R := fun leftVal rightVal left right =>
@@ -168,123 +186,87 @@ theorem Rel.forIn'_range_f2z_set!_bind_rule
 
 /-- Congruence for the derived integer value of the new `U` representation.
 This is a semantic rule, rather than an instruction for the tactic to unfold
-whatever definition happens to occur below `LC.eval`. -/
+the concrete representation's evaluation function. -/
 theorem LCEq.uIntVal
-    {left right : U n}
+    {leftCtx rightCtx : Context}
+    {leftVal : @Valuation leftCtx} {rightVal : @Valuation rightCtx}
+    {left : @U leftCtx n} {right : @U rightCtx n}
     (h : ∀ i : Fin n,
-      LCEq leftVal rightVal left.intBits[i] right.intBits[i]) :
-    LCEq leftVal rightVal left.intVal right.intVal := by
-  unfold LCEq U.intVal
-  rw [LC.eval_sum, LC.eval_sum]
-  apply Finset.sum_congr rfl
-  intro i _
-  simp only [LC.eval_nsmul]
-  rw [h i]
-
-/-- Strengthen the initial assumption of a relational derivation while
-retaining that stronger assumption in its postcondition.  This is the frame
-property needed to turn a closed `GadgetSpec` into a composable `RelHom`. -/
-theorem Rel.frame {Q : Post α} {P A : Assumption} {left right : Circuit α}
-    (h : Rel Q P left right)
-    (hpre : ∀ leftVal rightVal, A leftVal rightVal → P leftVal rightVal) :
-    Rel (fun leftVal rightVal left right =>
-      A leftVal rightVal ∧ Q leftVal rightVal left right)
-      A left right := by
-  induction h generalizing A with
-  | pure hpost =>
-      exact .pure fun leftVal rightVal hA =>
-        ⟨hA, hpost leftVal rightVal (hpre leftVal rightVal hA)⟩
-  | assertR1C ha hb hc _ ih =>
-      exact .assertR1C
-        (fun leftVal rightVal hA => ha leftVal rightVal (hpre leftVal rightVal hA))
-        (fun leftVal rightVal hA => hb leftVal rightVal (hpre leftVal rightVal hA))
-        (fun leftVal rightVal hA => hc leftVal rightVal (hpre leftVal rightVal hA))
-        (ih hpre)
-  | @f2z P₀ aL aR kL kR ha _ ih =>
-      refine Rel.f2z
-        (fun leftVal rightVal hA => ha leftVal rightVal (hpre leftVal rightVal hA)) ?_
-      intro outL outR
-      let A' : Assumption := fun leftVal rightVal =>
-        A leftVal rightVal ∧
-          outL.eval leftVal.int = (aL.eval leftVal.bool).toInt ∧
-          outR.eval rightVal.int = (aR.eval rightVal.bool).toInt
-      have hframed := ih outL outR (A := A') fun leftVal rightVal hA =>
-        ⟨hpre leftVal rightVal hA.1, hA.2⟩
-      apply Rel.mono hframed
-      intro leftVal rightVal left right hpost
-      exact ⟨hpost.1.1, hpost.2⟩
-  | @hint P₀ n argTps argsL argsR bodyL bodyR kL kR hargs hbody _ ih =>
-      refine Rel.hint
-        (fun leftVal rightVal hA =>
-          hargs leftVal rightVal (hpre leftVal rightVal hA))
-        (fun leftVal rightVal hA =>
-          hbody leftVal rightVal (hpre leftVal rightVal hA)) ?_
-      intro outL outR
-      let A' : Assumption := fun leftVal rightVal =>
-        A leftVal rightVal ∧ ∃ values,
-          HintReturns (bodyL (evalArgs leftVal argsL)) values ∧
-          HintReturns (bodyR (evalArgs rightVal argsR)) values ∧
-          RealizesBools leftVal.bool outL values ∧
-          RealizesBools rightVal.bool outR values
-      have hframed := ih outL outR (A := A') fun leftVal rightVal hA =>
-        ⟨hpre leftVal rightVal hA.1, hA.2⟩
-      apply Rel.mono hframed
-      intro leftVal rightVal left right hpost
-      exact ⟨hpost.1.1, hpost.2⟩
-
-theorem GadgetSpec.relHom
-    (spec : GadgetSpec P gadget Q) : RelHom P Q gadget gadget := by
-  intro A left right hinput
-  exact (spec left right).frame hinput
+      LCEq leftVal.int rightVal.int
+        (@U.intBits leftCtx n left)[i]
+        (@U.intBits rightCtx n right)[i]) :
+    LCEq leftVal.int rightVal.int
+      (@U.intVal leftCtx n left) (@U.intVal rightCtx n right) := by
+  unfold U.intVal
+  exact eval_sum fun i => eval_nsmul _ (h i)
 
 /-- Use a gadget contract at the head of a bind, preserving the caller's
 ambient assumptions and continuing from the gadget's postcondition. -/
 theorem GadgetSpec.bind_rule
-    {α β γ : Type} {P : Valuation → Valuation → α → α → Prop}
-    {Q : Post β} {gadget : α → Circuit β}
+    {Input Output : Context → Type} {P Q}
+    {gadget : ∀ {ctx}, Input ctx → @Circuit ctx (Output ctx)}
     (spec : GadgetSpec P gadget Q)
-    {R : Post γ} {A : Assumption} {left right : α}
-    {kL kR : β → Circuit γ}
+    {leftCtx rightCtx : Context} {γL γR : Type}
+    {R : Post leftCtx rightCtx γL γR}
+    {A : Assumption leftCtx rightCtx}
+    {left : Input leftCtx} {right : Input rightCtx}
+    {kL : Output leftCtx → @Circuit leftCtx γL}
+    {kR : Output rightCtx → @Circuit rightCtx γR}
     (hinput : ∀ leftVal rightVal, A leftVal rightVal →
       P leftVal rightVal left right)
-    (hcont : ∀ (B : Assumption) outL outR,
+    (hcont : ∀ (B : Assumption leftCtx rightCtx) outL outR,
       (∀ leftVal rightVal, B leftVal rightVal →
         A leftVal rightVal ∧ Q leftVal rightVal outL outR) →
       Rel R B (kL outL) (kR outR)) :
-    Rel R A (gadget left >>= kL) (gadget right >>= kR) :=
-  (spec.relHom A left right hinput).bind kL kR hcont
+    Rel R A (@gadget leftCtx left >>= kL)
+      (@gadget rightCtx right >>= kR) :=
+  ((spec.relHom leftCtx rightCtx) A left right hinput).bind kL kR hcont
 
 /-- A bind rule with the continuation evaluated under the precise framed
 postcondition.  This avoids accumulating a chain of abstract assumptions and
 implications in straight-line circuits. -/
 theorem GadgetSpec.bind_rule_direct
-    {α β γ : Type} {P : Valuation → Valuation → α → α → Prop}
-    {Q : Post β} {gadget : α → Circuit β}
+    {Input Output : Context → Type} {P Q}
+    {gadget : ∀ {ctx}, Input ctx → @Circuit ctx (Output ctx)}
     (spec : GadgetSpec P gadget Q)
-    {R : Post γ} {A : Assumption} {left right : α}
-    {kL kR : β → Circuit γ}
+    {leftCtx rightCtx : Context} {γL γR : Type}
+    {R : Post leftCtx rightCtx γL γR}
+    {A : Assumption leftCtx rightCtx}
+    {left : Input leftCtx} {right : Input rightCtx}
+    {kL : Output leftCtx → @Circuit leftCtx γL}
+    {kR : Output rightCtx → @Circuit rightCtx γR}
     (hinput : ∀ leftVal rightVal, A leftVal rightVal →
       P leftVal rightVal left right)
     (hcont : ∀ outL outR,
       Rel R (fun leftVal rightVal =>
         A leftVal rightVal ∧ Q leftVal rightVal outL outR)
         (kL outL) (kR outR)) :
-    Rel R A (gadget left >>= kL) (gadget right >>= kR) := by
-  apply (spec.relHom A left right hinput).bind kL kR
+    Rel R A (@gadget leftCtx left >>= kL)
+      (@gadget rightCtx right >>= kR) := by
+  apply ((spec.relHom leftCtx rightCtx) A left right hinput).bind kL kR
   intro S outL outR hS
   exact ((hcont outL outR).frame hS).mono fun _ _ _ _ h => h.2
 
 /-- Use a gadget contract when the gadget is the entire remaining program,
 while allowing the caller to carry a stronger ambient assumption. -/
 theorem GadgetSpec.direct_rule
-    {α β : Type} {P : Valuation → Valuation → α → α → Prop}
-    {gadget : α → Circuit β} {Q : Post β}
+    {Input Output : Context → Type}
+    {P : ∀ {leftCtx rightCtx},
+      @Valuation leftCtx → @Valuation rightCtx →
+      Input leftCtx → Input rightCtx → Prop}
+    {Q : ∀ {leftCtx rightCtx},
+      @Valuation leftCtx → @Valuation rightCtx →
+      Output leftCtx → Output rightCtx → Prop}
+    {gadget : ∀ {ctx}, Input ctx → @Circuit ctx (Output ctx)}
     (spec : GadgetSpec P gadget Q)
-    {A : Assumption} {left right : α}
+    {leftCtx rightCtx : Context}
+    {A : Assumption leftCtx rightCtx}
+    {left : Input leftCtx} {right : Input rightCtx}
     (hinput : ∀ leftVal rightVal, A leftVal rightVal →
       P leftVal rightVal left right) :
-    Rel Q A (gadget left) (gadget right) :=
-  ((spec left right).frame hinput).mono fun _ _ _ _ h => h.2
+    Rel (Q (leftCtx := leftCtx) (rightCtx := rightCtx)) A
+      (@gadget leftCtx left) (@gadget rightCtx right) :=
+  ((spec leftCtx rightCtx left right).frame hinput).mono fun _ _ _ _ h => h.2
 
 namespace WFGen
 
@@ -624,7 +606,18 @@ private def gadgetInputFromSource (inputType gadget source : Expr) : MetaM Expr 
 /-- Match only the shallow operation application.  All large continuation
 terms have already been assigned directly by the caller. -/
 private def matchGadgetSource (gadget input source : Expr) : MetaM Unit := do
-  let expected := reduceProgramWrappers (mkApp gadget input)
+  let gadgetType ← whnf (← inferType gadget)
+  let expected ← match gadgetType with
+    | .forallE _ domain _ binderInfo =>
+        if domain.consumeMData.isConstOf ``Context &&
+            binderInfo != .default then
+          let ctx ← mkFreshExprMVar domain
+          pure (mkApp (mkApp gadget ctx) input)
+        else
+          pure (mkApp gadget input)
+    | _ => pure (mkApp gadget input)
+  let _ ← inferType expected
+  let expected := reduceProgramWrappers expected
   let source := reduceProgramWrappers source
   unless expected.consumeMData.getAppFn == source.consumeMData.getAppFn do
     throwError "gadget source has the wrong operation head"
@@ -653,39 +646,45 @@ private def mkGadgetBindRule (direct : Bool) (target spec : Expr) : MetaM Expr :
     ``GadgetSpec.bind_rule
   let rule ← mkConstWithFreshMVarLevels ruleName
   let (params, _, _) ← forallMetaTelescopeReducing
-    (← inferType rule) (some 6)
+    (← inferType rule) (some 5)
   -- The supplied theorem was indexed by its gadget head when the rule DB was
   -- built.  Instantiate the bind rule directly from its syntactic contract
   -- parameters instead of unifying two fully normalized contract types.
   params[0]!.mvarId!.assign specArgs[0]!
   params[1]!.mvarId!.assign specArgs[1]!
-  params[3]!.mvarId!.assign specArgs[2]!
-  params[4]!.mvarId!.assign specArgs[4]!
-  params[5]!.mvarId!.assign specArgs[3]!
+  params[2]!.mvarId!.assign specArgs[2]!
+  params[3]!.mvarId!.assign specArgs[4]!
+  params[4]!.mvarId!.assign specArgs[3]!
   let applied := mkAppN rule params
   let withSpec := mkApp applied spec
 
   let targetArgs := target.consumeMData.getAppArgs
   unless target.consumeMData.getAppFn.constName? == some ``Rel &&
-      targetArgs.size == 5 do
+      targetArgs.size == 8 do
     throwError "gadget bind rule expected a `Rel` target"
-  let some (sourceL, contL) ← bindParts? targetArgs[3]!
+  let some (sourceL, contL) ← bindParts? targetArgs[6]!
     | throwError "gadget bind rule expected a left bind"
-  let some (sourceR, contR) ← bindParts? targetArgs[4]!
+  let some (sourceR, contR) ← bindParts? targetArgs[7]!
     | throwError "gadget bind rule expected a right bind"
 
   let (bindParams, _, _) ← forallMetaTelescopeReducing
-    (← inferType withSpec) (some 6)
-  bindParams[0]!.mvarId!.assign targetArgs[1]!
-  bindParams[1]!.mvarId!.assign targetArgs[2]!
-  let inputL ← gadgetInputFromSource specArgs[0]! specArgs[3]! sourceL
-  let inputR ← gadgetInputFromSource specArgs[0]! specArgs[3]! sourceR
-  bindParams[2]!.mvarId!.assign inputL
-  bindParams[3]!.mvarId!.assign inputR
+    (← inferType withSpec) (some 10)
+  bindParams[0]!.mvarId!.assign targetArgs[0]!
+  bindParams[1]!.mvarId!.assign targetArgs[1]!
+  bindParams[2]!.mvarId!.assign targetArgs[2]!
+  bindParams[3]!.mvarId!.assign targetArgs[3]!
+  bindParams[4]!.mvarId!.assign targetArgs[4]!
+  bindParams[5]!.mvarId!.assign targetArgs[5]!
+  let inputL ← gadgetInputFromSource (mkApp specArgs[0]! targetArgs[0]!)
+    specArgs[3]! sourceL
+  let inputR ← gadgetInputFromSource (mkApp specArgs[0]! targetArgs[1]!)
+    specArgs[3]! sourceR
+  bindParams[6]!.mvarId!.assign inputL
+  bindParams[7]!.mvarId!.assign inputR
   matchGadgetSource specArgs[3]! inputL sourceL
   matchGadgetSource specArgs[3]! inputR sourceR
-  bindParams[4]!.mvarId!.assign contL
-  bindParams[5]!.mvarId!.assign contR
+  bindParams[8]!.mvarId!.assign contL
+  bindParams[9]!.mvarId!.assign contR
   return mkAppN withSpec bindParams
 
 private def mkGadgetBindRuleLegacy (direct : Bool) (spec : Expr) : MetaM Expr := do
@@ -695,7 +694,7 @@ private def mkGadgetBindRuleLegacy (direct : Bool) (spec : Expr) : MetaM Expr :=
     ``GadgetSpec.bind_rule
   let rule ← mkConstWithFreshMVarLevels ruleName
   let (params, _, _) ← forallMetaTelescopeReducing
-    (← inferType rule) (some 6)
+    (← inferType rule) (some 5)
   let applied := mkAppN rule params
   let appliedType ← inferType applied
   let .forallE _ expected _ _ ← whnf appliedType
@@ -717,23 +716,27 @@ private def mkGadgetDirectRule (target spec : Expr) : MetaM Expr := do
   params[0]!.mvarId!.assign specArgs[0]!
   params[1]!.mvarId!.assign specArgs[1]!
   params[2]!.mvarId!.assign specArgs[2]!
-  params[3]!.mvarId!.assign specArgs[3]!
-  params[4]!.mvarId!.assign specArgs[4]!
+  params[3]!.mvarId!.assign specArgs[4]!
+  params[4]!.mvarId!.assign specArgs[3]!
   let withSpec := mkApp (mkAppN rule params) spec
 
   let targetArgs := target.consumeMData.getAppArgs
   unless target.consumeMData.getAppFn.constName? == some ``Rel &&
-      targetArgs.size == 5 do
+      targetArgs.size == 8 do
     throwError "direct gadget rule expected a `Rel` target"
   let (directParams, _, _) ← forallMetaTelescopeReducing
-    (← inferType withSpec) (some 3)
-  directParams[0]!.mvarId!.assign targetArgs[2]!
-  let inputL ← gadgetInputFromSource specArgs[0]! specArgs[3]! targetArgs[3]!
-  let inputR ← gadgetInputFromSource specArgs[0]! specArgs[3]! targetArgs[4]!
-  directParams[1]!.mvarId!.assign inputL
-  directParams[2]!.mvarId!.assign inputR
-  matchGadgetSource specArgs[3]! inputL targetArgs[3]!
-  matchGadgetSource specArgs[3]! inputR targetArgs[4]!
+    (← inferType withSpec) (some 5)
+  directParams[0]!.mvarId!.assign targetArgs[0]!
+  directParams[1]!.mvarId!.assign targetArgs[1]!
+  directParams[2]!.mvarId!.assign targetArgs[5]!
+  let inputL ← gadgetInputFromSource (mkApp specArgs[0]! targetArgs[0]!)
+    specArgs[3]! targetArgs[6]!
+  let inputR ← gadgetInputFromSource (mkApp specArgs[0]! targetArgs[1]!)
+    specArgs[3]! targetArgs[7]!
+  directParams[3]!.mvarId!.assign inputL
+  directParams[4]!.mvarId!.assign inputR
+  matchGadgetSource specArgs[3]! inputL targetArgs[6]!
+  matchGadgetSource specArgs[3]! inputR targetArgs[7]!
   return mkAppN withSpec directParams
 
 private def tryGadgetRules (db : RuleDB) (direct : Bool) (goal : MVarId)
@@ -749,8 +752,8 @@ private def tryGadgetRules (db : RuleDB) (direct : Bool) (goal : MVarId)
       return some goals
     if direct then
       let targetArgs := target.consumeMData.getAppArgs
-      if targetArgs.size == 5 &&
-          (← bindParts? targetArgs[3]!).isNone then
+      if targetArgs.size == 8 &&
+          (← bindParts? targetArgs[6]!).isNone then
         let spec ← instantiateRule declName
         let proof ← try mkGadgetDirectRule target spec catch error =>
           throwError "failed to construct direct gadget rule for {declName}: {error.toMessageData}"

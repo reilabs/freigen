@@ -14,6 +14,3 @@ lean_lib Freigen where
 @[default_target]
 lean_exe freigen where
   root := `Main
-
-lean_exe sha256_fast_witgen_bench where
-  root := `BenchSha256FastWitgen

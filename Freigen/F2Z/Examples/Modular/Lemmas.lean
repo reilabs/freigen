@@ -9,6 +9,8 @@ completeness, and well-formedness proofs.
 
 namespace Freigen.F2Z.Examples.Modular
 
+local instance : Context := lcContext
+
 open Std.Do
 open scoped Std.Do
 
@@ -20,11 +22,12 @@ variable {n : Nat} (p : Params n)
 namespace Elem
 
 theorem nonneg {x : Elem p} (h : x.Valid ρ) :
-    0 ≤ x.val.intVal.eval ρ.int :=
-  U.intVal_nonneg x.val h.1
+    0 ≤ ρ.int x.val.intVal :=
+  by
+    exact U.intVal_nonneg x.val h.1
 
 theorem evalNat_cast {x : Elem p} (h : x.Valid ρ) :
-    (x.evalNat ρ : Int) = x.val.intVal.eval ρ.int := by
+    (x.evalNat ρ : Int) = ρ.int x.val.intVal := by
   simp [evalNat, Int.toNat_of_nonneg (Elem.nonneg (p := p) h)]
 
 theorem evalNat_lt {x : Elem p} (h : x.Valid ρ) :
@@ -39,14 +42,14 @@ theorem ofNat_valid (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) :
     (ofNat p x hfit hlt).Valid ρ := by
   constructor
   · exact U.valid_bitVec _
-  · change ((BitVec.ofNat n x : U n).intVal.eval ρ.int) < p.modulus
+  · change ρ.int ((BitVec.ofNat n x : U n).intVal) < p.modulus
     rw [U.intVal_eval_eq_eval_toNat _ (U.valid_bitVec _), U.eval_bitVec]
     simpa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hfit]
 
 theorem ofNat_evalNat (x : Nat) (hfit : x < 2 ^ n) (hlt : x < p.modulus) :
     (ofNat p x hfit hlt).evalNat ρ = x := by
   unfold Elem.evalNat
-  change ((BitVec.ofNat n x : U n).intVal.eval ρ.int).toNat = x
+  change (ρ.int ((BitVec.ofNat n x : U n).intVal)).toNat = x
   rw [U.intVal_eval_eq_eval_toNat _ (U.valid_bitVec _), U.eval_bitVec]
   simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hfit]
 
@@ -70,7 +73,7 @@ namespace Lazy
 theorem ofElem_valid {x : Elem p} (hx : x.Valid ρ) :
     (ofElem p x).Valid ρ := by
   refine ⟨Elem.nonneg (p := p) hx, ?_⟩
-  change x.val.intVal.eval ρ.int < ((2 * p.modulus : Nat) : Int)
+  change ρ.int x.val.intVal < ((2 * p.modulus : Nat) : Int)
   push_cast
   have hp : (0 : Int) < p.modulus := by exact_mod_cast p.positive
   nlinarith [hx.2]
@@ -81,7 +84,7 @@ theorem add_valid {x y : Rep p} (hx : x.Valid ρ) (hy : y.Valid ρ) :
   rcases hy with ⟨hy0, hylt⟩
   constructor
   · simpa [add, Rep.Valid] using add_nonneg hx0 hy0
-  · simp only [add, Rep.Valid, LC.eval_add]
+  · simp only [add, Valuation.add_apply]
     push_cast
     ring_nf
     nlinarith
@@ -91,12 +94,12 @@ theorem sub_valid {x y : Rep p} (hx : x.Valid ρ) (hy : y.Valid ρ) :
   rcases hx with ⟨hx0, hxlt⟩
   rcases hy with ⟨hy0, hylt⟩
   constructor
-  · simp only [sub, Rep.Valid, LC.eval_sub, LC.eval_add,
-      LC.eval_ofConst]
+  · simp only [sub, Valuation.sub_apply, Valuation.add_apply,
+      Valuation.ofScalar_apply]
     push_cast
     omega
-  · simp only [sub, Rep.Valid, LC.eval_sub, LC.eval_add,
-      LC.eval_ofConst]
+  · simp only [sub, Valuation.sub_apply, Valuation.add_apply,
+      Valuation.ofScalar_apply]
     push_cast
     ring_nf
     nlinarith
@@ -105,25 +108,25 @@ theorem scale_valid {x : Rep p} (hx : x.Valid ρ) {k : Nat} (hk : 0 < k) :
     (scale p k x).Valid ρ := by
   rcases hx with ⟨hx0, hxlt⟩
   constructor
-  · simp only [scale, Rep.Valid, LC.eval_nsmul, nsmul_eq_mul]
+  · simp only [scale, map_nsmul, nsmul_eq_mul]
     positivity
-  · simp only [scale, Rep.Valid, LC.eval_nsmul, nsmul_eq_mul]
+  · simp only [scale, map_nsmul, nsmul_eq_mul]
     push_cast
     ring_nf
     have hk0 : (0 : Int) < k := by exact_mod_cast hk
     nlinarith
 
 theorem toNat_lt_bound {x : Rep p} (hx : x.Valid ρ) :
-    (x.intVal.eval ρ.int).toNat < x.bound * p.modulus :=
+    (ρ.int x.intVal).toNat < x.bound * p.modulus :=
   (Int.toNat_lt hx.1).2 hx.2
 
 theorem mul_quotient_fits {x y : Rep p}
     (hx : x.Valid ρ) (hy : y.Valid ρ)
     (hbound : x.bound * y.bound < 2 ^ quotientExtraBits) :
-    (x.intVal.eval ρ.int).toNat * (y.intVal.eval ρ.int).toNat /
+    (ρ.int x.intVal).toNat * (ρ.int y.intVal).toNat /
       p.modulus < 2 ^ (n + quotientExtraBits) := by
-  let a := (x.intVal.eval ρ.int).toNat
-  let b := (y.intVal.eval ρ.int).toNat
+  let a := (ρ.int x.intVal).toNat
+  let b := (ρ.int y.intVal).toNat
   have ha := toNat_lt_bound p hx
   have hb := toNat_lt_bound p hy
   have hproduct : a * b <
@@ -156,13 +159,45 @@ theorem quotientBits_low {totalWidth n low high : Nat}
     (ρ : WF.Valuation) :
     (Word.eval ρ.bool {
       bitsLE := Vector.ofFn (n := n) fun i =>
-        (Vector.map LC.ofConst
+        (Vector.map ofScalar
           (quotientBits totalWidth n low high))[i.val]'(by omega)
     }).toNat = low := by
   simp [quotientBits, Word.eval, BitVec.toNat_ofFnLE,
     Nat.ofBits_testBit, Nat.mod_eq_of_lt hfit]
 
+theorem quotientBits_low_lc {totalWidth n low high : Nat}
+    (hwidth : n ≤ totalWidth) (hfit : low < 2 ^ n)
+    (ρ : WF.Valuation) :
+    (Word.eval ρ.bool {
+      bitsLE := Vector.ofFn (n := n) fun i =>
+        (Vector.map LC.ofConst
+          (quotientBits totalWidth n low high))[i.val]'(by omega)
+    }).toNat = low := by
+  have hmap :
+      Vector.map LC.ofConst (quotientBits totalWidth n low high) =
+        Vector.map (fun bit => (ofScalar bit : LC Bool))
+          (quotientBits totalWidth n low high) := by
+    apply Vector.ext
+    intro i hi
+    simp only [Vector.getElem_map]
+    exact (LC.ofScalar_eq_ofConst (F := Bool)
+      (quotientBits totalWidth n low high)[i]).symm
+  rw [hmap]
+  exact quotientBits_low hwidth hfit ρ
+
 theorem quotientBits_high {totalWidth n quotientWidth low high : Nat}
+    (hwidth : n + quotientWidth ≤ totalWidth)
+    (hfit : high < 2 ^ quotientWidth) (ρ : WF.Valuation) :
+    (Word.eval ρ.bool {
+      bitsLE := Vector.ofFn (n := quotientWidth) fun i =>
+        (Vector.map ofScalar
+          (quotientBits totalWidth n low high))[n + i.val]'(by omega)
+    }).toNat = high := by
+  simp [quotientBits, Word.eval, BitVec.toNat_ofFnLE,
+    show ∀ i : Fin quotientWidth, ¬n + i.val < n by omega,
+    Nat.ofBits_testBit, Nat.mod_eq_of_lt hfit]
+
+theorem quotientBits_high_lc {totalWidth n quotientWidth low high : Nat}
     (hwidth : n + quotientWidth ≤ totalWidth)
     (hfit : high < 2 ^ quotientWidth) (ρ : WF.Valuation) :
     (Word.eval ρ.bool {
@@ -170,20 +205,46 @@ theorem quotientBits_high {totalWidth n quotientWidth low high : Nat}
         (Vector.map LC.ofConst
           (quotientBits totalWidth n low high))[n + i.val]'(by omega)
     }).toNat = high := by
-  simp [quotientBits, Word.eval, BitVec.toNat_ofFnLE,
-    show ∀ i : Fin quotientWidth, ¬n + i.val < n by omega,
-    Nat.ofBits_testBit, Nat.mod_eq_of_lt hfit]
+  have hmap :
+      Vector.map LC.ofConst (quotientBits totalWidth n low high) =
+        Vector.map (fun bit => (ofScalar bit : LC Bool))
+          (quotientBits totalWidth n low high) := by
+    apply Vector.ext
+    intro i hi
+    simp only [Vector.getElem_map]
+    exact (LC.ofScalar_eq_ofConst (F := Bool)
+      (quotientBits totalWidth n low high)[i]).symm
+  rw [hmap]
+  exact quotientBits_high hwidth hfit ρ
 
 theorem constWord_eval_toNat {n : Nat} (v : Nat)
     (hv : v < 2 ^ n) (ρ : WF.Valuation) :
     (Word.eval ρ.bool {
-      bitsLE := Vector.ofFn (n := n) fun i => LC.ofConst (v.testBit i)
+      bitsLE := Vector.ofFn (n := n) fun i => ofScalar (v.testBit i)
     }).toNat = v := by
-  simp [Word.eval, BitVec.toNat_ofFnLE, Nat.ofBits_testBit,
+  simp [Word.eval, BitVec.toNat_ofFnLE,
+    Nat.ofBits_testBit,
     Nat.mod_eq_of_lt hv]
 
+theorem constWord_eval_toNat_lc {n : Nat} (v : Nat)
+    (hv : v < 2 ^ n) (ρ : WF.Valuation) :
+    (Word.eval ρ.bool {
+      bitsLE := Vector.ofFn (n := n) fun i => LC.ofConst (v.testBit i)
+    }).toNat = v := by
+  have hbits :
+      (Vector.ofFn (n := n) fun i => LC.ofConst (v.testBit i)) =
+        Vector.ofFn (n := n) fun i => (ofScalar (v.testBit i) : LC Bool) := by
+    apply Vector.ext
+    intro i hi
+    simp only [Vector.getElem_ofFn]
+    exact (LC.ofScalar_eq_ofConst (F := Bool) (v.testBit i)).symm
+  rw [hbits]
+  exact constWord_eval_toNat v hv ρ
+
 theorem WF.lceq_of_common_realizes
-    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
+    {leftCtx rightCtx : Context}
+    {left : Vector leftCtx.WBool m} {right : Vector rightCtx.WBool m}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
     (h : ∃ values : Vector Bool m,
       WF.RealizesBools lv.bool left values ∧
       WF.RealizesBools rv.bool right values)
@@ -196,20 +257,24 @@ theorem WF.lceq_of_common_realizes
 the older low/high helpers, this also covers quotient witnesses with a few
 extra slack bits. -/
 theorem WF.wordSlice_lceq_of_common_realizes
-    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
+    {leftCtx rightCtx : Context}
+    {left : Vector leftCtx.WBool m} {right : Vector rightCtx.WBool m}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
     (h : ∃ values : Vector Bool m,
       WF.RealizesBools lv.bool left values ∧
       WF.RealizesBools rv.bool right values)
     (offset width : Nat) (hfit : offset + width ≤ m) (i : Fin width) :
     WF.LCEq lv.bool rv.bool
-      ({ bitsLE := Vector.ofFn fun j =>
-          left[offset + j.val]'(by omega) } : Word width)[i]
-      ({ bitsLE := Vector.ofFn fun j =>
-          right[offset + j.val]'(by omega) } : Word width)[i] := by
+      (@Word.bitsLE leftCtx width (@Word.mk leftCtx width
+        (Vector.ofFn fun j : Fin width =>
+          left[offset + j.val]'(by omega))))[i]
+      (@Word.bitsLE rightCtx width (@Word.mk rightCtx width
+        (Vector.ofFn fun j : Fin width =>
+          right[offset + j.val]'(by omega))))[i] := by
   unfold WF.LCEq
-  change LC.eval lv.bool
+  change lv.bool
       (Vector.ofFn fun j : Fin width => left[offset + j.val]'(by omega))[i] =
-    LC.eval rv.bool
+    rv.bool
       (Vector.ofFn fun j : Fin width => right[offset + j.val]'(by omega))[i]
   have hleft :
       (Vector.ofFn fun j : Fin width =>
@@ -227,7 +292,9 @@ theorem WF.wordSlice_lceq_of_common_realizes
   exact WF.lceq_of_common_realizes h (offset + i.val) (by omega)
 
 theorem WF.common_realizes_of_post
-    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
+    {leftCtx rightCtx : Context}
+    {left : Vector leftCtx.WBool m} {right : Vector rightCtx.WBool m}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
     {P Q : Prop} {A B : Vector Bool m → Prop}
     (h : (P ∧ ∃ values, A values ∧ B values ∧
       WF.RealizesBools lv.bool left values ∧
@@ -238,8 +305,11 @@ theorem WF.common_realizes_of_post
   exact ⟨values, hleft, hright⟩
 
 theorem WF.common_realizes_of_hint
-    {left right : Vector (LC Bool) m} {lv rv : WF.Valuation}
-    {R : Prop} {bodyL bodyR : Hint (Vector Bool m)}
+    {leftCtx rightCtx : Context}
+    {left : Vector leftCtx.WBool m} {right : Vector rightCtx.WBool m}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {R : Prop} {bodyL : @Hint leftCtx (Vector Bool m)}
+    {bodyR : @Hint rightCtx (Vector Bool m)}
     (h : R ∧ ∃ values, WF.HintReturns bodyL values ∧
       WF.HintReturns bodyR values ∧
       WF.RealizesBools lv.bool left values ∧

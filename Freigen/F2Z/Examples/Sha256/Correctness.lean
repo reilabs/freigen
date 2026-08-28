@@ -1,8 +1,9 @@
 import Freigen.F2Z.Examples.Sha256.Model
 import Freigen.F2Z.Examples.Sha256.Proofs
-import Freigen.F2Z.Examples.Sha256.FastWitgenCorrectness.Output
 
 namespace Freigen.F2Z.Examples
+
+local instance : Context := lcContext
 
 /-- https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Standards-and-Guidelines/documents/examples/SHA256.pdf -/
 example : perm
@@ -60,7 +61,7 @@ info: { mRows := 20457, mCols := 7145, r1csRows := 184 }
 #eval sha256CS.2.stats
 
 theorem permCirc'_complete : ∀ inputs, ∃ wit,
-    Semantics.Witgen.runWithInputs permCirc' inputs = some wit ∧
+    Semantics.Witgen.runWithInputs (@permCirc' valueContext) inputs = some wit ∧
     sha256CS.2.satisfies (wit[·]!) := by
   intro inputs
   apply Complete.adequate
@@ -73,7 +74,7 @@ theorem permCirc'_sound (input : Vector Bool 768) (wit : Nat → Bool)
       sha256CS.1.map (fun i => i.eval wit) = perm' input := by
   intro hsatisfies
   apply Sound.adequate
-    (circ := permCirc')
+    (circ := @permCirc' lcContext)
     (P := fun _ output => output.map (·.eval wit) = perm' input)
   · have ht :=
       permCirc'_sound_triple input wit (fun i => (hWit i).symm) sha256CS.2
@@ -83,24 +84,5 @@ theorem permCirc'_sound (input : Vector Bool 768) (wit : Nat → Bool)
     exact ht True.intro
   · exact fun i => (hWit i).symm
   · exact hsatisfies
-
-namespace Sha256FastWitgen
-
-open Freigen.F2Z.Semantics
-
-/-- The directly callable optimized witgen agrees with
-`Witgen.runWithInputs sha2562KBCircuit`, up to the explicit
-least-significant-bit-first embedding of its packed `UInt64` output. -/
-theorem sha2562KBFastWitgenFromBits_eq_runWithInputs_upToEmbedding
-    (message : Vector Bool sha2562KBMessageBits) :
-    ∃ bits : Array Bool,
-      Witgen.runWithInputs sha2562KBCircuit message = some bits ∧
-      Sha2562KBPackedWitness.Embeds
-        (sha2562KBFastWitgenFromBits message) bits.toList := by
-  unfold sha2562KBFastWitgenFromBits
-  exact sha2562KBFastWitgen_eq_runWithInputs_upToEmbedding
-    (packSha2562KBMessage_rel message)
-
-end Sha256FastWitgen
 
 end Freigen.F2Z.Examples

@@ -260,15 +260,6 @@ theorem map_ret
   congr 1
   ext a; cases a
 
-
-
--- @[simp]
--- theorem map_fail {E} {Y Z : Type _ → Type _} {f : (α : Type _) → Y α → Z α} {α : Type _}:
---     IxPoly.map (F := Step E) f α (Step.fail) = Step.fail := by
---   simp only [IxPoly.map, fail]
---   congr 1
---   ext a; cases a
-
 @[simp]
 theorem map_op
     {Γ : Type u} {E : Γ → Type u} [h : Spec E]

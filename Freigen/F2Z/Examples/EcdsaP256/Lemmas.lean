@@ -77,6 +77,10 @@ namespace Freigen.F2Z.Examples.EcdsaP256
 set_option maxRecDepth 100000
 set_option maxHeartbeats 3000000
 
+-- These executable reference lemmas interpret the concrete LC circuit.
+-- The circuit definitions and WF theorems themselves remain context-polymorphic.
+local instance : Context := lcContext
+
 open Std.Do BigOperators
 open scoped Std.Do
 
@@ -147,10 +151,10 @@ end Aux
 
 theorem windowValue_eval {k : P256.Fn} (hk : k.val.Valid ρ)
     (start width : Nat) (hfit : start + width ≤ 256) :
-    (windowValue k start width hfit).eval ρ.int =
+    ρ.int (windowValue k start width hfit) =
       ((BitVec.extractLsb' start width (k.val.eval ρ)).toNat : Int) := by
   let f : Fin width → Bool := fun j =>
-    k.val.bits.bitsLE[start + j.val]'(by omega) |>.eval ρ.bool
+    ρ.bool (k.val.bits.bitsLE[start + j.val]'(by omega))
   have heval := U.eval_eq_ofFnLE k.val hk
   have hextract : BitVec.extractLsb' start width (k.val.eval ρ) =
       BitVec.ofFnLE f := by
@@ -161,26 +165,26 @@ theorem windowValue_eval {k : P256.Fn} (hk : k.val.Valid ρ)
     simp [BitVec.getElem_ofFnLE, f]
   rw [hextract, BitVec.toNat_ofFnLE, Aux.natCast_ofBits_eq_sum]
   unfold windowValue
-  rw [LC.eval_sum]
+  rw [Freigen.F2Z.Valuation.finset_sum]
   apply Finset.sum_congr rfl
   intro j _
-  rw [LC.eval_nsmul]
+  rw [map_nsmul]
   simp only [nsmul_eq_mul]
   exact congrArg (fun x : Int => 2 ^ j.val * x)
     (by simpa [f] using hk ⟨start + j.val, by omega⟩)
 
 def WindowByteSpec (ρ : WF.Valuation) (k : P256.Fn) (i : Nat)
     (out : LC ℤ) : Prop :=
-  out.eval ρ.int =
+  ρ.int (out) =
     ((BitVec.extractLsb' (248 - 8 * i) 8 (k.val.eval ρ)).toNat : Int)
 
 theorem WindowByteSpec.nonneg {out : LC ℤ}
-    (h : WindowByteSpec ρ k i out) : 0 ≤ out.eval ρ.int := by
+    (h : WindowByteSpec ρ k i out) : 0 ≤ ρ.int (out) := by
   rw [h]
   exact_mod_cast Nat.zero_le _
 
 theorem WindowByteSpec.lt {out : LC ℤ}
-    (h : WindowByteSpec ρ k i out) : out.eval ρ.int < 256 := by
+    (h : WindowByteSpec ρ k i out) : ρ.int (out) < 256 := by
   rw [h]
   exact_mod_cast (BitVec.extractLsb' (248 - 8 * i) 8
     (k.val.eval ρ)).isLt
@@ -201,16 +205,16 @@ theorem WindowByteSpec.lt {out : LC ℤ}
 
 def WindowDigitSpec (ρ : WF.Valuation) (k : P256.Fn) (i : Nat)
     (out : LC ℤ) : Prop :=
-  out.eval ρ.int =
+  ρ.int (out) =
     ((BitVec.extractLsb' (252 - 4 * i) 4 (k.val.eval ρ)).toNat : Int)
 
 theorem WindowDigitSpec.nonneg {out : LC ℤ}
-    (h : WindowDigitSpec ρ k i out) : 0 ≤ out.eval ρ.int := by
+    (h : WindowDigitSpec ρ k i out) : 0 ≤ ρ.int (out) := by
   rw [h]
   exact_mod_cast Nat.zero_le _
 
 theorem WindowDigitSpec.lt {out : LC ℤ}
-    (h : WindowDigitSpec ρ k i out) : out.eval ρ.int < 16 := by
+    (h : WindowDigitSpec ρ k i out) : ρ.int (out) < 16 := by
   rw [h]
   exact_mod_cast (BitVec.extractLsb' (252 - 4 * i) 4
     (k.val.eval ρ)).isLt
@@ -345,8 +349,8 @@ theorem ofElems_valid {P : P256.Projective} (hP : P.Valid ρ) :
 def IndicatorsSpec {n : Nat} (ρ : WF.Valuation) (digit : LC ℤ)
     (out : U n) : Prop :=
   out.Valid ρ ∧ ∃ i : Fin n,
-    out.intBits[i].eval ρ.int = 1 ∧ digit.eval ρ.int = i.val ∧
-      ∀ j : Fin n, out.intBits[j].eval ρ.int = 1 → j = i
+    ρ.int (out.intBits[i]) = 1 ∧ ρ.int (digit) = i.val ∧
+      ∀ j : Fin n, ρ.int (out.intBits[j]) = 1 → j = i
 
 @[spec] theorem indicators_sound {n : Nat} {digit : LC ℤ} :
     ⦃⌜True⌝⦄ Sound.interp ρ (indicators n digit)
@@ -357,31 +361,31 @@ def IndicatorsSpec {n : Nat} (ρ : WF.Valuation) (digit : LC ℤ)
   rename_i out hout hsum hweighted
   refine ⟨hout.1, ?_⟩
   have hbit : ∀ i : Fin n,
-      out.intBits[i].eval ρ.int = 0 ∨ out.intBits[i].eval ρ.int = 1 := by
+      ρ.int (out.intBits[i]) = 0 ∨ ρ.int (out.intBits[i]) = 1 := by
     intro i
     have hi := hout.1 i
-    cases hb : out.bits.bitsLE[i].eval ρ.bool <;>
+    cases hb : ρ.bool (out.bits.bitsLE[i]) <;>
       rw [hb] at hi <;> simp at hi
     · exact Or.inl hi
     · exact Or.inr hi
-  have hsum' : ∑ i : Fin n, out.intBits[i].eval ρ.int = 1 := by
-    simp only [LC.eval_zero, zero_mul, LC.eval_sub, LC.eval_sum,
-      LC.eval_one] at hsum
+  have hsum' : ∑ i : Fin n, ρ.int (out.intBits[i]) = 1 := by
+    simp only [Freigen.F2Z.Valuation.zero_apply, zero_mul, Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.finset_sum,
+      Freigen.F2Z.Valuation.one_apply] at hsum
     exact sub_eq_zero.mp hsum.symm
   rcases Aux.oneHot hbit hsum' with ⟨i, hi, hui⟩
   refine ⟨i, hi, ?_, hui⟩
-  · simp only [LC.eval_zero, zero_mul, LC.eval_sub, LC.eval_sum,
-      LC.eval_nsmul, nsmul_eq_mul] at hweighted
+  · simp only [Freigen.F2Z.Valuation.zero_apply, zero_mul, Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.finset_sum,
+      map_nsmul, nsmul_eq_mul] at hweighted
     have hzero : ∀ j : Fin n, j ≠ i →
-        out.intBits[j].eval ρ.int = 0 := by
+        ρ.int (out.intBits[j]) = 0 := by
       intro j hji
       rcases hbit j with hj | hj
       · exact hj
       · exact (hji (hui j hj)).elim
     rw [show (∑ j : Fin n, (j.val : Int) *
-        out.intBits[j].eval ρ.int) = i.val by
+        ρ.int (out.intBits[j])) = i.val by
       have hrest : ∑ j ∈ (Finset.univ.erase i), (j.val : Int) *
-          out.intBits[j].eval ρ.int = 0 := by
+          ρ.int (out.intBits[j]) = 0 := by
         apply Finset.sum_eq_zero
         intro j hj
         rw [hzero j (Finset.mem_erase.mp hj).1]
@@ -391,33 +395,37 @@ def IndicatorsSpec {n : Nat} (ρ : WF.Valuation) (digit : LC ℤ)
     omega
 
 @[spec] theorem indicators_complete {n : Nat} {digit : LC ℤ}
-    (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < n) :
+    (hd0 : 0 ≤ ρ.int (digit)) (hdlt : ρ.int (digit) < (n : Int)) :
     ⦃⌜True⌝⦄ Complete.interp ρ (indicators n digit)
     ⦃⇓ out => ⌜IndicatorsSpec ρ digit out⌝⦄ := by
   mvcgen [indicators]
   let bits : Vector Bool n := Vector.ofFn fun i =>
-    digit.eval ρ.int = i.val
+    ρ.int (digit) = i.val
   refine ⟨bits, rfl, ?_⟩
   mvcgen
   rename_i out hout
-  let chosen : Fin n := ⟨(digit.eval ρ.int).toNat,
+  let chosen : Fin n := ⟨(ρ.int (digit)).toNat,
     (Int.toNat_lt hd0).2 hdlt⟩
   have houtBool (i : Fin n) :
-      out.bits.bitsLE[i].eval ρ.bool = bits[i] := by
+      ρ.bool (out.bits.bitsLE[i]) = bits[i] := by
     have heval := U.eval_eq_ofFnLE out hout.1
     have hrel := hout.2
     rw [heval] at hrel
     have heq := congrArg (fun w : BitVec n => w[i.val]) hrel
-    simpa [Word.eval, BitVec.getElem_ofFnLE] using heq
+    have heq' : ρ.bool (out.bits.bitsLE[i]) =
+        ρ.bool (LC.ofConst bits[i]) := by
+      simpa only [Word.eval, BitVec.getElem_ofFnLE,
+        Vector.getElem_map, Fin.getElem_fin] using heq
+    exact heq'.trans (LC.Valuation.ofConst_apply ρ.bool bits[i])
   have hbit (i : Fin n) :
-      out.intBits[i].eval ρ.int = if i = chosen then 1 else 0 := by
+      ρ.int (out.intBits[i]) = if i = chosen then 1 else 0 := by
     have hi := hout.1 i
     rw [houtBool i] at hi
     by_cases h : i = chosen
     · subst i
       simp [bits, chosen, Int.toNat_of_nonneg hd0] at hi ⊢
       exact hi
-    · have hne : digit.eval ρ.int ≠ (i.val : Int) := by
+    · have hne : ρ.int (digit) ≠ (i.val : Int) := by
         intro heq
         apply h
         apply Fin.eq_of_val_eq
@@ -425,20 +433,20 @@ def IndicatorsSpec {n : Nat} (ρ : WF.Valuation) (digit : LC ℤ)
         omega
       simp [bits, h, hne] at hi ⊢
       exact hi
-  have hsum : ∑ i : Fin n, out.intBits[i].eval ρ.int = 1 := by
+  have hsum : ∑ i : Fin n, ρ.int (out.intBits[i]) = 1 := by
     simp_rw [hbit]
     simp
   have hweighted : ∑ i : Fin n, (i.val : Int) *
-      out.intBits[i].eval ρ.int = digit.eval ρ.int := by
+      ρ.int (out.intBits[i]) = ρ.int (digit) := by
     simp_rw [hbit]
     simp [chosen, Int.toNat_of_nonneg hd0]
-  have hassertSum : (LC.eval ρ.int 0) * (LC.eval ρ.int 0) =
-      LC.eval ρ.int ((∑ i : Fin n, out.intBits[i]) - 1) := by
-    simp only [LC.eval_zero, LC.eval_sub, LC.eval_sum, LC.eval_one]
+  have hassertSum : ρ.int 0 * ρ.int 0 =
+      ρ.int ((∑ i : Fin n, out.intBits[i]) - 1) := by
+    simp only [Freigen.F2Z.Valuation.zero_apply, Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.finset_sum, Freigen.F2Z.Valuation.one_apply]
     omega
-  have hassertWeighted : (LC.eval ρ.int 0) * (LC.eval ρ.int 0) =
-      LC.eval ρ.int ((∑ i : Fin n, i.val • out.intBits[i]) - digit) := by
-    simp only [LC.eval_zero, LC.eval_sub, LC.eval_sum, LC.eval_nsmul,
+  have hassertWeighted : ρ.int 0 * ρ.int 0 =
+      ρ.int ((∑ i : Fin n, i.val • out.intBits[i]) - digit) := by
+    simp only [Freigen.F2Z.Valuation.zero_apply, Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.finset_sum, map_nsmul,
       nsmul_eq_mul]
     omega
   constructor
@@ -458,14 +466,14 @@ def IndicatorsSpec {n : Nat} (ρ : WF.Valuation) (digit : LC ℤ)
         · omega
 
 @[spec] theorem windowIndicators_complete {digit : LC ℤ}
-    (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < 16) :
+    (hd0 : 0 ≤ ρ.int (digit)) (hdlt : ρ.int (digit) < 16) :
     ⦃⌜True⌝⦄ Complete.interp ρ (windowIndicators digit)
     ⦃⇓ out => ⌜IndicatorsSpec ρ digit out⌝⦄ := by
   simpa [windowIndicators] using
     (indicators_complete (ρ := ρ) (n := 16) hd0 hdlt)
 
 @[spec] theorem byteIndicators_complete {digit : LC ℤ}
-    (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < 256) :
+    (hd0 : 0 ≤ ρ.int (digit)) (hdlt : ρ.int (digit) < 256) :
     ⦃⌜True⌝⦄ Complete.interp ρ (byteIndicators digit)
     ⦃⇓ out => ⌜IndicatorsSpec ρ digit out⌝⦄ := by
   simpa [byteIndicators] using
@@ -486,7 +494,7 @@ def IndicatorsSpec {n : Nat} (ρ : WF.Valuation) (digit : LC ℤ)
 def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
     (xs : Vector P256.AffineSlope.Rep 16)
     (out : P256.AffineSlope.Rep) : Prop :=
-  ∀ i : Fin 16, indicators.intBits[i].eval ρ.int = 1 →
+  ∀ i : Fin 16, ρ.int (indicators.intBits[i]) = 1 →
     Modular.Lazy.evalZMod P256.base out ρ =
       Modular.Lazy.evalZMod P256.base xs[i] ρ
 
@@ -496,7 +504,7 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
     ⦃⇓ _ => ⌜LookupRepSpec ρ indicators xs ⟨out.intVal, 2⟩⌝⦄ := by
   mvcgen [assertLookupRep, WF.foldRange] invariants
   · ⇓⟨cur, _⟩ => ⌜∀ i : Fin 16, i.val < cur.prefix.length →
-      indicators.intBits[i].eval ρ.int = 1 →
+      ρ.int (indicators.intBits[i]) = 1 →
       Modular.Lazy.evalZMod P256.base ⟨out.intVal, 2⟩ ρ =
         Modular.Lazy.evalZMod P256.base xs[i] ρ⌝
   case vc1 pref cur suff hsplit _ hprev hassert =>
@@ -509,10 +517,10 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
         omega
       subst cur
       rcases hassert with ⟨_, hassert⟩
-      simp only [LC.eval_sub, LC.eval_zero] at hassert
-      rw [show indicators.intBits[i.val].eval ρ.int = 1 by simpa using hone,
+      simp only [Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.zero_apply] at hassert
+      rw [show ρ.int (indicators.intBits[i.val]) = 1 by simpa using hone,
         one_mul] at hassert
-      have houtEq : out.intVal.eval ρ.int = xs[i].intVal.eval ρ.int := by
+      have houtEq : ρ.int (out.intVal) = ρ.int (xs[i].intVal) := by
         simpa only [Fin.getElem_fin] using sub_eq_zero.mp hassert
       unfold Modular.Lazy.evalZMod
       rw [houtEq]
@@ -523,20 +531,20 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
     {indicators : U 16} {out : U 256}
     {xs : Vector P256.AffineSlope.Rep 16}
     (hindicators : indicators.Valid ρ)
-    (heq : ∀ i : Fin 16, indicators.intBits[i].eval ρ.int = 1 →
-      out.intVal.eval ρ.int = xs[i].intVal.eval ρ.int) :
+    (heq : ∀ i : Fin 16, ρ.int (indicators.intBits[i]) = 1 →
+      ρ.int (out.intVal) = ρ.int (xs[i].intVal)) :
     ⦃⌜True⌝⦄ Complete.interp ρ (assertLookupRep indicators out xs)
     ⦃⇓ _ => ⌜LookupRepSpec ρ indicators xs ⟨out.intVal, 2⟩⌝⦄ := by
-  have hbit (i : Fin 16) : indicators.intBits[i].eval ρ.int = 0 ∨
-      indicators.intBits[i].eval ρ.int = 1 := by
+  have hbit (i : Fin 16) : ρ.int (indicators.intBits[i]) = 0 ∨
+      ρ.int (indicators.intBits[i]) = 1 := by
     have hi := hindicators i
-    cases hb : indicators.bits.bitsLE[i].eval ρ.bool <;>
+    cases hb : ρ.bool (indicators.bits.bitsLE[i]) <;>
       rw [hb] at hi <;> simp at hi
     · exact Or.inl hi
     · exact Or.inr hi
   mvcgen [assertLookupRep, WF.foldRange] invariants
   · ⇓⟨cur, _⟩ => ⌜∀ i : Fin 16, i.val < cur.prefix.length →
-      indicators.intBits[i].eval ρ.int = 1 →
+      ρ.int (indicators.intBits[i]) = 1 →
       Modular.Lazy.evalZMod P256.base ⟨out.intVal, 2⟩ ρ =
         Modular.Lazy.evalZMod P256.base xs[i] ρ⌝
   case vc1 pref cur suff hsplit _ hprev =>
@@ -544,12 +552,12 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
     let fi : Fin 16 := ⟨cur, hcur16⟩
     constructor
     · rcases hbit fi with hz | ho
-      · have hz' : indicators.intBits[cur].eval ρ.int = 0 := by
+      · have hz' : ρ.int (indicators.intBits[cur]) = 0 := by
           simpa [fi] using hz
         simp [hz']
-      · have ho' : indicators.intBits[cur].eval ρ.int = 1 := by
+      · have ho' : ρ.int (indicators.intBits[cur]) = 1 := by
           simpa [fi] using ho
-        simp only [LC.eval_sub, LC.eval_zero, ho', one_mul]
+        simp only [Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.zero_apply, ho', one_mul]
         exact sub_eq_zero.mpr (heq fi (by simpa [fi] using ho'))
     · mvcgen
       intro i hi hone
@@ -575,32 +583,32 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
 
 @[spec] theorem lookupRep_complete {digit : LC ℤ}
     {indicators : U 16} {xs : Vector P256.AffineSlope.Rep 16}
-    (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < 16)
+    (hd0 : 0 ≤ ρ.int (digit)) (hdlt : ρ.int (digit) < 16)
     (hindicators : IndicatorsSpec ρ digit indicators)
     (hxs : ∀ i : Fin 16, xs[i].Valid ρ ∧
-      xs[i].intVal.eval ρ.int < P256.base.modulus) :
+      ρ.int (xs[i].intVal) < P256.base.modulus) :
     ⦃⌜True⌝⦄ Complete.interp ρ (lookupRep digit indicators xs)
     ⦃⇓ out => ⌜LookupRepSpec ρ indicators xs out ∧ out.Valid ρ ∧
-      out.intVal.eval ρ.int < P256.base.modulus ∧ out.bound = 2⌝⦄ := by
+      ρ.int (out.intVal) < P256.base.modulus ∧ out.bound = 2⌝⦄ := by
   mvcgen [lookupRep, lookupRepWord]
-  let chosen : Fin 16 := ⟨(digit.eval ρ.int).toNat,
+  let chosen : Fin 16 := ⟨(ρ.int (digit)).toNat,
     (Int.toNat_lt hd0).2 hdlt⟩
-  let values : Array Int := #[xs[0].intVal.eval ρ.int,
-    xs[1].intVal.eval ρ.int, xs[2].intVal.eval ρ.int,
-    xs[3].intVal.eval ρ.int, xs[4].intVal.eval ρ.int,
-    xs[5].intVal.eval ρ.int, xs[6].intVal.eval ρ.int,
-    xs[7].intVal.eval ρ.int, xs[8].intVal.eval ρ.int,
-    xs[9].intVal.eval ρ.int, xs[10].intVal.eval ρ.int,
-    xs[11].intVal.eval ρ.int, xs[12].intVal.eval ρ.int,
-    xs[13].intVal.eval ρ.int, xs[14].intVal.eval ρ.int,
-    xs[15].intVal.eval ρ.int]
-  let value := values[(digit.eval ρ.int).toNat]!
+  let values : Array Int := #[ρ.int (xs[0].intVal),
+    ρ.int (xs[1].intVal), ρ.int (xs[2].intVal),
+    ρ.int (xs[3].intVal), ρ.int (xs[4].intVal),
+    ρ.int (xs[5].intVal), ρ.int (xs[6].intVal),
+    ρ.int (xs[7].intVal), ρ.int (xs[8].intVal),
+    ρ.int (xs[9].intVal), ρ.int (xs[10].intVal),
+    ρ.int (xs[11].intVal), ρ.int (xs[12].intVal),
+    ρ.int (xs[13].intVal), ρ.int (xs[14].intVal),
+    ρ.int (xs[15].intVal)]
+  let value := values[(ρ.int (digit)).toNat]!
   let bits : Vector Bool 256 := Vector.ofFn fun i => value.toNat.testBit i.val
-  have hdNat : (digit.eval ρ.int).toNat < 16 :=
+  have hdNat : (ρ.int (digit)).toNat < 16 :=
     (Int.toNat_lt hd0).2 hdlt
-  have hvalues (i : Fin 16) : values[i.val] = xs[i].intVal.eval ρ.int := by
+  have hvalues (i : Fin 16) : values[i.val] = ρ.int (xs[i].intVal) := by
     fin_cases i <;> rfl
-  have hvalue : value = xs[chosen].intVal.eval ρ.int := by
+  have hvalue : value = ρ.int (xs[chosen].intVal) := by
     unfold value
     rw [getElem!_pos values _ (by simpa [values] using hdNat)]
     exact hvalues chosen
@@ -610,10 +618,10 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
   · have houtFacts (out : U 256)
         (hout : U.Rel ρ out
           (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits })) :
-        (∀ i : Fin 16, indicators.intBits[i].eval ρ.int = 1 →
-          out.intVal.eval ρ.int = xs[i].intVal.eval ρ.int) ∧
+        (∀ i : Fin 16, ρ.int (indicators.intBits[i]) = 1 →
+          ρ.int (out.intVal) = ρ.int (xs[i].intVal)) ∧
         ((⟨out.intVal, 2⟩ : P256.AffineSlope.Rep).Valid ρ ∧
-          out.intVal.eval ρ.int < P256.base.modulus) := by
+          ρ.int (out.intVal) < P256.base.modulus) := by
       have hvalue0 : 0 ≤ value := hvalue ▸ (hxs chosen).1.1
       have hvalueLt : value < P256.base.modulus := hvalue ▸ (hxs chosen).2
       have hfit : value.toNat < 2 ^ 256 := by
@@ -628,9 +636,9 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
               LC.ofConst (value.toNat.testBit i.val) by
           ext i
           simp [bits]]
-        exact Modular.Aux.constWord_eval_toNat value.toNat hfit ρ
-      have houtVal : out.intVal.eval ρ.int = value := by
-        rw [U.Rel.intVal hout, hword, Int.toNat_of_nonneg hvalue0]
+        exact Modular.Aux.constWord_eval_toNat_lc value.toNat hfit ρ
+      have houtVal : ρ.int (out.intVal) = value := by
+        rw [U.Rel.intVal_apply hout, hword, Int.toNat_of_nonneg hvalue0]
       constructor
       · intro i hi
         rcases hindicators.2 with ⟨selected, _, hdigit, hunique⟩
@@ -657,8 +665,8 @@ def LookupRepSpec (ρ : WF.Valuation) (indicators : U 16)
 
 def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     (flags : Vector (LC ℤ) 16) (out : LC ℤ) : Prop :=
-  ∀ i : Fin 16, indicators.intBits[i].eval ρ.int = 1 →
-    out.eval ρ.int = flags[i].eval ρ.int
+  ∀ i : Fin 16, ρ.int (indicators.intBits[i]) = 1 →
+    ρ.int (out) = ρ.int (flags[i])
 
 @[spec] theorem assertLookupFlag_sound {indicators : U 16} {out : LC ℤ}
     {flags : Vector (LC ℤ) 16} :
@@ -666,8 +674,8 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     ⦃⇓ _ => ⌜LookupFlagSpec ρ indicators flags out⌝⦄ := by
   mvcgen [assertLookupFlag, WF.foldRange] invariants
   · ⇓⟨cur, _⟩ => ⌜∀ i : Fin 16, i.val < cur.prefix.length →
-      indicators.intBits[i].eval ρ.int = 1 →
-      out.eval ρ.int = flags[i].eval ρ.int⌝
+      ρ.int (indicators.intBits[i]) = 1 →
+      ρ.int (out) = ρ.int (flags[i])⌝
   case vc1 pref cur suff hsplit _ hprev hassert =>
     intro i hi hone
     simp only [List.length_append, List.length_singleton] at hi
@@ -678,8 +686,8 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
         omega
       subst cur
       rcases hassert with ⟨_, hassert⟩
-      simp only [LC.eval_sub, LC.eval_zero] at hassert
-      rw [show indicators.intBits[i.val].eval ρ.int = 1 by simpa using hone,
+      simp only [Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.zero_apply] at hassert
+      rw [show ρ.int (indicators.intBits[i.val]) = 1 by simpa using hone,
         one_mul] at hassert
       simpa only [Fin.getElem_fin] using sub_eq_zero.mp hassert
   case vc2 => simp
@@ -688,32 +696,32 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
 @[spec] theorem assertLookupFlag_complete {indicators : U 16} {out : LC ℤ}
     {flags : Vector (LC ℤ) 16}
     (hindicators : indicators.Valid ρ)
-    (heq : ∀ i : Fin 16, indicators.intBits[i].eval ρ.int = 1 →
-      out.eval ρ.int = flags[i].eval ρ.int) :
+    (heq : ∀ i : Fin 16, ρ.int (indicators.intBits[i]) = 1 →
+      ρ.int (out) = ρ.int (flags[i])) :
     ⦃⌜True⌝⦄ Complete.interp ρ (assertLookupFlag indicators out flags)
     ⦃⇓ _ => ⌜LookupFlagSpec ρ indicators flags out⌝⦄ := by
-  have hbit (i : Fin 16) : indicators.intBits[i].eval ρ.int = 0 ∨
-      indicators.intBits[i].eval ρ.int = 1 := by
+  have hbit (i : Fin 16) : ρ.int (indicators.intBits[i]) = 0 ∨
+      ρ.int (indicators.intBits[i]) = 1 := by
     have hi := hindicators i
-    cases hb : indicators.bits.bitsLE[i].eval ρ.bool <;>
+    cases hb : ρ.bool (indicators.bits.bitsLE[i]) <;>
       rw [hb] at hi <;> simp at hi
     · exact Or.inl hi
     · exact Or.inr hi
   mvcgen [assertLookupFlag, WF.foldRange] invariants
   · ⇓⟨cur, _⟩ => ⌜∀ i : Fin 16, i.val < cur.prefix.length →
-      indicators.intBits[i].eval ρ.int = 1 →
-      out.eval ρ.int = flags[i].eval ρ.int⌝
+      ρ.int (indicators.intBits[i]) = 1 →
+      ρ.int (out) = ρ.int (flags[i])⌝
   case vc1 pref cur suff hsplit _ hprev =>
     have hcur16 : cur < 16 := by grind
     let fi : Fin 16 := ⟨cur, hcur16⟩
     constructor
     · rcases hbit fi with hz | ho
-      · have hz' : indicators.intBits[cur].eval ρ.int = 0 := by
+      · have hz' : ρ.int (indicators.intBits[cur]) = 0 := by
           simpa [fi] using hz
         simp [hz']
-      · have ho' : indicators.intBits[cur].eval ρ.int = 1 := by
+      · have ho' : ρ.int (indicators.intBits[cur]) = 1 := by
           simpa [fi] using ho
-        simp only [LC.eval_sub, LC.eval_zero, ho', one_mul]
+        simp only [Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.zero_apply, ho', one_mul]
         exact sub_eq_zero.mpr (heq fi (by simpa [fi] using ho'))
     · mvcgen
       intro i hi hone
@@ -737,50 +745,56 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
 
 @[spec] theorem lookupFlag_complete {digit : LC ℤ}
     {indicators : U 16} {flags : Vector (LC ℤ) 16}
-    (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < 16)
+    (hd0 : 0 ≤ ρ.int (digit)) (hdlt : ρ.int (digit) < 16)
     (hindicators : IndicatorsSpec ρ digit indicators)
-    (hflags : ∀ i : Fin 16, flags[i].eval ρ.int = 0 ∨
-      flags[i].eval ρ.int = 1) :
+    (hflags : ∀ i : Fin 16, ρ.int (flags[i]) = 0 ∨
+      ρ.int (flags[i]) = 1) :
     ⦃⌜True⌝⦄ Complete.interp ρ (lookupFlag digit indicators flags)
     ⦃⇓ out => ⌜LookupFlagSpec ρ indicators flags out ∧
-      (out.eval ρ.int = 0 ∨ out.eval ρ.int = 1)⌝⦄ := by
+      (ρ.int (out) = 0 ∨ ρ.int (out) = 1)⌝⦄ := by
   mvcgen [lookupFlag]
-  let chosen : Fin 16 := ⟨(digit.eval ρ.int).toNat,
+  let chosen : Fin 16 := ⟨(ρ.int (digit)).toNat,
     (Int.toNat_lt hd0).2 hdlt⟩
-  let values : Array Int := #[flags[0].eval ρ.int, flags[1].eval ρ.int,
-    flags[2].eval ρ.int, flags[3].eval ρ.int, flags[4].eval ρ.int,
-    flags[5].eval ρ.int, flags[6].eval ρ.int, flags[7].eval ρ.int,
-    flags[8].eval ρ.int, flags[9].eval ρ.int, flags[10].eval ρ.int,
-    flags[11].eval ρ.int, flags[12].eval ρ.int, flags[13].eval ρ.int,
-    flags[14].eval ρ.int, flags[15].eval ρ.int]
-  let bitValue : Bool := flags[chosen].eval ρ.int = 1
+  let values : Array Int := #[ρ.int (flags[0]), ρ.int (flags[1]),
+    ρ.int (flags[2]), ρ.int (flags[3]), ρ.int (flags[4]),
+    ρ.int (flags[5]), ρ.int (flags[6]), ρ.int (flags[7]),
+    ρ.int (flags[8]), ρ.int (flags[9]), ρ.int (flags[10]),
+    ρ.int (flags[11]), ρ.int (flags[12]), ρ.int (flags[13]),
+    ρ.int (flags[14]), ρ.int (flags[15])]
+  let bitValue : Bool := ρ.int (flags[chosen]) = 1
   let bits : Vector Bool 1 := #v[bitValue]
-  have hdNat : (digit.eval ρ.int).toNat < 16 :=
+  have hdNat : (ρ.int (digit)).toNat < 16 :=
     (Int.toNat_lt hd0).2 hdlt
-  have hvalues (i : Fin 16) : values[i.val] = flags[i].eval ρ.int := by
+  have hvalues (i : Fin 16) : values[i.val] = ρ.int (flags[i]) := by
     fin_cases i <;> rfl
-  have hget : values[(digit.eval ρ.int).toNat]! =
-      flags[chosen].eval ρ.int := by
+  have hget : values[(ρ.int (digit)).toNat]! =
+      ρ.int (flags[chosen]) := by
     rw [getElem!_pos values _ (by simpa [values] using hdNat)]
     exact hvalues chosen
   refine ⟨bits, ?_, ?_⟩
   · simp [WF.interpHint, WF.evalArgs, lookupFlagHint, lookupArgs,
       bits, bitValue, values, hget]
   · have houtFacts (out : LC ℤ)
-        (hout : out.eval ρ.int =
-          (LC.eval ρ.bool (Vector.map LC.ofConst #v[bitValue])[0]).toInt) :
-        (∀ i : Fin 16, indicators.intBits[i].eval ρ.int = 1 →
-          out.eval ρ.int = flags[i].eval ρ.int) ∧
-        (out.eval ρ.int = 0 ∨ out.eval ρ.int = 1) := by
-      have hout' : out.eval ρ.int = bitValue.toInt := by
-        simpa using hout
-      have houtVal : out.eval ρ.int = flags[chosen].eval ρ.int := by
+        (hout : ρ.int (out) =
+          (ρ.bool (Vector.map LC.ofConst #v[bitValue])[0]).toInt) :
+        (∀ i : Fin 16, ρ.int (indicators.intBits[i]) = 1 →
+          ρ.int (out) = ρ.int (flags[i])) ∧
+        (ρ.int (out) = 0 ∨ ρ.int (out) = 1) := by
+      have hout' : ρ.int (out) = bitValue.toInt := by
+        have hconst : ρ.bool (Vector.map LC.ofConst #v[bitValue])[0] =
+            bitValue := by
+          calc
+            ρ.bool (Vector.map LC.ofConst #v[bitValue])[0] =
+                ρ.bool (LC.ofConst bitValue) := congrArg ρ.bool (by simp)
+            _ = bitValue := LC.Valuation.ofConst_apply ρ.bool bitValue
+        exact hout.trans (congrArg Bool.toInt hconst)
+      have houtVal : ρ.int (out) = ρ.int (flags[chosen]) := by
         rw [hout']
         rcases hflags chosen with h0 | h1
-        · have h0' : flags[chosen].eval ρ.int = 0 := h0
+        · have h0' : ρ.int (flags[chosen]) = 0 := h0
           simp only [bitValue, h0']
           rfl
-        · have h1' : flags[chosen].eval ρ.int = 1 := h1
+        · have h1' : ρ.int (flags[chosen]) = 1 := h1
           simp only [bitValue, h1', decide_true]
           rfl
       constructor
@@ -807,7 +821,7 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     (htable : ∀ i : Fin 16,
       P256.Reference.NormalizedRep ρ table[i] (i.val • q)) :
     ⦃⌜True⌝⦄ Sound.interp ρ (lookupPoint digit table)
-    ⦃⇓ out => ⌜∃ i : Fin 16, digit.eval ρ.int = i.val ∧
+    ⦃⇓ out => ⌜∃ i : Fin 16, ρ.int (digit) = i.val ∧
       P256.Reference.NormalizedRep ρ out (i.val • q)⌝⦄ := by
   mvcgen [lookupPoint]
   rename_i indicators hi X hX Y hY infinity hinfinity
@@ -819,7 +833,7 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
   have hyi : Modular.Lazy.evalZMod P256.base Y ρ =
       Modular.Lazy.evalZMod P256.base table[i].Y ρ := by
     simpa using hY i hone
-  have hfi : infinity.eval ρ.int = table[i].infinity.eval ρ.int := by
+  have hfi : ρ.int (infinity) = ρ.int (table[i].infinity) := by
     simpa using hinfinity i hone
   rcases htable i with ⟨⟨hbit, hcoordinates⟩, hnormalized⟩
   constructor
@@ -837,13 +851,13 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
 @[spec] theorem lookupPoint_complete {digit : LC ℤ}
     {table : Vector P256.AffineSlope.Point 16}
     {q : P256.Reference.Point}
-    (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < 16)
+    (hd0 : 0 ≤ ρ.int (digit)) (hdlt : ρ.int (digit) < 16)
     (htableValid : ∀ i : Fin 16, table[i].Valid ρ)
     (htable : ∀ i : Fin 16,
       P256.Reference.NormalizedRep ρ table[i] (i.val • q)) :
     ⦃⌜True⌝⦄ Complete.interp ρ (lookupPoint digit table)
     ⦃⇓ out => ⌜out.Valid ρ ∧ ∃ i : Fin 16,
-      digit.eval ρ.int = i.val ∧
+      ρ.int (digit) = i.val ∧
         P256.Reference.NormalizedRep ρ out (i.val • q)⌝⦄ := by
   mvcgen [lookupPoint]
   case vc6.hxs =>
@@ -865,7 +879,7 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     have hyi : Modular.Lazy.evalZMod P256.base Y ρ =
         Modular.Lazy.evalZMod P256.base table[i].Y ρ := by
       simpa using hY.1 i hone
-    have hfi : infinity.eval ρ.int = table[i].infinity.eval ρ.int := by
+    have hfi : ρ.int (infinity) = ρ.int (table[i].infinity) := by
       simpa using hinfinity.1 i hone
     rcases htable i with ⟨⟨hbit, hcoordinates⟩, hnormalized⟩
     refine ⟨?_, i, hdigit, ?_⟩
@@ -885,7 +899,7 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
           hyi.trans hzeroCoordinates.2⟩
 @[spec] theorem lookupGeneratorByte_sound {digit : LC ℤ} :
     ⦃⌜True⌝⦄ Sound.interp ρ (lookupGeneratorByte digit)
-    ⦃⇓ out => ⌜∃ i : Fin 256, digit.eval ρ.int = i.val ∧
+    ⦃⇓ out => ⌜∃ i : Fin 256, ρ.int (digit) = i.val ∧
       P256.Reference.NormalizedRep ρ out
         (i.val • P256.Reference.generator)⌝⦄ := by
   mvcgen [lookupGeneratorByte]
@@ -896,7 +910,7 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
   · unfold P256.Reference.Represents P256.Reference.circuitCoordinates
     constructor
     · have hbit := hi.1 (0 : Fin 256)
-      cases hb : indicators.bits.bitsLE[(0 : Fin 256)].eval ρ.bool <;>
+      cases hb : ρ.bool (indicators.bits.bitsLE[(0 : Fin 256)]) <;>
         rw [hb] at hbit <;> simp at hbit
       · exact Or.inl hbit
       · exact Or.inr hbit
@@ -905,18 +919,18 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
         subst i
         simp only [P256.Reference.coordinates, if_pos (by simpa using hone)]
         rfl
-      · have hzero : indicators.intBits[0].eval ρ.int = 0 := by
+      · have hzero : ρ.int (indicators.intBits[0]) = 0 := by
           have hbit := hi.1 (0 : Fin 256)
-          have hcases : indicators.intBits[0].eval ρ.int = 0 ∨
-              indicators.intBits[0].eval ρ.int = 1 := by
-            cases hb : indicators.bits.bitsLE[(0 : Fin 256)].eval ρ.bool <;>
+          have hcases : ρ.int (indicators.intBits[0]) = 0 ∨
+              ρ.int (indicators.intBits[0]) = 1 := by
+            cases hb : ρ.bool (indicators.bits.bitsLE[(0 : Fin 256)]) <;>
               rw [hb] at hbit <;> simp at hbit
             · exact Or.inl hbit
             · exact Or.inr hbit
           exact hcases.resolve_right fun h => by
             have := hunique 0 h
             omega
-        rw [if_neg (show indicators.intBits[0].eval ρ.int ≠ 1 by omega)]
+        rw [if_neg (show ρ.int (indicators.intBits[0]) ≠ 1 by omega)]
         have hnonzero := Reference.Aux.generator_nsmul_ne_zero hi0
           (i.isLt.trans (by native_decide : 256 < P256.scalarModulus))
         rcases hpoint : i.val • P256.Reference.generator with _ | ⟨x, y, hxy⟩
@@ -924,24 +938,24 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
         · simp only [P256.Reference.coordinates]
           congr 1
           · unfold Modular.Lazy.evalZMod
-            simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+            simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
             rw [show (∑ j : Fin 256, (generatorByteX[j] : ℤ) *
-                indicators.intBits[j].eval ρ.int) = generatorByteX[i] by
+                ρ.int (indicators.intBits[j])) = generatorByteX[i] by
               exact Aux.sum_mul_oneHot _ _ i hone fun j hji => by
                 have hbit := hi.1 j
-                cases hb : indicators.bits.bitsLE[j].eval ρ.bool <;>
+                cases hb : ρ.bool (indicators.bits.bitsLE[j]) <;>
                   rw [hb] at hbit <;> simp at hbit
                 · exact hbit
                 · exact (hji (hunique j hbit)).elim]
             rw [Aux.generatorByteX_get, hpoint]
             exact ZMod.natCast_zmod_val x
           · unfold Modular.Lazy.evalZMod
-            simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+            simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
             rw [show (∑ j : Fin 256, (generatorByteY[j] : ℤ) *
-                indicators.intBits[j].eval ρ.int) = generatorByteY[i] by
+                ρ.int (indicators.intBits[j])) = generatorByteY[i] by
               exact Aux.sum_mul_oneHot _ _ i hone fun j hji => by
                 have hbit := hi.1 j
-                cases hb : indicators.bits.bitsLE[j].eval ρ.bool <;>
+                cases hb : ρ.bool (indicators.bits.bitsLE[j]) <;>
                   rw [hb] at hbit <;> simp at hbit
                 · exact hbit
                 · exact (hji (hunique j hbit)).elim]
@@ -956,30 +970,30 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     have hieq : i = 0 := Fin.eq_of_val_eq hi0
     subst i
     have hzero : ∀ j : Fin 256, j ≠ 0 →
-        indicators.intBits[j].eval ρ.int = 0 := by
+        ρ.int (indicators.intBits[j]) = 0 := by
       intro j hj
       have hbit := hi.1 j
-      cases hb : indicators.bits.bitsLE[j].eval ρ.bool <;>
+      cases hb : ρ.bool (indicators.bits.bitsLE[j]) <;>
         rw [hb] at hbit <;> simp at hbit
       · exact hbit
       · exact (hj (hunique j hbit)).elim
     constructor
     · unfold Modular.Lazy.evalZMod
-      simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+      simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
       rw [Aux.sum_mul_oneHot _ _ 0 (by simpa using hone) hzero]
       rw [Aux.generatorByteX_get]
       norm_num [Reference.xNat]
     · unfold Modular.Lazy.evalZMod
-      simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+      simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
       rw [Aux.sum_mul_oneHot _ _ 0 (by simpa using hone) hzero]
       rw [Aux.generatorByteY_get]
       norm_num [Reference.yNat]
 
 @[spec] theorem lookupGeneratorByte_complete {digit : LC ℤ}
-    (hd0 : 0 ≤ digit.eval ρ.int) (hdlt : digit.eval ρ.int < 256) :
+    (hd0 : 0 ≤ ρ.int (digit)) (hdlt : ρ.int (digit) < 256) :
     ⦃⌜True⌝⦄ Complete.interp ρ (lookupGeneratorByte digit)
     ⦃⇓ out => ⌜out.Valid ρ ∧ ∃ i : Fin 256,
-      digit.eval ρ.int = i.val ∧
+      ρ.int (digit) = i.val ∧
         P256.Reference.NormalizedRep ρ out
           (i.val • P256.Reference.generator)⌝⦄ := by
   mvcgen [lookupGeneratorByte]
@@ -987,23 +1001,23 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     rename_i indicators hi
     rcases hi.2 with ⟨i, hone, hdigit, hunique⟩
     have hbit (j : Fin 256) :
-        indicators.intBits[j].eval ρ.int = 0 ∨
-          indicators.intBits[j].eval ρ.int = 1 := by
+        ρ.int (indicators.intBits[j]) = 0 ∨
+          ρ.int (indicators.intBits[j]) = 1 := by
       have hj := hi.1 j
-      cases hb : indicators.bits.bitsLE[j].eval ρ.bool <;>
+      cases hb : ρ.bool (indicators.bits.bitsLE[j]) <;>
         rw [hb] at hj <;> simp at hj
       · exact Or.inl hj
       · exact Or.inr hj
     have hzero (j : Fin 256) (hji : j ≠ i) :
-        indicators.intBits[j].eval ρ.int = 0 :=
+        ρ.int (indicators.intBits[j]) = 0 :=
       (hbit j).resolve_right fun hj => hji (hunique j hj)
     have hxval :
         (∑ j : Fin 256, (generatorByteX[j] : ℤ) *
-          indicators.intBits[j].eval ρ.int) = generatorByteX[i] :=
+          ρ.int (indicators.intBits[j])) = generatorByteX[i] :=
       Aux.sum_mul_oneHot _ _ i hone hzero
     have hyval :
         (∑ j : Fin 256, (generatorByteY[j] : ℤ) *
-          indicators.intBits[j].eval ρ.int) = generatorByteY[i] :=
+          ρ.int (indicators.intBits[j])) = generatorByteY[i] :=
       Aux.sum_mul_oneHot _ _ i hone hzero
     have hxnonneg : 0 ≤ (generatorByteX[i] : ℤ) := by omega
     have hynonneg : 0 ≤ (generatorByteY[i] : ℤ) := by omega
@@ -1028,7 +1042,7 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     have hXValid :
         ({ intVal := xLC, bound := 2 } : P256.AffineSlope.Rep).Valid ρ := by
       unfold Modular.Lazy.Rep.Valid
-      simp only [xLC, LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+      simp only [xLC, Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
       rw [hxval]
       refine ⟨hxnonneg, hxlt.trans ?_⟩
       have hp : (0 : ℤ) < P256.base.modulus := by
@@ -1038,19 +1052,19 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
     have hYValid :
         ({ intVal := yLC, bound := 2 } : P256.AffineSlope.Rep).Valid ρ := by
       unfold Modular.Lazy.Rep.Valid
-      simp only [yLC, LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+      simp only [yLC, Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
       rw [hyval]
       refine ⟨hynonneg, hylt.trans ?_⟩
       have hp : (0 : ℤ) < P256.base.modulus := by
         exact_mod_cast P256.base.positive
       push_cast
       omega
-    have hxLClt : xLC.eval ρ.int < P256.base.modulus := by
-      simp only [xLC, LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+    have hxLClt : ρ.int (xLC) < P256.base.modulus := by
+      simp only [xLC, Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
       rw [hxval]
       exact hxlt
-    have hyLClt : yLC.eval ρ.int < P256.base.modulus := by
-      simp only [yLC, LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+    have hyLClt : ρ.int (yLC) < P256.base.modulus := by
+      simp only [yLC, Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
       rw [hyval]
       exact hylt
     constructor
@@ -1081,12 +1095,12 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
             simp only [P256.Reference.coordinates,
               if_pos (by simpa using hone)]
             constructor
-          · have hzero0 : indicators.intBits[0].eval ρ.int = 0 :=
+          · have hzero0 : ρ.int (indicators.intBits[0]) = 0 :=
               hzero 0 (by
                 intro h
                 apply hi0
                 exact (congrArg Fin.val h).symm)
-            rw [if_neg (show indicators.intBits[0].eval ρ.int ≠ 1 by
+            rw [if_neg (show ρ.int (indicators.intBits[0]) ≠ 1 by
               omega)]
             have hnonzero := Reference.Aux.generator_nsmul_ne_zero hi0
               (i.isLt.trans
@@ -1097,11 +1111,11 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
             · simp only [P256.Reference.coordinates]
               congr 1
               · unfold Modular.Lazy.evalZMod
-                simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+                simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
                 rw [hxval, Aux.generatorByteX_get, hpoint]
                 exact ZMod.natCast_zmod_val x
               · unfold Modular.Lazy.evalZMod
-                simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+                simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
                 rw [hyval, Aux.generatorByteY_get, hpoint]
                 exact ZMod.natCast_zmod_val y
       · intro hpointZero
@@ -1114,11 +1128,11 @@ def LookupFlagSpec (ρ : WF.Valuation) (indicators : U 16)
         subst i
         constructor
         · unfold Modular.Lazy.evalZMod
-          simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+          simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
           rw [hxval, Aux.generatorByteX_get]
           norm_num [Reference.xNat]
         · unfold Modular.Lazy.evalZMod
-          simp only [LC.eval_sum, LC.eval_nsmul, nsmul_eq_mul]
+          simp only [Freigen.F2Z.Valuation.finset_sum, map_nsmul, nsmul_eq_mul]
           rw [hyval, Aux.generatorByteY_get]
           norm_num [Reference.yNat]
 
@@ -1733,8 +1747,8 @@ theorem JointFoldPoint_full (u1 u2 : P256.Fn)
 theorem onCurveZModSpec_of_hasCoordinates {publicKey : Reference.Point}
     {qx qy : P256.Fp}
     (hcoords : Reference.HasCoordinates publicKey
-      (Int.castRingHom P256.Reference.Field (qx.val.intVal.eval ρ.int))
-      (Int.castRingHom P256.Reference.Field (qy.val.intVal.eval ρ.int))) :
+      (Int.castRingHom P256.Reference.Field (ρ.int (qx.val.intVal)))
+      (Int.castRingHom P256.Reference.Field (ρ.int (qy.val.intVal)))) :
     P256.Projective.Lazy.OnCurveZModSpec ρ qx qy := by
   rcases publicKey with _ | ⟨x, y, hxy⟩
   · simp [Reference.HasCoordinates, P256.Reference.coordinates] at hcoords
@@ -1762,21 +1776,16 @@ theorem baseOne_valid : P256.one.Valid ρ := by
 theorem ofElems_represents_of_hasCoordinates {qx qy : P256.Fp}
     {publicKey : Reference.Point}
     (hcoords : Reference.HasCoordinates publicKey
-      (Int.castRingHom P256.Reference.Field (qx.val.intVal.eval ρ.int))
-      (Int.castRingHom P256.Reference.Field (qy.val.intVal.eval ρ.int))) :
+      (Int.castRingHom P256.Reference.Field (ρ.int (qx.val.intVal)))
+      (Int.castRingHom P256.Reference.Field (ρ.int (qy.val.intVal)))) :
     P256.Reference.Represents ρ (P256.AffineSlope.ofElems qx qy)
       publicKey := by
   unfold P256.Reference.Represents
   constructor
   · simp [P256.AffineSlope.ofElems]
   · unfold P256.Reference.circuitCoordinates
-    change (if (0 : ℤ) = 1 then P256.Reference.Coordinates.infinity
-      else P256.Reference.Coordinates.finite
-        (Int.castRingHom P256.Reference.Field (qx.val.intVal.eval ρ.int))
-        (Int.castRingHom P256.Reference.Field (qy.val.intVal.eval ρ.int))) =
-      P256.Reference.coordinates publicKey
-    rw [if_neg (by norm_num)]
-    exact hcoords.symm
+    simpa [P256.AffineSlope.ofElems, Modular.Lazy.ofElem,
+      Modular.Lazy.evalZMod] using hcoords.symm
 
 theorem elem_evalNat_eq_u_eval {a : P256.Fn} {u : U 256}
     (_ha : a.Valid ρ) (hau : a.val = u) (hu : u.Valid ρ) :
@@ -1821,7 +1830,7 @@ theorem jointFoldPoint_eq_verificationPoint
     (hsMul : (s.evalNat ρ : ZMod P256.scalar.modulus) *
       (sInv.evalNat ρ : ZMod P256.scalar.modulus) = 1)
     (hz : Modular.Lazy.evalElemZMod P256.scalar z ρ =
-      Int.castRingHom (ZMod P256.scalar.modulus) (digest.intVal.eval ρ.int))
+      Int.castRingHom (ZMod P256.scalar.modulus) (ρ.int (digest.intVal)))
     (hu1Relaxed : Modular.Lazy.evalElemZMod P256.scalar u1Relaxed ρ =
       Modular.Lazy.evalElemZMod P256.scalar z ρ *
         Modular.Lazy.evalElemZMod P256.scalar sInv ρ)
@@ -1844,7 +1853,7 @@ theorem jointFoldPoint_eq_verificationPoint
       (s.evalNat ρ : ZMod P256.scalar.modulus)⁻¹ :=
     Reference.Aux.inverse_eq_of_mul_eq_one hsFieldNe hsMul
   have hdigestCast : Int.castRingHom (ZMod P256.scalar.modulus)
-      (digest.intVal.eval ρ.int) =
+      (ρ.int (digest.intVal)) =
       ((digest.eval ρ).toNat : ZMod P256.scalar.modulus) := by
     rw [U.intVal_eval_eq_eval_toNat digest hdigest]
     simp
@@ -1883,15 +1892,15 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
     (hkeyX : key.x.Valid ρ) (hkeyY : key.y.Valid ρ)
     (hr : sig.r.Valid ρ) (hs : sig.s.Valid ρ)
     (hrInv : aux.rInv.Valid ρ) (hsInv : aux.sInv.Valid ρ)
-    (hkeyXlt : key.x.intVal.eval ρ.int < P256.base.modulus)
-    (hkeyYlt : key.y.intVal.eval ρ.int < P256.base.modulus)
-    (hrlt : sig.r.intVal.eval ρ.int < P256.scalar.modulus)
-    (hslt : sig.s.intVal.eval ρ.int < P256.scalar.modulus)
-    (hrInvlt : aux.rInv.intVal.eval ρ.int < P256.scalar.modulus)
-    (hsInvlt : aux.sInv.intVal.eval ρ.int < P256.scalar.modulus)
+    (hkeyXlt : ρ.int (key.x.intVal) < P256.base.modulus)
+    (hkeyYlt : ρ.int (key.y.intVal) < P256.base.modulus)
+    (hrlt : ρ.int (sig.r.intVal) < P256.scalar.modulus)
+    (hslt : ρ.int (sig.s.intVal) < P256.scalar.modulus)
+    (hrInvlt : ρ.int (aux.rInv.intVal) < P256.scalar.modulus)
+    (hsInvlt : ρ.int (aux.sInv.intVal) < P256.scalar.modulus)
     (hcoords : Reference.HasCoordinates publicKey
-      (Int.castRingHom P256.Reference.Field (key.x.intVal.eval ρ.int))
-      (Int.castRingHom P256.Reference.Field (key.y.intVal.eval ρ.int)))
+      (Int.castRingHom P256.Reference.Field (ρ.int (key.x.intVal)))
+      (Int.castRingHom P256.Reference.Field (ρ.int (key.y.intVal))))
     (horder : P256.scalarModulus • publicKey = 0)
     (hrInvMul : ((sig.r.eval ρ).toNat : Reference.Scalar) *
       ((aux.rInv.eval ρ).toNat : Reference.Scalar) = 1)
@@ -1910,8 +1919,8 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
   case vc15.hcurve =>
     rename_i qx hqx qy hqy r hr' s hs' rInv hrInv' sInv hsInv'
     apply onCurveZModSpec_of_hasCoordinates (publicKey := publicKey)
-    have hxEval := congrArg (fun u : U 256 => u.intVal.eval ρ.int) hqx.2
-    have hyEval := congrArg (fun u : U 256 => u.intVal.eval ρ.int) hqy.2
+    have hxEval := congrArg (fun u : U 256 => ρ.int (u.intVal)) hqx.2
+    have hyEval := congrArg (fun u : U 256 => ρ.int (u.intVal)) hqy.2
     rw [hxEval, hyEval]
     exact hcoords
   case vc13.hx => aesop
@@ -1949,8 +1958,8 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
       _ _ _ _ _ _ z hz u1Relaxed hu1Relaxed u2Relaxed hu2Relaxed
       u1 hu1 u2 hu2
     apply ofElems_represents_of_hasCoordinates (publicKey := publicKey)
-    have hxEval := congrArg (fun u : U 256 => u.intVal.eval ρ.int) hqx.2
-    have hyEval := congrArg (fun u : U 256 => u.intVal.eval ρ.int) hqy.2
+    have hxEval := congrArg (fun u : U 256 => ρ.int (u.intVal)) hqx.2
+    have hyEval := congrArg (fun u : U 256 => ρ.int (u.intVal)) hqy.2
     rw [hxEval, hyEval]
     exact hcoords
   case vc37.success.success.success.success =>
@@ -1982,7 +1991,7 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
       intro hzero
       rw [hzero] at hfinal
       exact hfinal
-    have hsumInfinity : sum.infinity.eval ρ.int = 0 := by
+    have hsumInfinity : ρ.int (sum.infinity) = 0 := by
       rcases hpoint : Reference.verificationPoint (digest.eval ρ).toNat
           (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey with
         _ | ⟨pointX, pointY, hpointCurve⟩
@@ -2038,7 +2047,7 @@ theorem verifyDigest_complete_aux {digest : U 256} {key : PublicKey}
               (Int.toNat_of_nonneg hnonneg).symm
           have hxCanonicalScalarCast :
               (Int.castRingHom (ZMod P256.scalar.modulus)
-                (xCanonical.val.intVal.eval ρ.int)) =
+                (ρ.int (xCanonical.val.intVal))) =
                 (xCanonical.evalNat ρ : ZMod P256.scalar.modulus) := by
             rw [← Modular.Elem.evalNat_cast P256.base hxCanonical.1]
             rfl
@@ -2084,9 +2093,9 @@ theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
     ⦃⇓ _ => ⌜∃ publicKey : Reference.Point,
       Reference.HasCoordinates publicKey
         (Int.castRingHom P256.Reference.Field
-          (key.x.intVal.eval ρ.int))
+          (ρ.int (key.x.intVal)))
         (Int.castRingHom P256.Reference.Field
-          (key.y.intVal.eval ρ.int)) ∧
+          (ρ.int (key.y.intVal))) ∧
       Reference.Verifies (digest.eval ρ).toNat
         (sig.r.eval ρ).toNat (sig.s.eval ρ).toNat publicKey⌝⦄ := by
   mvcgen [verifyDigest, canonicalizeInput, canonicalizeKey,
@@ -2141,7 +2150,7 @@ theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
       hsInv'.1 hu1.1 hu2.1 hrNat hsNat hsMul' hz.2 hu1Relaxed.2
       hu2Relaxed.2 hu1.2 hu2.2 publicKey
     rw [hsumPoint] at hsum
-    have hsumInfinity : sum.infinity.eval ρ.int = 0 := by
+    have hsumInfinity : ρ.int (sum.infinity) = 0 := by
       simpa using hfinite.symm
     have hverificationNonzero : Reference.verificationPoint
         (digest.eval ρ).toNat (sig.r.eval ρ).toNat
@@ -2175,7 +2184,7 @@ theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
           (Int.toNat_of_nonneg hnonneg).symm
       have hxCanonicalScalarCast :
           (Int.castRingHom (ZMod P256.scalar.modulus)
-            (xCanonical.val.intVal.eval ρ.int)) =
+            (ρ.int (xCanonical.val.intVal))) =
             (xCanonical.evalNat ρ : ZMod P256.scalar.modulus) := by
         rw [← Modular.Elem.evalNat_cast P256.base hxCanonical.1]
         rfl
@@ -2206,7 +2215,8 @@ theorem verifyDigest_sound_aux {digest : U 256} {key : PublicKey}
 
 theorem verifyDigestInputWord_eval_inputs
     {ρ : WF.Valuation} (inputs : Vector Bool verifyDigestInputBits)
-    (hbits : ∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i])
+    (hbits : ∀ i : Fin verifyDigestInputBits,
+      ρ.bool ({i.val} : LC Bool) = inputs[i])
     (slot : Fin 7) :
     Word.eval ρ.bool
       (verifyDigestInputWord (Vector.ofFn fun i => ({i.val} : LC Bool)) slot) =
@@ -2214,15 +2224,15 @@ theorem verifyDigestInputWord_eval_inputs
   apply BitVec.eq_of_getElem_eq
   intro i hi
   simp only [Word.eval, BitVec.getElem_ofFnLE, Fin.getElem_fin,
-    verifyDigestInputWord, Vector.getElem_ofFn, LC.eval_singleton,
-    verifyDigestInputValue]
+    verifyDigestInputWord, Vector.getElem_ofFn, verifyDigestInputValue]
   exact hbits ⟨slot.val * 256 + i, by
     simp [verifyDigestInputBits]
     omega⟩
 
 theorem verifyDigestInputWords_eval_inputs
     {ρ : WF.Valuation} (inputs : Vector Bool verifyDigestInputBits)
-    (hbits : ∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i]) :
+    (hbits : ∀ i : Fin verifyDigestInputBits,
+      ρ.bool ({i.val} : LC Bool) = inputs[i]) :
     (verifyDigestInputWords (Vector.ofFn fun i => ({i.val} : LC Bool))).map
         (Word.eval ρ.bool) =
       Vector.ofFn (verifyDigestInputValue inputs) := by
@@ -2233,7 +2243,8 @@ theorem verifyDigestInputWords_eval_inputs
 
 theorem verifyDigestFromBits_sound_aux
     (inputs : Vector Bool verifyDigestInputBits) :
-    ⦃⌜∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i]⌝⦄
+    ⦃⌜∀ i : Fin verifyDigestInputBits,
+      ρ.bool ({i.val} : LC Bool) = inputs[i]⌝⦄
       Sound.interp ρ
         (verifyDigestFromBits (Vector.ofFn fun i => ({i.val} : LC Bool)))
     ⦃⇓ _ => ⌜∃ publicKey : Reference.Point,
@@ -2256,23 +2267,23 @@ theorem verifyDigestFromBits_sound_aux
       have h := congrArg
         (fun xs : Vector (BitVec 256) 7 => xs[slot]'hslot) hall
       simpa only [Vector.getElem_map, Vector.getElem_ofFn] using h
-    have hqxInt : values[1].intVal.eval ρ.int =
+    have hqxInt : ρ.int (values[1].intVal) =
         ((verifyDigestInputValue inputs 1).toNat : Int) :=
       (U.intVal_eval_eq_eval_toNat values[1] (hvalues 1).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))
           (hvalue 1 (by omega)))
-    have hqyInt : values[2].intVal.eval ρ.int =
+    have hqyInt : ρ.int (values[2].intVal) =
         ((verifyDigestInputValue inputs 2).toNat : Int) :=
       (U.intVal_eval_eq_eval_toNat values[2] (hvalues 2).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))
           (hvalue 2 (by omega)))
     have hqxField :
-        (Int.castRingHom P256.Reference.Field) (values[1].intVal.eval ρ.int) =
+        (Int.castRingHom P256.Reference.Field) (ρ.int (values[1].intVal)) =
           ((verifyDigestInputValue inputs 1).toNat : P256.Reference.Field) := by
       rw [hqxInt]
       simp
     have hqyField :
-        (Int.castRingHom P256.Reference.Field) (values[2].intVal.eval ρ.int) =
+        (Int.castRingHom P256.Reference.Field) (ρ.int (values[2].intVal)) =
           ((verifyDigestInputValue inputs 2).toNat : P256.Reference.Field) := by
       rw [hqyInt]
       simp
@@ -2311,7 +2322,8 @@ theorem verifyDigestFromBits_sound_aux
 theorem verifyDigestFromBits_complete_aux
     (inputs : Vector Bool verifyDigestInputBits)
     (publicKey : Reference.Point)
-    (hbits : ∀ i : Fin verifyDigestInputBits, ρ.bool i.val = inputs[i])
+    (hbits : ∀ i : Fin verifyDigestInputBits,
+      ρ.bool ({i.val} : LC Bool) = inputs[i])
     (hkeyXlt : (verifyDigestInputValue inputs 1).toNat < P256.base.modulus)
     (hkeyYlt : (verifyDigestInputValue inputs 2).toNat < P256.base.modulus)
     (hrInvlt : (verifyDigestInputValue inputs 5).toNat < P256.scalar.modulus)
@@ -2346,32 +2358,32 @@ theorem verifyDigestFromBits_complete_aux
       have h := congrArg
         (fun xs : Vector (BitVec 256) 7 => xs[slot]'hslot) hall
       simpa only [Vector.getElem_map, Vector.getElem_ofFn] using h
-    have hqxInt : values[1].intVal.eval ρ.int =
+    have hqxInt : ρ.int (values[1].intVal) =
         ((verifyDigestInputValue inputs 1).toNat : Int) := by
       exact (U.intVal_eval_eq_eval_toNat values[1] (hvalues 1).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))
           (hvalue 1 (by omega)))
-    have hqyInt : values[2].intVal.eval ρ.int =
+    have hqyInt : ρ.int (values[2].intVal) =
         ((verifyDigestInputValue inputs 2).toNat : Int) := by
       exact (U.intVal_eval_eq_eval_toNat values[2] (hvalues 2).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))
           (hvalue 2 (by omega)))
-    have hrInt : values[3].intVal.eval ρ.int =
+    have hrInt : ρ.int (values[3].intVal) =
         ((verifyDigestInputValue inputs 3).toNat : Int) := by
       exact (U.intVal_eval_eq_eval_toNat values[3] (hvalues 3).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))
           (hvalue 3 (by omega)))
-    have hsInt : values[4].intVal.eval ρ.int =
+    have hsInt : ρ.int (values[4].intVal) =
         ((verifyDigestInputValue inputs 4).toNat : Int) := by
       exact (U.intVal_eval_eq_eval_toNat values[4] (hvalues 4).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))
           (hvalue 4 (by omega)))
-    have hrInvInt : values[5].intVal.eval ρ.int =
+    have hrInvInt : ρ.int (values[5].intVal) =
         ((verifyDigestInputValue inputs 5).toNat : Int) := by
       exact (U.intVal_eval_eq_eval_toNat values[5] (hvalues 5).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))
           (hvalue 5 (by omega)))
-    have hsInvInt : values[6].intVal.eval ρ.int =
+    have hsInvInt : ρ.int (values[6].intVal) =
         ((verifyDigestInputValue inputs 6).toNat : Int) := by
       exact (U.intVal_eval_eq_eval_toNat values[6] (hvalues 6).1).trans
         (congrArg (fun x : BitVec 256 => (x.toNat : Int))

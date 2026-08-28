@@ -2,9 +2,21 @@ import Freigen.F2Z.Correctness.WF
 
 namespace Freigen.F2Z.WF
 
+variable {leftCtx rightCtx : Context}
+
+abbrev BoolEq (leftVal : @Valuation leftCtx)
+    (rightVal : @Valuation rightCtx)
+    (left : leftCtx.WBool) (right : rightCtx.WBool) : Prop :=
+  LCEq leftVal.bool rightVal.bool left right
+
+abbrev IntEq (leftVal : @Valuation leftCtx)
+    (rightVal : @Valuation rightCtx)
+    (left : leftCtx.Wℤ) (right : rightCtx.Wℤ) : Prop :=
+  LCEq leftVal.int rightVal.int left right
+
 /-- An assertion preserves the ambient valuation relation. -/
-theorem Rel.assertR1C_rel {P : Assumption}
-    {aL bL cL aR bR cR : LC ℤ}
+theorem Rel.assertR1C_rel {P : Assumption leftCtx rightCtx}
+    {aL bL cL : leftCtx.Wℤ} {aR bR cR : rightCtx.Wℤ}
     (ha : ∀ leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.int rightVal.int aL aR)
     (hb : ∀ leftVal rightVal, P leftVal rightVal →
@@ -12,14 +24,18 @@ theorem Rel.assertR1C_rel {P : Assumption}
     (hc : ∀ leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.int rightVal.int cL cR) :
     Rel (fun leftVal rightVal _ _ => P leftVal rightVal) P
-      (F2Z.assertR1C aL bL cL) (F2Z.assertR1C aR bR cR) :=
+      (F2Z.assertR1C (ctx := leftCtx) aL bL cL)
+      (F2Z.assertR1C (ctx := rightCtx) aR bR cR) :=
   Rel.assertR1C_pure ha hb hc fun _ _ h => h
 
 /-- Apply a relational effect rule without throwing away the ambient relation.
 This is the compositional form used when the result is subsequently bound. -/
-theorem RelHom.relAmbient {R : Post α} {S : Post β}
-    {fL fR : α → Circuit β} (h : RelHom R S fL fR)
-    {P : Assumption} {left right : α}
+theorem RelHom.relAmbient
+    {R : Post leftCtx rightCtx αL αR}
+    {S : Post leftCtx rightCtx βL βR}
+    {fL : αL → @Circuit leftCtx βL}
+    {fR : αR → @Circuit rightCtx βR} (h : RelHom R S fL fR)
+    {P : Assumption leftCtx rightCtx} {left : αL} {right : αR}
     (hinput : ∀ leftVal rightVal, P leftVal rightVal →
       R leftVal rightVal left right) :
     Rel (fun leftVal rightVal outL outR =>
@@ -29,19 +45,21 @@ theorem RelHom.relAmbient {R : Post α} {S : Post β}
 
 /-- The primitive Boolean-to-integer conversion, preserving its ambient
 valuation assumptions for subsequent binds. -/
-theorem Rel.f2z_rel {P : Assumption} {left right : LC Bool}
+theorem Rel.f2z_rel {P : Assumption leftCtx rightCtx}
+    {left : leftCtx.WBool} {right : rightCtx.WBool}
     (hinput : ∀ leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.bool rightVal.bool left right) :
     Rel (fun leftVal rightVal outL outR =>
       P leftVal rightVal ∧ LCEq leftVal.int rightVal.int outL outR)
-      P (F2Z.f2z left) (F2Z.f2z right) :=
+      P (F2Z.f2z (ctx := leftCtx) left)
+        (F2Z.f2z (ctx := rightCtx) right) :=
   RelHom.f2z.relAmbient hinput
 
-/-- Converting a Boolean LC and adding a fixed natural multiple of it to an
-integer-LC accumulator preserves the ambient assumptions and accumulator
-equivalence. -/
-theorem RelHom.f2z_add_nsmul {P : Assumption}
-    {left right : LC Bool} (c : Nat)
+/-- Converting a Boolean witness and adding a fixed natural multiple of it to
+an integer accumulator preserves the ambient assumptions and accumulator
+equivalence across representations. -/
+theorem RelHom.f2z_add_nsmul {P : Assumption leftCtx rightCtx}
+    {left : leftCtx.WBool} {right : rightCtx.WBool} (c : Nat)
     (hinput : ∀ leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.bool rightVal.bool left right) :
     RelHom
@@ -50,10 +68,10 @@ theorem RelHom.f2z_add_nsmul {P : Assumption}
       (fun leftVal rightVal left right =>
         P leftVal rightVal ∧ LCEq leftVal.int rightVal.int left right)
       (fun acc => do
-        let value ← F2Z.f2z left
+        let value ← F2Z.f2z (ctx := leftCtx) left
         Pure.pure (acc + c • value))
       (fun acc => do
-        let value ← F2Z.f2z right
+        let value ← F2Z.f2z (ctx := rightCtx) right
         Pure.pure (acc + c • value)) := by
   intro A accL accR hacc
   have hf2z := Rel.f2z_rel fun leftVal rightVal hA =>
@@ -67,31 +85,32 @@ theorem RelHom.f2z_add_nsmul {P : Assumption}
     have hbase := hacc leftVal rightVal hvalue.1
     refine ⟨hvalue.1, hbase.1, ?_⟩
     unfold LCEq at *
-    simp only [LC.eval_add, LC.eval_nsmul]
+    simp only [Valuation.add_apply, map_nsmul]
     rw [hbase.2, hvalue.2]
 
-/-- Converting a Boolean LC and storing it at the same in-bounds position in
-two vector accumulators preserves pointwise evaluated equality. -/
-theorem RelHom.f2z_set! {P : Assumption} {left right : LC Bool}
+/-- Converting related Boolean witnesses and storing them at the same
+in-bounds position preserves pointwise equality of the vector accumulators. -/
+theorem RelHom.f2z_set! {P : Assumption leftCtx rightCtx}
+    {left : leftCtx.WBool} {right : rightCtx.WBool}
     {i n : Nat} (_hi : i < n)
     (hinput : ∀ leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.bool rightVal.bool left right) :
     RelHom
-      (fun leftVal rightVal (left right : Vector (LC ℤ) n) =>
+      (fun leftVal rightVal
+          (left : Vector leftCtx.Wℤ n) (right : Vector rightCtx.Wℤ n) =>
         P leftVal rightVal ∧
-          VectorRel (fun leftVal rightVal left right =>
-            LCEq leftVal.int rightVal.int left right)
+          VectorRel (IntEq (leftCtx := leftCtx) (rightCtx := rightCtx))
             leftVal rightVal left right)
-      (fun leftVal rightVal (left right : Vector (LC ℤ) n) =>
+      (fun leftVal rightVal
+          (left : Vector leftCtx.Wℤ n) (right : Vector rightCtx.Wℤ n) =>
         P leftVal rightVal ∧
-          VectorRel (fun leftVal rightVal left right =>
-            LCEq leftVal.int rightVal.int left right)
+          VectorRel (IntEq (leftCtx := leftCtx) (rightCtx := rightCtx))
             leftVal rightVal left right)
       (fun acc => do
-        let value ← F2Z.f2z left
+        let value ← F2Z.f2z (ctx := leftCtx) left
         Pure.pure (acc.set! i value))
       (fun acc => do
-        let value ← F2Z.f2z right
+        let value ← F2Z.f2z (ctx := rightCtx) right
         Pure.pure (acc.set! i value)) := by
   intro A accL accR hacc
   have hf2z := Rel.f2z_rel fun leftVal rightVal hA =>
@@ -114,26 +133,27 @@ theorem RelHom.f2z_set! {P : Assumption} {left right : LC Bool}
     · exact hbase.2 j
 
 /-- Pointwise Boolean-to-integer conversion over vectors. -/
-theorem Rel.mapM_f2z_rel {P : Assumption}
-    {left right : Vector (LC Bool) n}
+theorem Rel.mapM_f2z_rel {P : Assumption leftCtx rightCtx}
+    {left : Vector leftCtx.WBool n} {right : Vector rightCtx.WBool n}
     (hinput : ∀ leftVal rightVal, P leftVal rightVal →
-      VectorRel (fun leftVal rightVal left right =>
-        LCEq leftVal.bool rightVal.bool left right)
+      VectorRel (BoolEq (leftCtx := leftCtx) (rightCtx := rightCtx))
         leftVal rightVal left right) :
     Rel (fun leftVal rightVal outL outR =>
       P leftVal rightVal ∧
-      VectorRel (fun leftVal rightVal left right =>
-        LCEq leftVal.int rightVal.int left right)
+      VectorRel (IntEq (leftCtx := leftCtx) (rightCtx := rightCtx))
         leftVal rightVal outL outR)
-      P (left.mapM F2Z.f2z) (right.mapM F2Z.f2z) :=
+      P (left.mapM (F2Z.f2z (ctx := leftCtx)))
+        (right.mapM (F2Z.f2z (ctx := rightCtx))) :=
   RelHom.f2z.vectorMapM.relAmbient hinput
 
 /-- A list loop whose body always yields preserves any relation preserved by
 each aligned iteration. -/
 theorem Rel.forIn'_list_yield
-    {R : Post β} {P : Assumption} {xs : List α}
-    {initL initR : β}
-    {fL fR : (a : α) → a ∈ xs → β → Circuit β}
+    {R : Post leftCtx rightCtx βL βR}
+    {P : Assumption leftCtx rightCtx} {xs : List α}
+    {initL : βL} {initR : βR}
+    {fL : (a : α) → a ∈ xs → βL → @Circuit leftCtx βL}
+    {fR : (a : α) → a ∈ xs → βR → @Circuit rightCtx βR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       R leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom R R (fL a h) (fR a h)) :
@@ -167,9 +187,11 @@ theorem Rel.forIn'_list_yield
 
 /-- The corresponding rule for the legacy range syntax generated by `for`. -/
 theorem Rel.forIn'_range_yield
-    {R : Post β} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : β}
-    {fL fR : (a : Nat) → a ∈ xs → β → Circuit β}
+    {R : Post leftCtx rightCtx βL βR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : βL} {initR : βR}
+    {fL : (a : Nat) → a ∈ xs → βL → @Circuit leftCtx βL}
+    {fR : (a : Nat) → a ∈ xs → βR → @Circuit rightCtx βR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       R leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom R R (fL a h) (fR a h)) :
@@ -189,14 +211,18 @@ theorem Rel.forIn'_range_yield
 /-- A range loop followed by a continuation. This fused form lets proof search
 infer the loop invariant from the continuation before descending into the body. -/
 theorem Rel.forIn'_range_yield_bind
-    {R : Post β} {Q : Post γ} {P : Assumption}
-    {xs : Std.Legacy.Range} {initL initR : β}
-    {fL fR : (a : Nat) → a ∈ xs → β → Circuit β}
-    {kL kR : β → Circuit γ}
+    {R : Post leftCtx rightCtx βL βR}
+    {Q : Post leftCtx rightCtx γL γR}
+    {P : Assumption leftCtx rightCtx}
+    {xs : Std.Legacy.Range} {initL : βL} {initR : βR}
+    {fL : (a : Nat) → a ∈ xs → βL → @Circuit leftCtx βL}
+    {fR : (a : Nat) → a ∈ xs → βR → @Circuit rightCtx βR}
+    {kL : βL → @Circuit leftCtx γL}
+    {kR : βR → @Circuit rightCtx γR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       R leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom R R (fL a h) (fR a h))
-    (hcont : ∀ (A : Assumption) left right,
+    (hcont : ∀ (A : Assumption leftCtx rightCtx) left right,
       (∀ leftVal rightVal, A leftVal rightVal →
         R leftVal rightVal left right) →
       Rel Q A (kL left) (kR right)) :
@@ -212,10 +238,13 @@ theorem Rel.forIn'_range_yield_bind
 /-- A range loop iteration that obtains an intermediate effectful result and
 then folds it into the accumulator. -/
 theorem Rel.forIn'_range_map_yield
-    {R : Post β} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : β}
-    {fL fR : (a : Nat) → a ∈ xs → β → Circuit δ}
-    {nextL nextR : (a : Nat) → a ∈ xs → β → δ → β}
+    {R : Post leftCtx rightCtx βL βR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : βL} {initR : βR}
+    {fL : (a : Nat) → a ∈ xs → βL → @Circuit leftCtx δL}
+    {fR : (a : Nat) → a ∈ xs → βR → @Circuit rightCtx δR}
+    {nextL : (a : Nat) → a ∈ xs → βL → δL → βL}
+    {nextR : (a : Nat) → a ∈ xs → βR → δR → βR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       R leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom R R
@@ -237,11 +266,16 @@ theorem Rel.forIn'_range_map_yield
 
 /-- Fused continuation form of `Rel.forIn'_range_map_yield`. -/
 theorem Rel.forIn'_range_map_yield_bind
-    {R : Post β} {Q : Post γ} {P : Assumption}
-    {xs : Std.Legacy.Range} {initL initR : β}
-    {fL fR : (a : Nat) → a ∈ xs → β → Circuit δ}
-    {nextL nextR : (a : Nat) → a ∈ xs → β → δ → β}
-    {kL kR : β → Circuit γ}
+    {R : Post leftCtx rightCtx βL βR}
+    {Q : Post leftCtx rightCtx γL γR}
+    {P : Assumption leftCtx rightCtx}
+    {xs : Std.Legacy.Range} {initL : βL} {initR : βR}
+    {fL : (a : Nat) → a ∈ xs → βL → @Circuit leftCtx δL}
+    {fR : (a : Nat) → a ∈ xs → βR → @Circuit rightCtx δR}
+    {nextL : (a : Nat) → a ∈ xs → βL → δL → βL}
+    {nextR : (a : Nat) → a ∈ xs → βR → δR → βR}
+    {kL : βL → @Circuit leftCtx γL}
+    {kR : βR → @Circuit rightCtx γR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       R leftVal rightVal initL initR)
     (hstep : ∀ a h, RelHom R R
@@ -251,7 +285,7 @@ theorem Rel.forIn'_range_map_yield_bind
       (fun b => do
         let x ← fR a h b
         Pure.pure (nextR a h b x)))
-    (hcont : ∀ (A : Assumption) left right,
+    (hcont : ∀ (A : Assumption leftCtx rightCtx) left right,
       (∀ leftVal rightVal, A leftVal rightVal →
         R leftVal rightVal left right) →
       Rel Q A (kL left) (kR right)) :
@@ -267,11 +301,15 @@ theorem Rel.forIn'_range_map_yield_bind
 /-- The canonical F2Z loop invariant for integer linear-combination
 accumulators: retain the ambient assumptions and preserve evaluated equality. -/
 theorem Rel.forIn'_range_map_yield_intLC_bind
-    {Q : Post γ} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : LC ℤ}
-    {fL fR : (a : Nat) → a ∈ xs → LC ℤ → Circuit δ}
-    {nextL nextR : (a : Nat) → a ∈ xs → LC ℤ → δ → LC ℤ}
-    {kL kR : LC ℤ → Circuit γ}
+    {Q : Post leftCtx rightCtx γL γR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : leftCtx.Wℤ} {initR : rightCtx.Wℤ}
+    {fL : (a : Nat) → a ∈ xs → leftCtx.Wℤ → @Circuit leftCtx δL}
+    {fR : (a : Nat) → a ∈ xs → rightCtx.Wℤ → @Circuit rightCtx δR}
+    {nextL : (a : Nat) → a ∈ xs → leftCtx.Wℤ → δL → leftCtx.Wℤ}
+    {nextR : (a : Nat) → a ∈ xs → rightCtx.Wℤ → δR → rightCtx.Wℤ}
+    {kL : leftCtx.Wℤ → @Circuit leftCtx γL}
+    {kR : rightCtx.Wℤ → @Circuit rightCtx γR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.int rightVal.int initL initR)
     (hstep : ∀ a h,
@@ -286,7 +324,7 @@ theorem Rel.forIn'_range_map_yield_intLC_bind
         (fun b => do
           let x ← fR a h b
           Pure.pure (nextR a h b x)))
-    (hcont : ∀ (A : Assumption) left right,
+    (hcont : ∀ (A : Assumption leftCtx rightCtx) left right,
       (∀ leftVal rightVal, A leftVal rightVal →
         P leftVal rightVal ∧ LCEq leftVal.int rightVal.int left right) →
       Rel Q A (kL left) (kR right)) :
@@ -305,28 +343,31 @@ theorem Rel.forIn'_range_map_yield_intLC_bind
   · exact hstep
   · exact hcont
 
-/-- Canonical F2Z range loop: convert a Boolean LC, add a natural-scaled copy
-to an integer-LC accumulator, then continue. -/
+/-- Canonical F2Z range loop: convert a Boolean witness, add a natural-scaled
+copy to an integer accumulator, then continue. -/
 theorem Rel.forIn'_range_f2z_add_nsmul_bind
-    {Q : Post γ} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : LC ℤ}
-    {inputL inputR : (a : Nat) → a ∈ xs → LC Bool}
+    {Q : Post leftCtx rightCtx γL γR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : leftCtx.Wℤ} {initR : rightCtx.Wℤ}
+    {inputL : (a : Nat) → a ∈ xs → leftCtx.WBool}
+    {inputR : (a : Nat) → a ∈ xs → rightCtx.WBool}
     {coeff : (a : Nat) → a ∈ xs → Nat}
-    {kL kR : LC ℤ → Circuit γ}
+    {kL : leftCtx.Wℤ → @Circuit leftCtx γL}
+    {kR : rightCtx.Wℤ → @Circuit rightCtx γR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.int rightVal.int initL initR)
     (hinput : ∀ a h leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.bool rightVal.bool (inputL a h) (inputR a h))
-    (hcont : ∀ (A : Assumption) left right,
+    (hcont : ∀ (A : Assumption leftCtx rightCtx) left right,
       (∀ leftVal rightVal, A leftVal rightVal →
         P leftVal rightVal ∧ LCEq leftVal.int rightVal.int left right) →
       Rel Q A (kL left) (kR right)) :
     Rel Q P
       ((forIn' xs initL fun a h acc => do
-        let value ← F2Z.f2z (inputL a h)
+        let value ← F2Z.f2z (ctx := leftCtx) (inputL a h)
         Pure.pure (ForInStep.yield (acc + coeff a h • value))) >>= kL)
       ((forIn' xs initR fun a h acc => do
-        let value ← F2Z.f2z (inputR a h)
+        let value ← F2Z.f2z (ctx := rightCtx) (inputR a h)
         Pure.pure (ForInStep.yield (acc + coeff a h • value))) >>= kR) := by
   apply Rel.forIn'_range_map_yield_intLC_bind
   · exact hinit
@@ -335,38 +376,38 @@ theorem Rel.forIn'_range_f2z_add_nsmul_bind
   · exact hcont
 
 /-- Canonical F2Z range loop with a vector accumulator: convert each Boolean
-LC and store it at the loop index, then continue. -/
+witness and store it at the loop index, then continue. -/
 theorem Rel.forIn'_range_f2z_set!_bind
-    {Q : Post γ} {P : Assumption} {xs : Std.Legacy.Range}
-    {initL initR : Vector (LC ℤ) n}
-    {inputL inputR : (a : Nat) → a ∈ xs → LC Bool}
-    {kL kR : Vector (LC ℤ) n → Circuit γ}
+    {Q : Post leftCtx rightCtx γL γR}
+    {P : Assumption leftCtx rightCtx} {xs : Std.Legacy.Range}
+    {initL : Vector leftCtx.Wℤ n} {initR : Vector rightCtx.Wℤ n}
+    {inputL : (a : Nat) → a ∈ xs → leftCtx.WBool}
+    {inputR : (a : Nat) → a ∈ xs → rightCtx.WBool}
+    {kL : Vector leftCtx.Wℤ n → @Circuit leftCtx γL}
+    {kR : Vector rightCtx.Wℤ n → @Circuit rightCtx γR}
     (hinit : ∀ leftVal rightVal, P leftVal rightVal →
-      VectorRel (fun leftVal rightVal left right =>
-        LCEq leftVal.int rightVal.int left right)
+      VectorRel (IntEq (leftCtx := leftCtx) (rightCtx := rightCtx))
         leftVal rightVal initL initR)
     (hinput : ∀ a h leftVal rightVal, P leftVal rightVal →
       LCEq leftVal.bool rightVal.bool (inputL a h) (inputR a h))
     (hbound : ∀ a, a ∈ xs → a < n)
-    (hcont : ∀ (A : Assumption) left right,
+    (hcont : ∀ (A : Assumption leftCtx rightCtx) left right,
       (∀ leftVal rightVal, A leftVal rightVal →
         P leftVal rightVal ∧
-          VectorRel (fun leftVal rightVal left right =>
-            LCEq leftVal.int rightVal.int left right)
+          VectorRel (IntEq (leftCtx := leftCtx) (rightCtx := rightCtx))
             leftVal rightVal left right) →
       Rel Q A (kL left) (kR right)) :
     Rel Q P
       ((forIn' xs initL fun a h acc => do
-        let value ← F2Z.f2z (inputL a h)
+        let value ← F2Z.f2z (ctx := leftCtx) (inputL a h)
         Pure.pure (ForInStep.yield (acc.set! a value))) >>= kL)
       ((forIn' xs initR fun a h acc => do
-        let value ← F2Z.f2z (inputR a h)
+        let value ← F2Z.f2z (ctx := rightCtx) (inputR a h)
         Pure.pure (ForInStep.yield (acc.set! a value))) >>= kR) := by
   apply Rel.forIn'_range_map_yield_bind
     (R := fun leftVal rightVal left right =>
       P leftVal rightVal ∧
-        VectorRel (fun leftVal rightVal left right =>
-          LCEq leftVal.int rightVal.int left right)
+        VectorRel (IntEq (leftCtx := leftCtx) (rightCtx := rightCtx))
           leftVal rightVal left right)
   · intro leftVal rightVal hP
     exact ⟨hP, hinit leftVal rightVal hP⟩
@@ -376,7 +417,7 @@ theorem Rel.forIn'_range_f2z_set!_bind
 
 /-- Applying the same pure function to pointwise-equal vectors preserves equality
 after reversing them.  The functions are explicit so ordinary first-order
-unification can infer them from an `LC.eval` goal. -/
+unification can infer them from the relational equality goal. -/
 theorem eval_reverse {f g : α → β} {left right : Vector α n}
     (h : ∀ i : Fin n, f left[i] = g right[i]) (i : Fin n) :
     f left.reverse[i] = g right.reverse[i] := by
@@ -384,54 +425,74 @@ theorem eval_reverse {f g : α → β} {left right : Vector α n}
   rw [Vector.getElem_reverse i.isLt, Vector.getElem_reverse i.isLt]
   exact h ⟨n - 1 - i, by omega⟩
 
-/-- Evaluation congruence for the additive structure of `LC`. -/
-theorem eval_add {F} [Semiring F] [DecidableEq F]
-    {leftA rightA leftB rightB : LC F} {leftVal rightVal : Nat → F}
-    (ha : LC.eval leftVal leftA = LC.eval rightVal rightA)
-    (hb : LC.eval leftVal leftB = LC.eval rightVal rightB) :
-    LC.eval leftVal (leftA + leftB) =
-      LC.eval rightVal (rightA + rightB) := by
-  simpa only [LC.eval_add] using congrArg₂ (· + ·) ha hb
+/-- Valuation congruence for addition in any two representations. -/
+theorem eval_add {F WL WR} [Semiring F]
+    [AddCommMonoid WL] [ModuleWithOne F WL]
+    [AddCommMonoid WR] [ModuleWithOne F WR]
+    {leftA leftB : WL} {rightA rightB : WR}
+    {leftVal : Freigen.F2Z.Valuation F WL}
+    {rightVal : Freigen.F2Z.Valuation F WR}
+    (ha : LCEq leftVal rightVal leftA rightA)
+    (hb : LCEq leftVal rightVal leftB rightB) :
+    LCEq leftVal rightVal (leftA + leftB) (rightA + rightB) := by
+  unfold LCEq at *
+  simpa only [Valuation.add_apply] using congrArg₂ (· + ·) ha hb
 
-/-- Evaluation congruence for subtraction of `LC`s. -/
-theorem eval_sub {F} [Ring F] [DecidableEq F]
-    {leftA rightA leftB rightB : LC F} {leftVal rightVal : Nat → F}
-    (ha : LC.eval leftVal leftA = LC.eval rightVal rightA)
-    (hb : LC.eval leftVal leftB = LC.eval rightVal rightB) :
-    LC.eval leftVal (leftA - leftB) =
-      LC.eval rightVal (rightA - rightB) := by
-  simpa only [LC.eval_sub] using congrArg₂ (· - ·) ha hb
+theorem eval_sub {F WL WR} [Ring F]
+    [AddCommGroup WL] [ModuleWithOne F WL]
+    [AddCommGroup WR] [ModuleWithOne F WR]
+    {leftA leftB : WL} {rightA rightB : WR}
+    {leftVal : Freigen.F2Z.Valuation F WL}
+    {rightVal : Freigen.F2Z.Valuation F WR}
+    (ha : LCEq leftVal rightVal leftA rightA)
+    (hb : LCEq leftVal rightVal leftB rightB) :
+    LCEq leftVal rightVal (leftA - leftB) (rightA - rightB) := by
+  unfold LCEq at *
+  simpa using congrArg₂ (· - ·) ha hb
 
-/-- Evaluation congruence for scalar multiplication of `LC`. -/
-theorem eval_smul {F} [Semiring F] [DecidableEq F]
-    (c : F) {left right : LC F} {leftVal rightVal : Nat → F}
-    (h : LC.eval leftVal left = LC.eval rightVal right) :
-    LC.eval leftVal (c • left) = LC.eval rightVal (c • right) := by
-  simpa only [LC.eval_smul] using congrArg (c * ·) h
+theorem eval_smul {F WL WR} [Semiring F]
+    [AddCommMonoid WL] [ModuleWithOne F WL]
+    [AddCommMonoid WR] [ModuleWithOne F WR]
+    (c : F) {left : WL} {right : WR}
+    {leftVal : Freigen.F2Z.Valuation F WL}
+    {rightVal : Freigen.F2Z.Valuation F WR}
+    (h : LCEq leftVal rightVal left right) :
+    LCEq leftVal rightVal (c • left) (c • right) := by
+  unfold LCEq at *
+  simpa only [Valuation.smul_apply] using congrArg (c * ·) h
 
-/-- Evaluation congruence for natural scalar multiplication of `LC`. -/
-theorem eval_nsmul {F} [Semiring F] [DecidableEq F]
-    (c : Nat) {left right : LC F} {leftVal rightVal : Nat → F}
-    (h : LC.eval leftVal left = LC.eval rightVal right) :
-    LC.eval leftVal (c • left) = LC.eval rightVal (c • right) := by
-  simpa only [LC.eval_nsmul] using congrArg (c • ·) h
+theorem eval_nsmul {F WL WR} [Semiring F]
+    [AddCommMonoid WL] [ModuleWithOne F WL]
+    [AddCommMonoid WR] [ModuleWithOne F WR]
+    (c : Nat) {left : WL} {right : WR}
+    {leftVal : Freigen.F2Z.Valuation F WL}
+    {rightVal : Freigen.F2Z.Valuation F WR}
+    (h : LCEq leftVal rightVal left right) :
+    LCEq leftVal rightVal (c • left) (c • right) := by
+  unfold LCEq at *
+  simpa only [map_nsmul] using congrArg (c • ·) h
 
-/-- Evaluation congruence for finite sums of `LC`s. -/
-theorem eval_sum {F ι} [Semiring F] [DecidableEq F] [Fintype ι]
-    {left right : ι → LC F} {leftVal rightVal : Nat → F}
-    (h : ∀ i, LC.eval leftVal (left i) = LC.eval rightVal (right i)) :
-    LC.eval leftVal (∑ i, left i) = LC.eval rightVal (∑ i, right i) := by
-  simp only [LC.eval_sum]
+theorem eval_sum {F ι WL WR} [Semiring F] [Fintype ι]
+    [AddCommMonoid WL] [ModuleWithOne F WL]
+    [AddCommMonoid WR] [ModuleWithOne F WR]
+    {left : ι → WL} {right : ι → WR}
+    {leftVal : Freigen.F2Z.Valuation F WL}
+    {rightVal : Freigen.F2Z.Valuation F WR}
+    (h : ∀ i, LCEq leftVal rightVal (left i) (right i)) :
+    LCEq leftVal rightVal (∑ i, left i) (∑ i, right i) := by
+  unfold LCEq at *
+  simp only [map_sum]
   exact Finset.sum_congr rfl fun i _ => h i
 
-/-- Specialize a pointwise vector relation at an index supplied by `[0:n)`. -/
-theorem lceq_getElem_of_mem_range {F} [Semiring F] [DecidableEq F]
-    {left right : Vector (LC F) n} {leftVal rightVal : Nat → F}
+theorem lceq_getElem_of_mem_range {F WL WR} [Semiring F]
+    [AddCommMonoid WL] [ModuleWithOne F WL]
+    [AddCommMonoid WR] [ModuleWithOne F WR]
+    {left : Vector WL n} {right : Vector WR n}
+    {leftVal : Freigen.F2Z.Valuation F WL}
+    {rightVal : Freigen.F2Z.Valuation F WR}
     {i : Nat} (hi : i ∈ ([:n] : Std.Legacy.Range))
-    (h : ∀ j : Fin n,
-      LCEq leftVal rightVal left[j] right[j]) :
-    LCEq leftVal rightVal left[i] right[i] :=
-  h ⟨i, hi.upper⟩
+    (h : ∀ j : Fin n, LCEq leftVal rightVal left[j] right[j]) :
+    LCEq leftVal rightVal left[i] right[i] := h ⟨i, hi.upper⟩
 
 attribute [grind →] Membership.mem.upper
 
@@ -445,8 +506,8 @@ private def relView? (target : Expr) : Option RelView :=
   let target := target.consumeMData
   let fn := target.getAppFn
   let args := target.getAppArgs
-  if fn.constName? == some ``Rel && args.size == 5 then
-    some { left := args[3]!, right := args[4]! }
+  if fn.constName? == some ``Rel && args.size ≥ 2 then
+    some { left := args[args.size - 2]!, right := args[args.size - 1]! }
   else
     none
 
@@ -597,7 +658,7 @@ private partial def dispatchPureGoal (goal : MVarId) (fuel : Nat) : TacticM Unit
     for next in introduced do dispatchWfGoal next (fuel - 1)
     return
   let normalized ← applyOn goal
-    (← `(tactic| try simp only [VectorRel, LCEq] at *))
+    (← `(tactic| try simp only [VectorRel] at *))
   if normalized.isEmpty then return
   let goal := normalized.head!
   let target ← instantiateMVars (← goal.getType)
@@ -609,9 +670,50 @@ private partial def dispatchPureGoal (goal : MVarId) (fuel : Nat) : TacticM Unit
     for next in goals do dispatchWfGoal next (fuel - 1)
     return
   if target.consumeMData.getAppFn.constName? == some ``HintRel then
-    let goals ← applyOn goal (← `(tactic| apply HintRel.of_eq))
+    let goals ← applyOn goal
+      (← `(tactic| first | assumption | grind | apply HintRel.of_eq))
     for next in goals do dispatchWfGoal next (fuel - 1)
     return
+  if target.consumeMData.getAppFn.constName? == some ``LCEq then
+    let relArgs := target.consumeMData.getAppArgs
+    let left := relArgs[relArgs.size - 2]!
+    let leftHead ← headConst? left
+    let tactic? : Option Syntax ← match leftHead with
+      | some ``HAdd.hAdd => some <$> `(tactic| apply eval_add)
+      | some ``HSub.hSub => some <$> `(tactic| apply eval_sub)
+      | some ``Finset.sum => some <$> `(tactic| apply eval_sum)
+      | some ``HSMul.hSMul =>
+          let smulArgs := (← instantiateMVars left).consumeMData.getAppArgs
+          let scalar := smulArgs[smulArgs.size - 2]!
+          let scalarType ← Lean.Meta.whnf (← Lean.Meta.inferType scalar)
+          if scalarType.isConstOf ``Nat then
+            some <$> `(tactic| apply eval_nsmul)
+          else
+            some <$> `(tactic| apply eval_smul)
+      | some ``GetElem.getElem =>
+          let getArgs := (← instantiateMVars left).consumeMData.getAppArgs
+          let index := getArgs[getArgs.size - 2]!
+          let indexType ← Lean.Meta.whnf (← Lean.Meta.inferType index)
+          if indexType.isConstOf ``Nat then
+            some <$> `(tactic| apply lceq_getElem_of_mem_range)
+          else
+            let collection := getArgs[getArgs.size - 3]!
+            if (← headConst? collection) == some ``Vector.reverse then
+              some <$> `(tactic| apply eval_reverse)
+            else
+              pure none
+      | _ => pure none
+    if let some tactic := tactic? then
+      let goals ← applyOn goal tactic
+      for next in goals do dispatchWfGoal next (fuel - 1)
+      return
+    if let some name := leftHead then
+      if !isPrimitiveLCHead name then
+        try
+          let goals ← applyOn goal (← `(tactic| unfold $(mkIdent name)))
+          for next in goals do dispatchWfGoal next (fuel - 1)
+          return
+        catch _ => pure ()
   if target.consumeMData.getAppFn.constName? == some ``Eq then
     let eqArgs := target.consumeMData.getAppArgs
     let lhs := eqArgs[eqArgs.size - 2]!
@@ -656,7 +758,14 @@ private partial def dispatchPureGoal (goal : MVarId) (fuel : Nat) : TacticM Unit
         for next in goals do dispatchWfGoal next (fuel - 1)
         return
   setGoals [goal]
-  evalTactic (← `(tactic| first | assumption | grind +splitImp))
+  evalTactic (← `(tactic|
+    first
+    | apply lceq_getElem_of_mem_range <;> assumption
+    | assumption
+    | simp_all only [LCEq]
+    | congr 1 <;> simp_all
+    | simp_all only
+    | grind +splitImp))
 
 end
 

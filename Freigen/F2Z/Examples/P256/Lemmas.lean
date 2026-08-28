@@ -10,6 +10,8 @@ soundness, completeness, and well-formedness proofs.
 
 namespace Freigen.F2Z.Examples.P256
 
+local instance : Context := lcContext
+
 set_option maxRecDepth 100000
 set_option maxHeartbeats 1000000
 
@@ -34,7 +36,7 @@ theorem scalar_modulus_eq : scalar.modulus = scalarModulus := rfl
 
 @[simp] theorem evalZMod_mk (x : LC ℤ) (bound : Nat) {ρ : WF.Valuation} :
     Modular.Lazy.evalZMod base { intVal := x, bound := bound } ρ =
-      Int.castRingHom (ZMod base.modulus) (x.eval ρ.int) := rfl
+      Int.castRingHom (ZMod base.modulus) (ρ.int x) := rfl
 
 @[simp] theorem three_evalElemZMod {ρ : WF.Valuation} :
     Modular.Lazy.evalElemZMod base three ρ = 3 := by
@@ -73,7 +75,7 @@ theorem curveB_evalNat : curveB.evalNat ρ =
   exact Modular.ofNat_evalNat base _ (by native_decide) (by native_decide)
 
 @[simp] theorem curveB_intVal_eval {ρ : WF.Valuation} :
-    curveB.val.intVal.eval ρ.int =
+    ρ.int curveB.val.intVal =
     (0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b :
       Int) := by
   have hvalid : curveB.Valid ρ :=
@@ -88,7 +90,7 @@ namespace Reference.Aux
 
 theorem represents_zero {P : AffineSlope.Point}
     (h : Reference.Represents ρ P 0) :
-    P.infinity.eval ρ.int = 1 := by
+    ρ.int P.infinity = 1 := by
   rcases h with ⟨hbit, hcoords⟩
   unfold Reference.circuitCoordinates Reference.coordinates at hcoords
   rcases hbit with hzero | hone
@@ -99,7 +101,7 @@ theorem represents_some {P : AffineSlope.Point}
     {x y : Reference.Field}
     {hxy : Reference.curve.toAffine.Nonsingular x y}
     (h : Reference.Represents ρ P (.some x y hxy)) :
-    P.infinity.eval ρ.int = 0 ∧
+    ρ.int P.infinity = 0 ∧
       Modular.Lazy.evalZMod base P.X ρ = x ∧
       Modular.Lazy.evalZMod base P.Y ρ = y := by
   rcases h with ⟨hbit, hcoords⟩
@@ -148,10 +150,10 @@ def DoubleSlopeSpec (ρ : WF.Valuation) (P : AffineSlope.Point)
     (slope : AffineSlope.Rep) : Prop :=
   Modular.Lazy.evalZMod base slope ρ *
       (2 * Modular.Lazy.evalZMod base P.Y ρ +
-        Int.castRingHom (ZMod base.modulus) (P.infinity.eval ρ.int)) =
+        Int.castRingHom (ZMod base.modulus) (ρ.int P.infinity)) =
     3 * (Modular.Lazy.evalZMod base P.X ρ *
       Modular.Lazy.evalZMod base P.X ρ) - 3 +
-        3 * Int.castRingHom (ZMod base.modulus) (P.infinity.eval ρ.int)
+        3 * Int.castRingHom (ZMod base.modulus) (ρ.int P.infinity)
 
 def FinishDoubleSpec (ρ : WF.Valuation) (P : AffineSlope.Point)
     (slope : AffineSlope.Rep) (out : AffineSlope.Point) : Prop :=
@@ -420,19 +422,19 @@ theorem double_specs_mathlib {P out : AffineSlope.Point}
   rename_i out hout hmul
   refine ⟨hmul.symm, ?_⟩
   have hz := hout.1 (0 : Fin 1)
-  cases hb : out.bits.bitsLE[0].eval ρ.bool <;> simp [hb] at hz
+  cases hb : ρ.bool out.bits.bitsLE[0] <;> simp [hb] at hz
   · left
     simp [U.intVal, hz]
   · right
     simp [U.intVal, hz]
 
 @[spec] theorem andBit_complete {x y : LC ℤ}
-    (hx : x.eval ρ.int = 0 ∨ x.eval ρ.int = 1)
-    (hy : y.eval ρ.int = 0 ∨ y.eval ρ.int = 1) :
+    (hx : ρ.int x = 0 ∨ ρ.int x = 1)
+    (hy : ρ.int y = 0 ∨ ρ.int y = 1) :
     ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.andBit x y)
     ⦃⇓ out => ⌜AffineSlope.AndBitSpec ρ x y out⌝⦄ := by
   mvcgen [AffineSlope.andBit]
-  let value : Bool := x.eval ρ.int = 1 && y.eval ρ.int = 1
+  let value : Bool := ρ.int x = 1 && ρ.int y = 1
   let bits : Vector Bool 1 := Vector.ofFn fun _ => value
   refine ⟨bits, ?_, ?_⟩
   · simp [WF.interpHint, WF.evalArgs, bits, value]
@@ -442,10 +444,17 @@ theorem double_specs_mathlib {P out : AffineSlope.Point}
         (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits }).toNat =
           if value then 1 else 0 := by
       cases hv : value <;>
-        simp [Word.eval, BitVec.toNat_ofFnLE, bits, hv, Nat.ofBits] <;>
-        native_decide
-    have houtVal : out.intVal.eval ρ.int = if value then 1 else 0 := by
-      rw [U.Rel.intVal hout]
+        rw [show Vector.map LC.ofConst bits =
+            Vector.ofFn (n := 1) fun i =>
+              LC.ofConst ((if value then 1 else 0).testBit i.val) by
+          apply Vector.ext
+          intro i hi
+          simp [bits, hv]] <;>
+        simpa only [hv, if_false, if_true] using
+          (Modular.Aux.constWord_eval_toNat_lc
+          (if value then 1 else 0) (by simp [hv]) ρ)
+    have houtVal : ρ.int out.intVal = if value then 1 else 0 := by
+      rw [U.Rel.intVal_apply hout]
       exact_mod_cast hword
     constructor
     · rcases hx with hx | hx <;> rcases hy with hy | hy <;>
@@ -471,9 +480,9 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
   exact ⟨xy, hxy, hout⟩
 
 @[spec] theorem and3Bit_complete {x y z : LC ℤ}
-    (hx : x.eval ρ.int = 0 ∨ x.eval ρ.int = 1)
-    (hy : y.eval ρ.int = 0 ∨ y.eval ρ.int = 1)
-    (hz : z.eval ρ.int = 0 ∨ z.eval ρ.int = 1) :
+    (hx : ρ.int x = 0 ∨ ρ.int x = 1)
+    (hy : ρ.int y = 0 ∨ ρ.int y = 1)
+    (hz : ρ.int z = 0 ∨ ρ.int z = 1) :
     ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.and3Bit x y z)
     ⦃⇓ out => ⌜And3BitSpec ρ x y z out⌝⦄ := by
   mvcgen [AffineSlope.and3Bit, And3BitSpec]
@@ -494,14 +503,14 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
   rename_i out hout heq
   constructor
   · intro hc
-    have hval : out.intVal.eval ρ.int = whenOne.intVal.eval ρ.int := by
-      simp only [LC.eval_sub, hc, one_mul] at heq
+    have hval : ρ.int out.intVal = ρ.int whenOne.intVal := by
+      simp only [Freigen.F2Z.Valuation.sub_apply, hc, one_mul] at heq
       omega
     unfold Modular.Lazy.evalZMod
     rw [hval]
   · intro hc
-    have hval : out.intVal.eval ρ.int = whenZero.intVal.eval ρ.int := by
-      simp only [LC.eval_sub, hc, zero_mul] at heq
+    have hval : ρ.int out.intVal = ρ.int whenZero.intVal := by
+      simp only [Freigen.F2Z.Valuation.sub_apply, hc, zero_mul] at heq
       omega
     unfold Modular.Lazy.evalZMod
     rw [hval]
@@ -509,21 +518,21 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
 @[spec] theorem selectRep_complete {width outBound limit : Nat}
     {description : String} {choose : LC ℤ}
     {whenOne whenZero : AffineSlope.Rep}
-    (hchoose : choose.eval ρ.int = 0 ∨ choose.eval ρ.int = 1)
+    (hchoose : ρ.int choose = 0 ∨ ρ.int choose = 1)
     (hone : whenOne.Valid ρ)
-    (honeFit : whenOne.intVal.eval ρ.int < limit)
+    (honeFit : ρ.int whenOne.intVal < limit)
     (hzero : whenZero.Valid ρ)
-    (hzeroFit : whenZero.intVal.eval ρ.int < limit)
+    (hzeroFit : ρ.int whenZero.intVal < limit)
     (hwidth : limit ≤ 2 ^ width)
     (hbound : limit ≤ outBound * base.modulus) :
     ⦃⌜True⌝⦄ Complete.interp ρ
       (AffineSlope.selectRep width outBound description choose whenOne whenZero)
     ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out ∧
-      out.Valid ρ ∧ out.intVal.eval ρ.int < limit ∧
+      out.Valid ρ ∧ ρ.int out.intVal < limit ∧
       out.bound = outBound⌝⦄ := by
   mvcgen [AffineSlope.selectRep]
-  let value := if choose.eval ρ.int = 1 then
-    whenOne.intVal.eval ρ.int else whenZero.intVal.eval ρ.int
+  let value := if ρ.int choose = 1 then
+    ρ.int whenOne.intVal else ρ.int whenZero.intVal
   let bits : Vector Bool width := Vector.ofFn fun i => value.toNat.testBit i.val
   refine ⟨bits, ?_, ?_⟩
   · rcases hchoose with hc | hc
@@ -552,9 +561,9 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
             LC.ofConst (value.toNat.testBit i.val) by
         ext i
         simp [bits]]
-      exact Modular.Aux.constWord_eval_toNat value.toNat hfit ρ
-    have houtVal : out.intVal.eval ρ.int = value := by
-      rw [U.Rel.intVal hout, hword, Int.toNat_of_nonneg hvalue0]
+      exact Modular.Aux.constWord_eval_toNat_lc value.toNat hfit ρ
+    have houtVal : ρ.int out.intVal = value := by
+      rw [U.Rel.intVal_apply hout, hword, Int.toNat_of_nonneg hvalue0]
     constructor
     · rcases hchoose with hc | hc
       · simp [LC.eval_sub, hc, value, houtVal]
@@ -578,15 +587,15 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
 
 @[spec] theorem selectCanonical_complete {choose : LC ℤ}
     {whenOne whenZero : AffineSlope.Rep}
-    (hchoose : choose.eval ρ.int = 0 ∨ choose.eval ρ.int = 1)
+    (hchoose : ρ.int choose = 0 ∨ ρ.int choose = 1)
     (hone : whenOne.Valid ρ)
-    (honeCanonical : whenOne.intVal.eval ρ.int < base.modulus)
+    (honeCanonical : ρ.int whenOne.intVal < base.modulus)
     (hzero : whenZero.Valid ρ)
-    (hzeroCanonical : whenZero.intVal.eval ρ.int < base.modulus) :
+    (hzeroCanonical : ρ.int whenZero.intVal < base.modulus) :
     ⦃⌜True⌝⦄ Complete.interp ρ
       (AffineSlope.selectCanonical choose whenOne whenZero)
     ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out ∧
-      out.Valid ρ ∧ out.intVal.eval ρ.int < base.modulus ∧
+      out.Valid ρ ∧ ρ.int out.intVal < base.modulus ∧
       out.bound = 2⌝⦄ := by
   unfold AffineSlope.selectCanonical
   exact selectRep_complete hchoose hone honeCanonical hzero hzeroCanonical
@@ -601,15 +610,15 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
 
 @[spec] theorem selectFormula_complete {choose : LC ℤ}
     {whenOne whenZero : AffineSlope.Rep}
-    (hchoose : choose.eval ρ.int = 0 ∨ choose.eval ρ.int = 1)
+    (hchoose : ρ.int choose = 0 ∨ ρ.int choose = 1)
     (hone : whenOne.Valid ρ)
-    (honeFit : whenOne.intVal.eval ρ.int < (2 ^ 262 : Nat))
+    (honeFit : ρ.int whenOne.intVal < (2 ^ 262 : Nat))
     (hzero : whenZero.Valid ρ)
-    (hzeroFit : whenZero.intVal.eval ρ.int < (2 ^ 262 : Nat)) :
+    (hzeroFit : ρ.int whenZero.intVal < (2 ^ 262 : Nat)) :
     ⦃⌜True⌝⦄ Complete.interp ρ
       (AffineSlope.selectFormula choose whenOne whenZero)
     ⦃⇓ out => ⌜AffineSlope.SelectZModSpec ρ choose whenOne whenZero out ∧
-      out.Valid ρ ∧ out.intVal.eval ρ.int < (2 ^ 262 : Nat) ∧
+      out.Valid ρ ∧ ρ.int out.intVal < (2 ^ 262 : Nat) ∧
       out.bound = 66⌝⦄ := by
   unfold AffineSlope.selectFormula
   exact selectRep_complete hchoose hone honeFit hzero hzeroFit le_rfl
@@ -620,34 +629,34 @@ def AddControlSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
       (AffineSlope.sub Q.X P.X) control.sameX ∧
     Modular.Lazy.ZeroTestZModSpec base ρ
       (AffineSlope.add P.Y Q.Y) control.oppositeY ∧
-    AffineSlope.AndBitSpec ρ (LC.ofConst 1 - P.infinity)
-      (LC.ofConst 1 - Q.infinity) control.finite ∧
+    AffineSlope.AndBitSpec ρ (ofScalar 1 - P.infinity)
+      (ofScalar 1 - Q.infinity) control.finite ∧
     ∃ doubleKind genericCase : LC ℤ,
       AffineSlope.AndBitSpec ρ control.sameX
-        (LC.ofConst 1 - control.oppositeY) doubleKind ∧
+        (ofScalar 1 - control.oppositeY) doubleKind ∧
       AffineSlope.AndBitSpec ρ control.finite doubleKind
         control.doubleCase ∧
       AffineSlope.AndBitSpec ρ control.finite
-        (LC.ofConst 1 - control.sameX) genericCase ∧
-      control.active.eval ρ.int =
-        control.doubleCase.eval ρ.int + genericCase.eval ρ.int
+        (ofScalar 1 - control.sameX) genericCase ∧
+      ρ.int control.active =
+        ρ.int control.doubleCase + ρ.int genericCase
 
 theorem AddControlSpec.active_bit {P Q : AffineSlope.Point}
     {control : AffineSlope.AddControl}
     (h : AddControlSpec ρ P Q control) :
-    control.active.eval ρ.int = 0 ∨ control.active.eval ρ.int = 1 := by
+    ρ.int control.active = 0 ∨ ρ.int control.active = 1 := by
   rcases h with ⟨hsame, _, _, doubleKind, genericCase,
     hdoubleKind, hdoubleCase, hgenericCase, hactive⟩
   rcases hsame.1 with hsame | hsame
-  · have hdoubleKind0 : doubleKind.eval ρ.int = 0 := by
+  · have hdoubleKind0 : ρ.int doubleKind = 0 := by
       rw [hdoubleKind.1]
       simp [hsame]
-    have hdoubleCase0 : control.doubleCase.eval ρ.int = 0 := by
+    have hdoubleCase0 : ρ.int control.doubleCase = 0 := by
       rw [hdoubleCase.1, hdoubleKind0]
       simp
     rw [hactive, hdoubleCase0]
     simpa using hgenericCase.2
-  · have hgenericCase0 : genericCase.eval ρ.int = 0 := by
+  · have hgenericCase0 : ρ.int genericCase = 0 := by
       rw [hgenericCase.1]
       simp [hsame]
     rw [hactive, hgenericCase0]
@@ -680,22 +689,22 @@ theorem AddControlSpec.active_bit {P Q : AffineSlope.Point}
       2 ^ Modular.Lazy.quotientExtraBits := by
     simp [AffineSlope.add, Modular.Lazy.add, hPYb, hQYb]
     native_decide
-  have hnotP : (LC.ofConst 1 - P.infinity).eval ρ.int = 0 ∨
-      (LC.ofConst 1 - P.infinity).eval ρ.int = 1 := by
+  have hnotP : ρ.int (ofScalar 1 - P.infinity) = 0 ∨
+      ρ.int (ofScalar 1 - P.infinity) = 1 := by
     rcases hPinf with h | h <;> simp [h]
-  have hnotQ : (LC.ofConst 1 - Q.infinity).eval ρ.int = 0 ∨
-      (LC.ofConst 1 - Q.infinity).eval ρ.int = 1 := by
+  have hnotQ : ρ.int (ofScalar 1 - Q.infinity) = 0 ∨
+      ρ.int (ofScalar 1 - Q.infinity) = 1 := by
     rcases hQinf with h | h <;> simp [h]
   have zeroTestBit {x : Modular.Lazy.Rep base} {z : LC ℤ}
       (h : Modular.Lazy.ZeroTestZModSpec base ρ x z) :
-      z.eval ρ.int = 0 ∨ z.eval ρ.int = 1 := h.1
+      ρ.int z = 0 ∨ ρ.int z = 1 := h.1
   have andSpecBit {x y z : LC ℤ}
       (h : AffineSlope.AndBitSpec ρ x y z) :
-      z.eval ρ.int = 0 ∨ z.eval ρ.int = 1 := h.2
+      ρ.int z = 0 ∨ ρ.int z = 1 := h.2
   have oneSubBit {z : LC ℤ}
-      (h : z.eval ρ.int = 0 ∨ z.eval ρ.int = 1) :
-      (LC.ofConst 1 - z).eval ρ.int = 0 ∨
-        (LC.ofConst 1 - z).eval ρ.int = 1 := by
+      (h : ρ.int z = 0 ∨ ρ.int z = 1) :
+      ρ.int (ofScalar 1 - z) = 0 ∨
+        ρ.int (ofScalar 1 - z) = 1 := by
     rcases h with h | h <;> simp [h]
   mvcgen [AffineSlope.classifyAdd, AddControlSpec] <;> first
     | exact hdx
@@ -717,13 +726,13 @@ theorem AddControlSpec.active_bit {P Q : AffineSlope.Point}
 def RawSlopeOperandsSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     (control : AffineSlope.AddControl)
     (selected : AffineSlope.SlopeOperands) : Prop :=
-  (control.doubleCase.eval ρ.int = 1 →
+  (ρ.int control.doubleCase = 1 →
     Modular.Lazy.evalZMod base selected.numerator ρ =
       3 * (Modular.Lazy.evalZMod base P.X ρ *
         Modular.Lazy.evalZMod base P.X ρ) - 3 ∧
     Modular.Lazy.evalZMod base selected.denominator ρ =
       2 * Modular.Lazy.evalZMod base P.Y ρ) ∧
-  (control.doubleCase.eval ρ.int = 0 →
+  (ρ.int control.doubleCase = 0 →
     Modular.Lazy.evalZMod base selected.numerator ρ =
       Modular.Lazy.evalZMod base Q.Y ρ -
         Modular.Lazy.evalZMod base P.Y ρ ∧
@@ -734,21 +743,21 @@ def RawSlopeOperandsSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
 def SlopeOperandsSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     (control : AffineSlope.AddControl)
     (operands : AffineSlope.SlopeOperands) : Prop :=
-  (control.active.eval ρ.int = 1 →
-    (control.doubleCase.eval ρ.int = 1 →
+  (ρ.int control.active = 1 →
+    (ρ.int control.doubleCase = 1 →
       Modular.Lazy.evalZMod base operands.numerator ρ =
         3 * (Modular.Lazy.evalZMod base P.X ρ *
           Modular.Lazy.evalZMod base P.X ρ) - 3 ∧
       Modular.Lazy.evalZMod base operands.denominator ρ =
         2 * Modular.Lazy.evalZMod base P.Y ρ) ∧
-    (control.doubleCase.eval ρ.int = 0 →
+    (ρ.int control.doubleCase = 0 →
       Modular.Lazy.evalZMod base operands.numerator ρ =
         Modular.Lazy.evalZMod base Q.Y ρ -
           Modular.Lazy.evalZMod base P.Y ρ ∧
       Modular.Lazy.evalZMod base operands.denominator ρ =
         Modular.Lazy.evalZMod base Q.X ρ -
           Modular.Lazy.evalZMod base P.X ρ)) ∧
-  (control.active.eval ρ.int = 0 →
+  (ρ.int control.active = 0 →
     Modular.Lazy.evalZMod base operands.numerator ρ = 0 ∧
     Modular.Lazy.evalZMod base operands.denominator ρ = 1)
 
@@ -842,10 +851,10 @@ theorem SlopeOperandsSpec.denominator_ne_zero
   · rw [(hoperands.2 hactive0).2]
     exact one_ne_zero
   · rcases hdoubleCase.2 with hdouble0 | hdouble1
-    · have hgeneric1 : genericCase.eval ρ.int = 1 := by
+    · have hgeneric1 : ρ.int genericCase = 1 := by
         rw [hactive1, hdouble0] at hactive
         omega
-      have hsame0 : control.sameX.eval ρ.int = 0 := by
+      have hsame0 : ρ.int control.sameX = 0 := by
         rw [hgenericCase.1] at hgeneric1
         rcases hfinite.2 with hfinite0 | hfinite1
         · simp [hfinite0] at hgeneric1
@@ -862,7 +871,7 @@ theorem SlopeOperandsSpec.denominator_ne_zero
     · rw [((hoperands.1 hactive1).1 hdouble1).2]
       rcases p with _ | ⟨px, py, hpcurve⟩
       · have hpinf := Reference.Aux.represents_zero hP
-        have hfinite1 : control.finite.eval ρ.int = 1 := by
+        have hfinite1 : ρ.int control.finite = 1 := by
           rw [hdoubleCase.1] at hdouble1
           rcases hfinite.2 with h | h
           · simp [h] at hdouble1
@@ -885,14 +894,14 @@ theorem SlopeOperandsSpec.denominator_ne_zero
 @[spec] theorem selectRawSlopeOperands_complete
     {P Q : AffineSlope.Point} {control : AffineSlope.AddControl}
     (hPvalid : P.Valid ρ) (hQvalid : Q.Valid ρ)
-    (hdoubleBit : control.doubleCase.eval ρ.int = 0 ∨
-      control.doubleCase.eval ρ.int = 1) :
+    (hdoubleBit : ρ.int control.doubleCase = 0 ∨
+      ρ.int control.doubleCase = 1) :
     ⦃⌜True⌝⦄ Complete.interp ρ
       (AffineSlope.selectRawSlopeOperands P Q control)
     ⦃⇓ selected => ⌜selected.Valid ρ ∧
       RawSlopeOperandsSpec ρ P Q control selected ∧
-      selected.numerator.intVal.eval ρ.int < (2 ^ 262 : Nat) ∧
-      selected.denominator.intVal.eval ρ.int < (2 ^ 262 : Nat)⌝⦄ := by
+      ρ.int selected.numerator.intVal < (2 ^ 262 : Nat) ∧
+      ρ.int selected.denominator.intVal < (2 ^ 262 : Nat)⌝⦄ := by
   rcases hPvalid with ⟨hPXbound, hPX, _, hPYbound, hPY, _, _⟩
   rcases hQvalid with ⟨hQXbound, hQX, _, hQYbound, hQY, _, _⟩
   have hthree : (AffineSlope.ofElem three).Valid ρ :=
@@ -900,9 +909,9 @@ theorem SlopeOperandsSpec.denominator_ne_zero
       (Modular.ofNat_valid base 3 (by native_decide) (by native_decide))
   have fit8 {x : AffineSlope.Rep} (hx : x.Valid ρ)
       (hbound : x.bound ≤ 8) :
-      x.intVal.eval ρ.int < (2 ^ 262 : Nat) := by
+      ρ.int x.intVal < (2 ^ 262 : Nat) := by
     calc
-      x.intVal.eval ρ.int < x.bound * base.modulus := hx.2
+      ρ.int x.intVal < x.bound * base.modulus := hx.2
       _ ≤ 8 * base.modulus := by
         exact_mod_cast Nat.mul_le_mul_right base.modulus hbound
       _ < (2 ^ 262 : Nat) := by
@@ -995,10 +1004,10 @@ theorem SlopeOperandsSpec.denominator_ne_zero
     {selected : AffineSlope.SlopeOperands}
     (hselected : selected.Valid ρ)
     (hselectedSpec : RawSlopeOperandsSpec ρ P Q control selected)
-    (hnumFit : selected.numerator.intVal.eval ρ.int < (2 ^ 262 : Nat))
-    (hdenFit : selected.denominator.intVal.eval ρ.int < (2 ^ 262 : Nat))
-    (hactiveBit : control.active.eval ρ.int = 0 ∨
-      control.active.eval ρ.int = 1) :
+    (hnumFit : ρ.int selected.numerator.intVal < (2 ^ 262 : Nat))
+    (hdenFit : ρ.int selected.denominator.intVal < (2 ^ 262 : Nat))
+    (hactiveBit : ρ.int control.active = 0 ∨
+      ρ.int control.active = 1) :
     ⦃⌜True⌝⦄ Complete.interp ρ
       (AffineSlope.activateSlopeOperands P Q control selected)
     ⦃⇓ operands => ⌜operands.Valid ρ ∧
@@ -1009,11 +1018,11 @@ theorem SlopeOperandsSpec.denominator_ne_zero
   have hone : (AffineSlope.ofElem one).Valid ρ :=
     Modular.Lazy.ofElem_valid base
       (Modular.ofNat_valid base 1 (by native_decide) (by native_decide))
-  have hzeroFit : (AffineSlope.ofElem zero).intVal.eval ρ.int <
+  have hzeroFit : ρ.int (AffineSlope.ofElem zero).intVal <
       (2 ^ 262 : Nat) := hzero.2.trans (by
     norm_num [AffineSlope.ofElem, base, baseModulus]
     native_decide)
-  have honeFit : (AffineSlope.ofElem one).intVal.eval ρ.int <
+  have honeFit : ρ.int (AffineSlope.ofElem one).intVal <
       (2 ^ 262 : Nat) := hone.2.trans (by
     norm_num [AffineSlope.ofElem, base, baseModulus]
     native_decide)
@@ -1060,8 +1069,8 @@ theorem SlopeOperandsSpec.denominator_ne_zero
       SlopeOperandsSpec ρ P Q control operands ∧
       Modular.Lazy.evalZMod base operands.denominator ρ ≠ 0⌝⦄ := by
   have hactiveBit := hcontrol.active_bit
-  have hdoubleBit : control.doubleCase.eval ρ.int = 0 ∨
-      control.doubleCase.eval ρ.int = 1 := by
+  have hdoubleBit : ρ.int control.doubleCase = 0 ∨
+      ρ.int control.doubleCase = 1 := by
     rcases hcontrol with ⟨_, _, _, _, _, _, hdoubleCase, _, _⟩
     exact hdoubleCase.2
   mvcgen [AffineSlope.selectSlopeOperands]
@@ -1075,9 +1084,9 @@ theorem SlopeOperandsSpec.denominator_ne_zero
 def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     (control : AffineSlope.AddControl)
     (candidate : AffineSlope.Rep × AffineSlope.Rep) : Prop :=
-  control.active.eval ρ.int = 1 →
+  ρ.int control.active = 1 →
     ∃ slope : AffineSlope.Rep,
-      (if control.doubleCase.eval ρ.int = 1 then
+      (if ρ.int control.doubleCase = 1 then
           Modular.Lazy.evalZMod base slope ρ *
               (2 * Modular.Lazy.evalZMod base P.Y ρ) =
             3 * (Modular.Lazy.evalZMod base P.X ρ *
@@ -1103,8 +1112,8 @@ def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     {control : AffineSlope.AddControl}
     {operands : AffineSlope.SlopeOperands}
     (hoperands : SlopeOperandsSpec ρ P Q control operands)
-    (hdoubleBit : control.doubleCase.eval ρ.int = 0 ∨
-      control.doubleCase.eval ρ.int = 1) :
+    (hdoubleBit : ρ.int control.doubleCase = 0 ∨
+      ρ.int control.doubleCase = 1) :
     ⦃⌜True⌝⦄ Sound.interp ρ
       (AffineSlope.finishAddCandidate P Q operands)
     ⦃⇓ candidate => ⌜AddCandidateSpec ρ P Q control candidate⌝⦄ := by
@@ -1113,13 +1122,13 @@ def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
   unfold AddCandidateSpec
   intro hactive
   rcases hoperands.1 hactive with ⟨hdouble, hgeneric⟩
-  by_cases hd : control.doubleCase.eval ρ.int = 1
+  by_cases hd : ρ.int control.doubleCase = 1
   · rcases hdouble hd with ⟨hnum, hden⟩
     refine ⟨slope, ?_⟩
     simp_all [Modular.Lazy.DivideZModSpec,
       Modular.Lazy.MulSubToElemZModSpec, AffineSlope.add,
       AffineSlope.sub, AffineSlope.ofElem]
-  · have hd0 : control.doubleCase.eval ρ.int = 0 := by
+  · have hd0 : ρ.int control.doubleCase = 0 := by
       rcases hdoubleBit with h | h
       · exact h
       · contradiction
@@ -1136,15 +1145,15 @@ def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     (hoperands : operands.Valid ρ)
     (hoperandsSpec : SlopeOperandsSpec ρ P Q control operands)
     (hden : Modular.Lazy.evalZMod base operands.denominator ρ ≠ 0)
-    (hdoubleBit : control.doubleCase.eval ρ.int = 0 ∨
-      control.doubleCase.eval ρ.int = 1) :
+    (hdoubleBit : ρ.int control.doubleCase = 0 ∨
+      ρ.int control.doubleCase = 1) :
     ⦃⌜True⌝⦄ Complete.interp ρ
       (AffineSlope.finishAddCandidate P Q operands)
     ⦃⇓ candidate => ⌜candidate.1.Valid ρ ∧
       candidate.1.bound = 2 ∧
-      candidate.1.intVal.eval ρ.int < base.modulus ∧
+      ρ.int candidate.1.intVal < base.modulus ∧
       candidate.2.Valid ρ ∧ candidate.2.bound = 2 ∧
-      candidate.2.intVal.eval ρ.int < base.modulus ∧
+      ρ.int candidate.2.intVal < base.modulus ∧
       AddCandidateSpec ρ P Q control candidate⌝⦄ := by
   rcases hP with ⟨hPXbound, hPX, _, hPYbound, hPY, _, _⟩
   rcases hQ with ⟨hQXbound, hQX, _, hQYbound, hQY, _, _⟩
@@ -1176,19 +1185,21 @@ def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     exact hslope.1
   case vc10.hy slope hslope candidateX hcandidateX =>
     rcases hPX with ⟨hx0, hxlt⟩
-    have hy0 : 0 ≤ candidateX.val.intVal.eval ρ.int :=
+    have hy0 : 0 ≤ ρ.int candidateX.val.intVal :=
       Modular.Elem.nonneg (p := base) hcandidateX.1
-    have hylt : candidateX.val.intVal.eval ρ.int < base.modulus :=
+    have hylt : ρ.int candidateX.val.intVal < base.modulus :=
       hcandidateX.1.2
     constructor
     · simp only [AffineSlope.sub, AffineSlope.ofElem, Modular.Lazy.sub,
         Modular.Lazy.ofElem, Modular.Lazy.Rep.Valid,
-        LC.eval_sub, LC.eval_add, LC.eval_ofConst]
+        Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.add_apply,
+        Freigen.F2Z.Valuation.ofScalar_apply]
       push_cast
       omega
     · simp only [AffineSlope.sub, AffineSlope.ofElem, Modular.Lazy.sub,
         Modular.Lazy.ofElem, Modular.Lazy.Rep.Valid,
-        LC.eval_sub, LC.eval_add, LC.eval_ofConst]
+        Freigen.F2Z.Valuation.sub_apply, Freigen.F2Z.Valuation.add_apply,
+        Freigen.F2Z.Valuation.ofScalar_apply]
       push_cast
       ring_nf
       nlinarith
@@ -1238,12 +1249,12 @@ def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
       (AffineSlope.addCandidate P Q control)
     ⦃⇓ candidate => ⌜candidate.1.Valid ρ ∧
       candidate.1.bound = 2 ∧
-      candidate.1.intVal.eval ρ.int < base.modulus ∧
+      ρ.int candidate.1.intVal < base.modulus ∧
       candidate.2.Valid ρ ∧ candidate.2.bound = 2 ∧
-      candidate.2.intVal.eval ρ.int < base.modulus ∧
+      ρ.int candidate.2.intVal < base.modulus ∧
       AddCandidateSpec ρ P Q control candidate⌝⦄ := by
-  have hdoubleBit : control.doubleCase.eval ρ.int = 0 ∨
-      control.doubleCase.eval ρ.int = 1 := by
+  have hdoubleBit : ρ.int control.doubleCase = 0 ∨
+      ρ.int control.doubleCase = 1 := by
     rcases hcontrol with ⟨_, _, _, _, _, _, hdoubleCase, _, _⟩
     exact hdoubleCase.2
   mvcgen [AffineSlope.addCandidate]
@@ -1255,8 +1266,8 @@ def AddCandidateSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     (hcontrol : AddControlSpec ρ P Q control) :
     ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.addCandidate P Q control)
     ⦃⇓ candidate => ⌜AddCandidateSpec ρ P Q control candidate⌝⦄ := by
-  have hdoubleBit : control.doubleCase.eval ρ.int = 0 ∨
-      control.doubleCase.eval ρ.int = 1 := by
+  have hdoubleBit : ρ.int control.doubleCase = 0 ∨
+      ρ.int control.doubleCase = 1 := by
     rcases hcontrol with ⟨_, _, _, _, _, _, hdoubleCase, _, _⟩
     exact hdoubleCase.2
   mvcgen [AffineSlope.addCandidate]
@@ -1282,8 +1293,8 @@ def SelectAddOutputSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
       AffineSlope.AndBitSpec ρ P.infinity Q.infinity bothInfinity ∧
       AffineSlope.AndBitSpec ρ control.sameX control.oppositeY oppositePair ∧
       AffineSlope.AndBitSpec ρ control.finite oppositePair finiteOpposite ∧
-      out.infinity.eval ρ.int =
-        bothInfinity.eval ρ.int + finiteOpposite.eval ρ.int
+      ρ.int out.infinity =
+        ρ.int bothInfinity + ρ.int finiteOpposite
 
 theorem SelectAddOutputSpec.infinity_bit
     {P Q out : AffineSlope.Point}
@@ -1292,7 +1303,7 @@ theorem SelectAddOutputSpec.infinity_bit
     (hP : P.Valid ρ) (hQ : Q.Valid ρ)
     (hcontrol : AddControlSpec ρ P Q control)
     (hout : SelectAddOutputSpec ρ P Q control candidate out) :
-    out.infinity.eval ρ.int = 0 ∨ out.infinity.eval ρ.int = 1 := by
+    ρ.int out.infinity = 0 ∨ ρ.int out.infinity = 1 := by
   rcases hP with ⟨_, _, _, _, _, _, hPinf⟩
   rcases hQ with ⟨_, _, _, _, _, _, hQinf⟩
   rcases hcontrol with
@@ -1330,10 +1341,10 @@ theorem SelectAddOutputSpec.infinity_bit
     (hcontrol : AddControlSpec ρ P Q control)
     (hcandidateX : candidate.1.Valid ρ)
     (hcandidateXCanonical :
-      candidate.1.intVal.eval ρ.int < base.modulus)
+      ρ.int candidate.1.intVal < base.modulus)
     (hcandidateY : candidate.2.Valid ρ)
     (hcandidateYCanonical :
-      candidate.2.intVal.eval ρ.int < base.modulus) :
+      ρ.int candidate.2.intVal < base.modulus) :
     ⦃⌜True⌝⦄ Complete.interp ρ
       (AffineSlope.selectAddOutput P Q control candidate)
     ⦃⇓ out => ⌜out.Valid ρ ∧
@@ -1347,7 +1358,7 @@ theorem SelectAddOutputSpec.infinity_bit
   have hzero : (AffineSlope.ofElem zero).Valid ρ :=
     Modular.Lazy.ofElem_valid base hzeroElem
   have hzeroCanonical :
-      (AffineSlope.ofElem zero).intVal.eval ρ.int < base.modulus :=
+      ρ.int (AffineSlope.ofElem zero).intVal < base.modulus :=
     hzeroElem.2
   have hactive := hcontrol.active_bit
   have hcontrol' := hcontrol
@@ -1422,7 +1433,7 @@ theorem add_specs_raw {P Q out : AffineSlope.Point}
     (hcontrol : AddControlSpec ρ P Q control)
     (hcandidate : AddCandidateSpec ρ P Q control candidate)
     (hout : SelectAddOutputSpec ρ P Q control candidate out) :
-    (out.infinity.eval ρ.int = 0 ∨ out.infinity.eval ρ.int = 1) ∧
+    (ρ.int out.infinity = 0 ∨ ρ.int out.infinity = 1) ∧
       Reference.circuitCoordinates ρ out =
         Reference.slopeAddCoordinates p q := by
   rcases hcontrol with
@@ -1485,25 +1496,25 @@ theorem add_specs_raw {P Q out : AffineSlope.Point}
               zero_mul]
             rw [← hpyqy]
             linear_combination hzero
-          have hsame1 : control.sameX.eval ρ.int = 1 := by
+          have hsame1 : ρ.int control.sameX = 1 := by
             rw [hsame.2.2]
             simp [hx]
-          have hopposite0 : control.oppositeY.eval ρ.int = 0 := by
+          have hopposite0 : ρ.int control.oppositeY = 0 := by
             rw [hopposite.2.2]
             simp [hsumne]
-          have hfinite1 : control.finite.eval ρ.int = 1 := by
+          have hfinite1 : ρ.int control.finite = 1 := by
             rw [hfinite.1]
             simp [hpinf, hqinf]
-          have hdoubleKind1 : doubleKind.eval ρ.int = 1 := by
+          have hdoubleKind1 : ρ.int doubleKind = 1 := by
             rw [hdoubleKind.1]
             simp [hsame1, hopposite0]
-          have hdouble : control.doubleCase.eval ρ.int = 1 := by
+          have hdouble : ρ.int control.doubleCase = 1 := by
             rw [hdoubleCase.1, hfinite1, hdoubleKind1]
             norm_num
-          have hgeneric0 : genericCase.eval ρ.int = 0 := by
+          have hgeneric0 : ρ.int genericCase = 0 := by
             rw [hgenericCase.1]
             simp [hfinite1, hsame1]
-          have hac : control.active.eval ρ.int = 1 := by
+          have hac : ρ.int control.active = 1 := by
             rw [hactive, hdouble, hgeneric0]
             norm_num
           rcases hcandidate hac with ⟨slope, hslope, hcandidateX,
@@ -1515,14 +1526,14 @@ theorem add_specs_raw {P Q out : AffineSlope.Point}
             exact (eq_div_iff hden).2 (by simpa [pow_two] using hslope)
           have houtX := hX.1 hac
           have houtY := hY.1 hac
-          have houtInf : out.infinity.eval ρ.int = 0 := by
-            have hboth0 : bothInfinity.eval ρ.int = 0 := by
+          have houtInf : ρ.int out.infinity = 0 := by
+            have hboth0 : ρ.int bothInfinity = 0 := by
               rw [hbothInfinity.1]
               simp [hpinf, hqinf]
-            have hoppositePair0 : oppositePair.eval ρ.int = 0 := by
+            have hoppositePair0 : ρ.int oppositePair = 0 := by
               rw [hoppositePair.1, hsame1, hopposite0]
               norm_num
-            have hfiniteOpposite0 : finiteOpposite.eval ρ.int = 0 := by
+            have hfiniteOpposite0 : ρ.int finiteOpposite = 0 := by
               rw [hfiniteOpposite.1, hfinite1, hoppositePair0]
               norm_num
             omega
@@ -1541,22 +1552,22 @@ theorem add_specs_raw {P Q out : AffineSlope.Point}
                 Reference.resultY]
               ring
       · have hden : qx - px ≠ 0 := sub_ne_zero.mpr (Ne.symm hx)
-        have hsame0 : control.sameX.eval ρ.int = 0 := by
+        have hsame0 : ρ.int control.sameX = 0 := by
           rw [hsame.2.2]
           simp [sub_ne_zero.mpr (Ne.symm hx)]
-        have hfinite1 : control.finite.eval ρ.int = 1 := by
+        have hfinite1 : ρ.int control.finite = 1 := by
           rw [hfinite.1]
           simp [hpinf, hqinf]
-        have hdoubleKind0 : doubleKind.eval ρ.int = 0 := by
+        have hdoubleKind0 : ρ.int doubleKind = 0 := by
           rw [hdoubleKind.1, hsame0]
           norm_num
-        have hdouble : control.doubleCase.eval ρ.int = 0 := by
+        have hdouble : ρ.int control.doubleCase = 0 := by
           rw [hdoubleCase.1, hfinite1, hdoubleKind0]
           norm_num
-        have hgeneric1 : genericCase.eval ρ.int = 1 := by
+        have hgeneric1 : ρ.int genericCase = 1 := by
           rw [hgenericCase.1]
           simp [hfinite1, hsame0]
-        have hac : control.active.eval ρ.int = 1 := by
+        have hac : ρ.int control.active = 1 := by
           rw [hactive, hdouble, hgeneric1]
           norm_num
         rcases hcandidate hac with ⟨slope, hslope, hcandidateX,
@@ -1568,14 +1579,14 @@ theorem add_specs_raw {P Q out : AffineSlope.Point}
           exact hslope)
         have houtX := hX.1 hac
         have houtY := hY.1 hac
-        have houtInf : out.infinity.eval ρ.int = 0 := by
-          have hboth0 : bothInfinity.eval ρ.int = 0 := by
+        have houtInf : ρ.int out.infinity = 0 := by
+          have hboth0 : ρ.int bothInfinity = 0 := by
             rw [hbothInfinity.1]
             simp [hpinf, hqinf]
-          have hoppositePair0 : oppositePair.eval ρ.int = 0 := by
+          have hoppositePair0 : ρ.int oppositePair = 0 := by
             rw [hoppositePair.1, hsame0]
             norm_num
-          have hfiniteOpposite0 : finiteOpposite.eval ρ.int = 0 := by
+          have hfiniteOpposite0 : ρ.int finiteOpposite = 0 := by
             rw [hfiniteOpposite.1, hfinite1, hoppositePair0]
             norm_num
           omega

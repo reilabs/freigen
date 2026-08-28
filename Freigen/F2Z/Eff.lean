@@ -1,4 +1,4 @@
-import Freigen.F2Z.LC
+import Freigen.F2Z.Context
 import Freigen.CompM.Basic
 import Freigen.Eff
 import Freigen.Free.Basic
@@ -14,49 +14,47 @@ inductive WitnessSide
 | z : WitnessSide
 | f₂ : WitnessSide
 
-def WitnessSide.denoteW : WitnessSide → Type
-| WitnessSide.z  => LC ℤ
-| WitnessSide.f₂ => LC Bool
+def WitnessSide.denoteW (ctx : Context) : WitnessSide → Type
+| WitnessSide.z  => ctx.Wℤ
+| WitnessSide.f₂ => ctx.WBool
 
 def WitnessSide.denoteF : WitnessSide → Type
 | WitnessSide.z  => ℤ
 | WitnessSide.f₂ => Bool
 
-unif_hint denoteW_z (side : WitnessSide) where
+unif_hint denoteW_z (ctx : Context) (side : WitnessSide) where
   side =?= WitnessSide.z
-  ⊢ LC ℤ =?= side.denoteW
+  ⊢ ctx.Wℤ =?= side.denoteW ctx
 
-unif_hint denoteW_f₂ (side : WitnessSide) where
+unif_hint denoteW_f₂ (ctx : Context) (side : WitnessSide) where
   side =?= WitnessSide.f₂
-  ⊢ LC Bool =?= side.denoteW
+  ⊢ ctx.WBool =?= side.denoteW ctx
 
-/- Keep the witness sort visible to unification hints instead of reducing an
-unknown sort to a stuck recursor.  The equations remain available explicitly
-with `simp [WitnessSide.denoteW]`. -/
-attribute [irreducible] WitnessSide.denoteW
+/- The explicit context keeps both the witness representation and sort visible
+to unification while allowing `denoteW` to remain reducible. -/
 
-inductive ConstraintEff : Type u where
-| assertR1C (a b c : LC ℤ)
-| f2z (a : LC Bool)
+inductive ConstraintEff (ctx : Context) : Type u where
+| assertR1C (a b c : ctx.Wℤ)
+| f2z (a : ctx.WBool)
 | hint (argTps : List WitnessSide)
-    (args : HList WitnessSide.denoteW argTps) (n : Nat)
+    (args : HList (WitnessSide.denoteW ctx) argTps) (n : Nat)
 
-inductive HintEff where
-| fail : Type → String → HintEff
+inductive HintEff (ctx : Context) where
+| fail : Type → String → HintEff ctx
 
 end Eff
 
-def Eff : Eff.Scope → Type _
-| .constraint => Eff.ConstraintEff
-| .hint => Eff.HintEff
+def Eff (ctx : Context) : Eff.Scope → Type _
+| .constraint => Eff.ConstraintEff ctx
+| .hint => Eff.HintEff ctx
 
 namespace Eff
 
-instance : Freigen.Eff.Spec (Γ := Eff.Scope) Eff where
+instance (ctx : Context) : Freigen.Eff.Spec (Γ := Eff.Scope) (Eff ctx) where
   output := fun
     | .constraint, .assertR1C _ _ _ => Unit
-    | .constraint, .f2z _ => LC ℤ
-    | .constraint, .hint _ _ n => Vector (LC Bool) n
+    | .constraint, .f2z _ => ctx.Wℤ
+    | .constraint, .hint _ _ n => Vector ctx.WBool n
     | .hint, .fail α _ => α
   blockTag := fun
     | .constraint, .assertR1C _ _ _ => PEmpty
@@ -75,7 +73,7 @@ instance : Freigen.Eff.Spec (Γ := Eff.Scope) Eff where
     | .hint, .fail _ _ => nofun
   blockOutputs := fun
     | .constraint, .assertR1C _ _ _ => nofun
-    | .constraint, .f2z _ => fun _ => LC ℤ
+    | .constraint, .f2z _ => fun _ => ctx.Wℤ
     | .constraint, .hint _ _ n => fun _ => Vector Bool n
     | .hint, .fail _ _ => nofun
 
