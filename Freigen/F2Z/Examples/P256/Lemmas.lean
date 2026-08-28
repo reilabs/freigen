@@ -166,6 +166,1337 @@ def FinishDoubleSpec (ρ : WF.Valuation) (P : AffineSlope.Point)
         Modular.Lazy.evalZMod base P.Y ρ ∧
     out.infinity = P.infinity
 
+@[spec] theorem doubleSquare_sound {P : AffineSlope.Point} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.doubleSquare P)
+    ⦃⇓ x2 => ⌜Modular.Lazy.MulZModSpec base ρ P.X P.X x2⌝⦄ := by
+  mvcgen [AffineSlope.doubleSquare, AffineSlope.doubleSquareHint,
+    AffineSlope.doubleSquareDecodeR, AffineSlope.doubleSquareDecodeQ,
+    AffineSlope.doubleSquareCheck, Modular.Lazy.MulZModSpec,
+    Modular.Lazy.evalZMod]
+  intro bits
+  mvcgen
+  rename_i r q hr hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq
+  simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul, Int.cast_mul,
+    Int.cast_add, Int.cast_natCast, ZMod.natCast_self, zero_mul,
+    add_zero] at hcast
+  exact hcast.symm
+
+@[spec] theorem doubleSlopeFromSquare_sound {P : AffineSlope.Point}
+    {x2 : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.doubleSlopeFromSquare P x2)
+    ⦃⇓ slope => ⌜Modular.Lazy.DivideZModSpec base ρ
+      (AffineSlope.add (AffineSlope.scale 2 P.Y) ⟨P.infinity, 1⟩)
+      (AffineSlope.add
+        (AffineSlope.sub (AffineSlope.scale 3 x2)
+          (AffineSlope.ofElem three)) ⟨3 • P.infinity, 1⟩)
+      slope⌝⦄ := by
+  mvcgen [AffineSlope.doubleSlopeFromSquare,
+    AffineSlope.doubleSlopeNumerator, AffineSlope.doubleSlopeDenominator,
+    AffineSlope.doubleSlopeHint, AffineSlope.doubleSlopeDecodeValue,
+    AffineSlope.doubleSlopeDecodeQ, AffineSlope.doubleSlopeCheck,
+    Modular.Lazy.DivideZModSpec, Modular.Lazy.evalZMod]
+  intro bits
+  mvcgen
+  rename_i value q hvalue hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq.2
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact hcast
+
+@[spec] theorem finishDoubleX_sound {P : AffineSlope.Point}
+    {slope : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.finishDoubleX P slope)
+    ⦃⇓ x3 => ⌜Modular.Lazy.MulSubToElemZModSpec base ρ slope slope
+      (AffineSlope.scale 2 P.X) x3⌝⦄ := by
+  mvcgen [AffineSlope.finishDoubleX, AffineSlope.finishDoubleXTarget,
+    AffineSlope.finishDoubleXHint, AffineSlope.finishDoubleXDecodeR,
+    AffineSlope.finishDoubleXDecodeQ, AffineSlope.finishDoubleXCheck,
+    Modular.Lazy.MulSubToElemZModSpec, Modular.Lazy.evalZMod,
+    Modular.Lazy.evalElemZMod]
+  intro bits
+  mvcgen
+  rename_i r q hr hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq.2
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact (eq_sub_iff_add_eq).2 hcast.symm
+
+@[spec] theorem finishDoubleY_sound {P : AffineSlope.Point}
+    {slope : AffineSlope.Rep} {x3 : Fp} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.finishDoubleY P slope x3)
+    ⦃⇓ y3 => ⌜Modular.Lazy.MulSubToElemZModSpec base ρ slope
+      (AffineSlope.sub P.X (AffineSlope.ofElem x3)) P.Y y3⌝⦄ := by
+  mvcgen [AffineSlope.finishDoubleY, AffineSlope.finishDoubleYFactor,
+    AffineSlope.finishDoubleYHint, AffineSlope.finishDoubleYDecodeR,
+    AffineSlope.finishDoubleYDecodeQ, AffineSlope.finishDoubleYCheck,
+    Modular.Lazy.MulSubToElemZModSpec, Modular.Lazy.evalZMod,
+    Modular.Lazy.evalElemZMod]
+  intro bits
+  mvcgen
+  rename_i r q hr hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq.2
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact (eq_sub_iff_add_eq).2 hcast.symm
+
+@[spec] theorem collapsedSlope_sound
+    {operands : AffineSlope.SlopeOperands} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.collapsedSlope operands)
+    ⦃⇓ slope => ⌜Modular.Lazy.DivideZModSpec base ρ
+      operands.denominator operands.numerator slope⌝⦄ := by
+  mvcgen [AffineSlope.collapsedSlope, AffineSlope.collapsedSlopeHint,
+    AffineSlope.collapsedSlopeDecodeValue,
+    AffineSlope.collapsedSlopeDecodeQ,
+    AffineSlope.collapsedSlopeCheck,
+    Modular.Lazy.DivideZModSpec, Modular.Lazy.evalZMod]
+  intro bits
+  mvcgen
+  rename_i value q hvalue hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact hcast
+
+@[spec] theorem collapsedCandidateX_sound {P Q : AffineSlope.Point}
+    {slope : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.collapsedCandidateX P Q slope)
+    ⦃⇓ x3 => ⌜Modular.Lazy.MulSubToElemZModSpec base ρ slope slope
+      (AffineSlope.collapsedCandidateXTarget P Q) x3⌝⦄ := by
+  mvcgen [AffineSlope.collapsedCandidateX,
+    AffineSlope.collapsedCandidateXTarget,
+    AffineSlope.collapsedCandidateXHint,
+    AffineSlope.collapsedCandidateXDecodeR,
+    AffineSlope.collapsedCandidateXDecodeQ,
+    AffineSlope.collapsedCandidateXCheck,
+    Modular.Lazy.MulSubToElemZModSpec, Modular.Lazy.evalZMod,
+    Modular.Lazy.evalElemZMod]
+  intro bits
+  mvcgen
+  rename_i r q hr hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq.2
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact (eq_sub_iff_add_eq).2 hcast.symm
+
+@[spec] theorem collapsedCandidateY_sound {P : AffineSlope.Point}
+    {slope : AffineSlope.Rep} {x3 : Fp} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.collapsedCandidateY P slope x3)
+    ⦃⇓ y3 => ⌜Modular.Lazy.MulSubToElemZModSpec base ρ slope
+      (AffineSlope.collapsedCandidateYFactor P x3) P.Y y3⌝⦄ := by
+  mvcgen [AffineSlope.collapsedCandidateY,
+    AffineSlope.collapsedCandidateYFactor,
+    AffineSlope.collapsedCandidateYHint,
+    AffineSlope.collapsedCandidateYDecodeR,
+    AffineSlope.collapsedCandidateYDecodeQ,
+    AffineSlope.collapsedCandidateYCheck,
+    Modular.Lazy.MulSubToElemZModSpec, Modular.Lazy.evalZMod,
+    Modular.Lazy.evalElemZMod]
+  intro bits
+  mvcgen
+  rename_i r q hr hq heq
+  have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq.2
+  simp only [LC.eval_sub, LC.eval_add, LC.eval_nsmul, LC.eval_ofConst,
+    nsmul_eq_mul, Int.cast_mul, Int.cast_add, Int.cast_sub,
+    Int.cast_natCast, Nat.cast_mul, ZMod.natCast_self, mul_zero,
+    zero_mul, add_zero, sub_zero] at hcast
+  exact (eq_sub_iff_add_eq).2 hcast.symm
+
+@[spec] theorem doubleSquare_complete {P : AffineSlope.Point}
+    (hP : P.Valid ρ) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.doubleSquare P)
+    ⦃⇓ x2 => ⌜x2.Valid ρ ∧ x2.bound = 2 ∧
+      x2.intVal.eval ρ.int < base.modulus ∧
+      Modular.Lazy.MulZModSpec base ρ P.X P.X x2⌝⦄ := by
+  rcases hP with ⟨hPXbound, hPX, hPXcanonical, _, _, _, _⟩
+  mvcgen [AffineSlope.doubleSquare, AffineSlope.doubleSquareHint,
+    AffineSlope.doubleSquareDecodeR, AffineSlope.doubleSquareDecodeQ,
+    AffineSlope.doubleSquareCheck]
+  let a := P.X.intVal.eval ρ.int
+  let value := a.toNat * a.toNat
+  let bits := Modular.Aux.quotientBits 512 256
+    (value % base.modulus) (value / base.modulus)
+  refine ⟨bits, ?_, ?_⟩
+  · simp [WF.interpHint, WF.evalArgs, hPX.1, bits,
+      Modular.Aux.quotientBits, value, a]
+  · mvcgen
+    rename_i r hr q hq
+    have hrFit : value % base.modulus < 2 ^ 256 :=
+      (Nat.mod_lt _ base.positive).trans_le base.fits
+    have haVal : (a.toNat : Int) = a := Int.toNat_of_nonneg hPX.1
+    have haLt : a.toNat < base.modulus :=
+      (Int.toNat_lt hPX.1).2 hPXcanonical
+    have hvalueLt : value < base.modulus * base.modulus := by
+      dsimp [value]
+      nlinarith
+    have hqSmall : value / base.modulus < base.modulus :=
+      (Nat.div_lt_iff_lt_mul base.positive).2 (by
+        simpa [Nat.mul_comm] using hvalueLt)
+    have hqFit : value / base.modulus < 2 ^ 256 :=
+      hqSmall.trans_le base.fits
+    have hrWord := Modular.Aux.quotientBits_low
+      (totalWidth := 512) (n := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Modular.Aux.quotientBits_high
+      (totalWidth := 512) (n := 256) (quotientWidth := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hqFit ρ
+    have hrVal : r.intVal.eval ρ.int = (value % base.modulus : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int = (value / base.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    constructor
+    · simp only [LC.eval_add, LC.eval_nsmul, nsmul_eq_mul,
+        hrVal, hqVal, value, a]
+      change a * a = _
+      rw [← haVal]
+      exact_mod_cast (Nat.mod_add_div value base.modulus).symm
+    · mvcgen
+      refine ⟨?_, True.intro, ?_, ?_⟩
+      · exact ⟨U.intVal_nonneg r hr.1, by
+          rw [hrVal]
+          have hmod := Nat.mod_lt value base.positive
+          push_cast
+          nlinarith [base.positive]⟩
+      · rw [hrVal]
+        exact_mod_cast Nat.mod_lt value base.positive
+      · unfold Modular.Lazy.MulZModSpec Modular.Lazy.evalZMod
+        have heq : a * a =
+            (value % base.modulus : Nat) +
+              base.modulus * (value / base.modulus) := by
+          rw [← haVal]
+          exact_mod_cast (Nat.mod_add_div value base.modulus).symm
+        have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) heq
+        simpa [hrVal, value, a] using hcast.symm
+
+@[spec] theorem doubleSlopeFromSquare_complete {P : AffineSlope.Point}
+    {x2 : AffineSlope.Rep}
+    (hP : P.Valid ρ) (hx2 : x2.Valid ρ) (hx2Bound : x2.bound = 2)
+    (hx2Canonical : x2.intVal.eval ρ.int < base.modulus)
+    (hden : Modular.Lazy.evalZMod base
+      (AffineSlope.doubleSlopeDenominator P) ρ ≠ 0) :
+    ⦃⌜True⌝⦄ Complete.interp ρ
+      (AffineSlope.doubleSlopeFromSquare P x2)
+    ⦃⇓ slope => ⌜slope.Valid ρ ∧ slope.bound = 2 ∧
+      slope.intVal.eval ρ.int < base.modulus ∧
+      Modular.Lazy.DivideZModSpec base ρ
+        (AffineSlope.doubleSlopeDenominator P)
+        (AffineSlope.doubleSlopeNumerator P x2) slope⌝⦄ := by
+  rcases hP with
+    ⟨_, _, _, hPYbound, hPY, hPYcanonical, hPinf⟩
+  let numerator := AffineSlope.doubleSlopeNumerator P x2
+  let denominator := AffineSlope.doubleSlopeDenominator P
+  have hthree : (AffineSlope.ofElem three).Valid ρ :=
+    Modular.Lazy.ofElem_valid base
+      (Modular.ofNat_valid base 3 (by decide) (by decide))
+  have hinfinityNum :
+      ({ intVal := 3 • P.infinity, bound := 1 } : AffineSlope.Rep).Valid ρ := by
+    rcases hPinf with h | h <;>
+      simp [Modular.Lazy.Rep.Valid, h, base, baseModulus] <;> norm_num
+  have hinfinityDen :
+      ({ intVal := P.infinity, bound := 1 } : AffineSlope.Rep).Valid ρ := by
+    rcases hPinf with h | h <;>
+      simp [Modular.Lazy.Rep.Valid, h, base, baseModulus] <;> norm_num
+  have hnumerator : numerator.Valid ρ := by
+    dsimp [numerator, AffineSlope.doubleSlopeNumerator]
+    exact Modular.Lazy.add_valid base
+      (Modular.Lazy.sub_valid base
+        (Modular.Lazy.scale_valid base hx2 (by omega)) hthree)
+      hinfinityNum
+  have hdenominator : denominator.Valid ρ := by
+    dsimp [denominator, AffineSlope.doubleSlopeDenominator]
+    exact Modular.Lazy.add_valid base
+      (Modular.Lazy.scale_valid base hPY (by omega)) hinfinityDen
+  have hnumeratorBound : numerator.bound = 9 := by
+    simp [numerator, AffineSlope.doubleSlopeNumerator, AffineSlope.add,
+      AffineSlope.sub, AffineSlope.scale, AffineSlope.ofElem,
+      Modular.Lazy.add, Modular.Lazy.sub, Modular.Lazy.scale,
+      Modular.Lazy.ofElem, hx2Bound]
+  mvcgen [AffineSlope.doubleSlopeFromSquare,
+    AffineSlope.doubleSlopeNumerator, AffineSlope.doubleSlopeDenominator,
+    AffineSlope.doubleSlopeHint, AffineSlope.doubleSlopeDecodeValue,
+    AffineSlope.doubleSlopeDecodeQ, AffineSlope.doubleSlopeCheck]
+  let a := denominator.intVal.eval ρ.int
+  let b := numerator.intVal.eval ρ.int
+  have haNat : (a.toNat : Int) = a := Int.toNat_of_nonneg hdenominator.1
+  have hbNat : (b.toNat : Int) = b := Int.toNat_of_nonneg hnumerator.1
+  let d := a.toNat % base.modulus
+  have hdlt : d < base.modulus := Nat.mod_lt _ base.positive
+  have haZ : (a : ZMod base.modulus) = (a.toNat : ZMod base.modulus) := by
+    rw [← Int.cast_natCast]
+    exact congrArg (Int.castRingHom (ZMod base.modulus)) haNat.symm
+  have hd : d ≠ 0 := by
+    intro hd0
+    apply hden
+    unfold Modular.Lazy.evalZMod
+    change (a : ZMod base.modulus) = 0
+    rw [haZ]
+    rw [show (a.toNat : ZMod base.modulus) =
+      (d : ZMod base.modulus) by simp [d], hd0]
+    simp
+  have hgcd : Nat.gcd d base.modulus = 1 := by
+    rw [Nat.gcd_comm]
+    exact (Nat.coprime_of_lt_prime hd hdlt Fact.out).gcd_eq_one
+  let inverse := ((Nat.gcdA d base.modulus) %
+    (base.modulus : Int)).toNat
+  let value := (inverse * (b.toNat % base.modulus)) % base.modulus
+  have hinverse : (inverse : ZMod base.modulus) *
+      (d : ZMod base.modulus) = 1 := by
+    have hp0 : (base.modulus : Int) ≠ 0 := by
+      exact_mod_cast base.positive.ne'
+    have hinverseInt : (inverse : Int) =
+        Nat.gcdA d base.modulus % (base.modulus : Int) := by
+      exact Int.toNat_of_nonneg (Int.emod_nonneg _ hp0)
+    have hinverseCast : (inverse : ZMod base.modulus) =
+        (Nat.gcdA d base.modulus : ZMod base.modulus) := by
+      rw [← Int.cast_natCast, hinverseInt]
+      simp
+    rw [hinverseCast]
+    have hbezout := Nat.gcd_eq_gcd_ab d base.modulus
+    have hcast := congrArg (Int.castRingHom (ZMod base.modulus)) hbezout
+    simpa [hgcd, mul_comm] using hcast.symm
+  have hbZ : (b.toNat : ZMod base.modulus) = (b : ZMod base.modulus) := by
+    rw [← Int.cast_natCast]
+    exact congrArg (Int.castRingHom (ZMod base.modulus)) hbNat
+  have hvalueZ : (value : ZMod base.modulus) *
+      (a : ZMod base.modulus) = (b : ZMod base.modulus) := by
+    rw [haZ]
+    have hvalueCast : (value : ZMod base.modulus) =
+        (inverse : ZMod base.modulus) * (b.toNat : ZMod base.modulus) := by
+      simp [value]
+    have haMod : (a.toNat : ZMod base.modulus) =
+        (d : ZMod base.modulus) := by simp [d]
+    rw [hvalueCast, haMod]
+    calc
+      (inverse : ZMod base.modulus) * (b.toNat : ZMod base.modulus) * d =
+          (inverse * d) * (b.toNat : ZMod base.modulus) := by ring
+      _ = (b.toNat : ZMod base.modulus) := by rw [hinverse]; simp
+      _ = (b : ZMod base.modulus) := hbZ
+  let shifted : Int := (value : Int) * a +
+    (numerator.bound * base.modulus : Nat) - b
+  have hshifted : 0 ≤ shifted := by
+    have hva : 0 ≤ (value : Int) * a :=
+      mul_nonneg (by positivity) hdenominator.1
+    have hbUpper : b < (numerator.bound * base.modulus : Nat) :=
+      hnumerator.2
+    dsimp [shifted]
+    omega
+  have hshiftCond : b ≤ (value : Int) * a +
+      (numerator.bound * base.modulus : Nat) := by
+    change 0 ≤ (value : Int) * a +
+      (numerator.bound * base.modulus : Nat) - b at hshifted
+    omega
+  have hshiftDvd : (base.modulus : Int) ∣ shifted := by
+    have hmod : (((value : Int) * a : Int) : ZMod base.modulus) =
+        (b : ZMod base.modulus) := by simpa using hvalueZ
+    have hdvdDiff : (base.modulus : Int) ∣ b - (value : Int) * a :=
+      (ZMod.intCast_eq_intCast_iff_dvd_sub _ _ _).1 hmod
+    have hdvdNeg : (base.modulus : Int) ∣ (value : Int) * a - b := by
+      simpa [neg_sub] using dvd_neg.mpr hdvdDiff
+    dsimp [shifted]
+    rcases hdvdNeg with ⟨k, hk⟩
+    refine ⟨k + numerator.bound, ?_⟩
+    push_cast
+    calc
+      (value : Int) * a + numerator.bound * base.modulus - b =
+          ((value : Int) * a - b) + numerator.bound * base.modulus := by ring
+      _ = base.modulus * k + numerator.bound * base.modulus := by rw [hk]
+      _ = base.modulus * (k + numerator.bound) := by ring
+  let bits := Modular.Aux.quotientBits 513 256 value
+    (shifted.toNat / base.modulus)
+  have hdenominatorNonnegRaw : 0 ≤
+      (AffineSlope.doubleSlopeDenominator P).intVal.eval ρ.int := by
+    simpa [denominator] using hdenominator.1
+  have hnumeratorNonnegRaw : 0 ≤
+      (AffineSlope.doubleSlopeNumerator P x2).intVal.eval ρ.int := by
+    simpa [numerator] using hnumerator.1
+  have hdenominatorEvalRaw :
+      (AffineSlope.doubleSlopeDenominator P).intVal.eval ρ.int = a := by
+    rfl
+  have hnumeratorEvalRaw :
+      (AffineSlope.doubleSlopeNumerator P x2).intVal.eval ρ.int = b := by
+    rfl
+  have hdenominatorEvalExpanded :
+      (AffineSlope.add (AffineSlope.scale 2 P.Y)
+        { intVal := P.infinity, bound := 1 }).intVal.eval ρ.int = a := by
+    simpa only [AffineSlope.doubleSlopeDenominator] using hdenominatorEvalRaw
+  have hnumeratorEvalExpanded :
+      (AffineSlope.add
+        (AffineSlope.sub (AffineSlope.scale 3 x2) (AffineSlope.ofElem three))
+        { intVal := 3 • P.infinity, bound := 1 }).intVal.eval ρ.int = b := by
+    simpa only [AffineSlope.doubleSlopeNumerator] using hnumeratorEvalRaw
+  have hnumeratorBoundExpanded :
+      (AffineSlope.add
+        (AffineSlope.sub (AffineSlope.scale 3 x2) (AffineSlope.ofElem three))
+        { intVal := 3 • P.infinity, bound := 1 }).bound = numerator.bound := by
+    rfl
+  have ha0 : 0 ≤ a := hdenominator.1
+  have hb0 : 0 ≤ b := hnumerator.1
+  have hinverseIntNonneg : 0 ≤
+      Nat.gcdA d base.modulus % (base.modulus : Int) :=
+    Int.emod_nonneg _ (by exact_mod_cast base.positive.ne')
+  have hinverseIntEq :
+      (Nat.gcdA d base.modulus % (base.modulus : Int)) = inverse := by
+    exact (Int.toNat_of_nonneg hinverseIntNonneg).symm
+  have hvalueInt :
+      (Nat.gcdA d base.modulus % (base.modulus : Int)) * b %
+          (base.modulus : Int) = value := by
+    rw [hinverseIntEq, ← hbNat]
+    push_cast
+    rw [Int.mul_emod]
+    simp [value, Nat.mul_mod]
+  have hshiftCondInt : b ≤ (value : Int) * a +
+      (numerator.bound : Int) * base.modulus := by
+    simpa only [Nat.cast_mul] using hshiftCond
+  refine ⟨bits, ?_, ?_⟩
+  · simp only [WF.interpHint, WF.evalArgs]
+    rw [hdenominatorEvalExpanded, hnumeratorEvalExpanded,
+      hnumeratorBoundExpanded]
+    simp [ha0, hb0, hd, hgcd, hinverseIntNonneg, hshifted, bits,
+      Modular.Aux.quotientBits, value, inverse, shifted, d]
+    rw [hvalueInt, if_pos hshiftCondInt]
+    rfl
+  · mvcgen
+    rename_i r hr q hq
+    have hvalueFit : value < 2 ^ 256 :=
+      (Nat.mod_lt _ base.positive).trans_le base.fits
+    have hshiftEq : (shifted.toNat : Int) = shifted :=
+      Int.toNat_of_nonneg hshifted
+    have haUpper : a < (2 * base.modulus : Nat) + 1 := by
+      dsimp [a, denominator, AffineSlope.doubleSlopeDenominator]
+      simp only [AffineSlope.add, AffineSlope.scale, Modular.Lazy.add,
+        Modular.Lazy.scale, LC.eval_add, LC.eval_nsmul, nsmul_eq_mul]
+      rcases hPinf with h | h <;> rw [h]
+      all_goals push_cast
+      all_goals nlinarith
+    have hvaUpper : (value : Int) * a <
+        (base.modulus : Int) * (2 * base.modulus + 1) := by
+      have hv : (value : Int) < base.modulus := by
+        exact_mod_cast Nat.mod_lt (inverse * (b.toNat % base.modulus))
+          base.positive
+      have haPos : 0 < (2 * base.modulus + 1 : Int) := by positivity
+      exact (mul_le_mul_of_nonneg_left haUpper.le (by positivity)).trans_lt
+        (mul_lt_mul_of_pos_right hv haPos)
+    have hshiftUpper : shifted.toNat <
+        (2 * base.modulus + 10) * base.modulus := by
+      apply (Int.toNat_lt hshifted).2
+      have hb0 : 0 ≤ b := hnumerator.1
+      dsimp [shifted]
+      rw [hnumeratorBound]
+      push_cast at hvaUpper ⊢
+      ring_nf at hvaUpper ⊢
+      linarith
+    have hqSmall : shifted.toNat / base.modulus <
+        2 * base.modulus + 10 :=
+      (Nat.div_lt_iff_lt_mul base.positive).2 (by
+        simpa [Nat.mul_assoc] using hshiftUpper)
+    have hqFit : shifted.toNat / base.modulus < 2 ^ 257 :=
+      hqSmall.trans (by
+        set_option exponentiation.threshold 300 in
+          norm_num [base, baseModulus])
+    have hrWord : (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 256) fun i =>
+          (Vector.map LC.ofConst bits)[i.val]'(by omega) }).toNat = value := by
+      simpa [Nat.mod_eq_of_lt hvalueFit] using
+        (Modular.Aux.quotientBits_low (totalWidth := 513)
+          (n := 256) (low := value) (high := shifted.toNat / base.modulus)
+          (by omega) hvalueFit ρ)
+    have hqWord := Modular.Aux.quotientBits_high
+      (totalWidth := 513) (n := 256) (quotientWidth := 257)
+      (low := value) (high := shifted.toNat / base.modulus)
+      (by omega) hqFit ρ
+    have hrVal : r.intVal.eval ρ.int = (value : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int =
+        (shifted.toNat / base.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    have hshiftDvdNat : base.modulus ∣ shifted.toNat := by
+      rcases hshiftDvd with ⟨k, hk⟩
+      refine ⟨k.toNat, ?_⟩
+      have hk0 : 0 ≤ k := by
+        have hp : (0 : Int) < base.modulus := by
+          exact_mod_cast base.positive
+        rw [hk] at hshifted
+        nlinarith
+      have hkNat : (k.toNat : Int) = k := Int.toNat_of_nonneg hk0
+      apply Int.ofNat_inj.mp
+      calc
+        (shifted.toNat : Int) = shifted := hshiftEq
+        _ = (base.modulus : Int) * k := hk
+        _ = (base.modulus : Int) * (k.toNat : Int) := by rw [hkNat]
+        _ = ((base.modulus * k.toNat : Nat) : Int) := by norm_num
+    have hshiftDecomp : (shifted.toNat : Int) =
+        (base.modulus : Int) *
+          (shifted.toNat / base.modulus : Nat) := by
+      have hnat := Nat.mod_add_div shifted.toNat base.modulus
+      rw [Nat.mod_eq_zero_of_dvd hshiftDvdNat] at hnat
+      simp only [zero_add] at hnat
+      exact_mod_cast hnat.symm
+    constructor
+    · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+        LC.eval_ofConst, nsmul_eq_mul, hrVal, hqVal]
+      change (value : Int) * a = b +
+        (base.modulus : Int) * (shifted.toNat / base.modulus : Nat) -
+          (numerator.bound * base.modulus : Nat)
+      calc
+        (value : Int) * a =
+            shifted - (numerator.bound * base.modulus : Nat) + b := by
+          dsimp [shifted]
+          ring
+        _ = (shifted.toNat : Int) -
+            (numerator.bound * base.modulus : Nat) + b := by rw [hshiftEq]
+        _ = (base.modulus : Int) *
+            (shifted.toNat / base.modulus : Nat) -
+              (numerator.bound * base.modulus : Nat) + b := by
+          rw [hshiftDecomp]
+        _ = b + (base.modulus : Int) *
+            (shifted.toNat / base.modulus : Nat) -
+              (numerator.bound * base.modulus : Nat) := by ring
+    · mvcgen
+      refine ⟨?_, True.intro, ?_, ?_⟩
+      · change 0 ≤ r.intVal.eval ρ.int ∧
+          r.intVal.eval ρ.int < (2 * base.modulus : Nat)
+        constructor
+        · rw [hrVal]
+          positivity
+        · rw [hrVal]
+          have hv : value < base.modulus := Nat.mod_lt _ base.positive
+          push_cast
+          omega
+      · rw [hrVal]
+        exact_mod_cast Nat.mod_lt (inverse * (b.toNat % base.modulus))
+          base.positive
+      · unfold Modular.Lazy.DivideZModSpec Modular.Lazy.evalZMod
+        rw [hrVal]
+        simpa [a, b, denominator, numerator] using hvalueZ
+
+@[spec] theorem finishDoubleX_complete {P : AffineSlope.Point}
+    {slope : AffineSlope.Rep}
+    (hP : P.Valid ρ) (hslope : slope.Valid ρ)
+    (hslopeBound : slope.bound = 2)
+    (hslopeCanonical : slope.intVal.eval ρ.int < base.modulus) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.finishDoubleX P slope)
+    ⦃⇓ x3 => ⌜x3.Valid ρ ∧
+      Modular.Lazy.MulSubToElemZModSpec base ρ slope slope
+        (AffineSlope.finishDoubleXTarget P) x3⌝⦄ := by
+  rcases hP with ⟨hPXbound, hPX, hPXcanonical, _, _, _, _⟩
+  let target := AffineSlope.finishDoubleXTarget P
+  have htarget : target.Valid ρ := by
+    dsimp [target, AffineSlope.finishDoubleXTarget]
+    exact Modular.Lazy.scale_valid base hPX (by omega)
+  have htargetBound : target.bound = 4 := by
+    simp [target, AffineSlope.finishDoubleXTarget, AffineSlope.scale,
+      Modular.Lazy.scale, hPXbound]
+  mvcgen [AffineSlope.finishDoubleX, AffineSlope.finishDoubleXTarget,
+    AffineSlope.finishDoubleXHint, AffineSlope.finishDoubleXDecodeR,
+    AffineSlope.finishDoubleXDecodeQ, AffineSlope.finishDoubleXCheck]
+  let a := slope.intVal.eval ρ.int
+  let c := target.intVal.eval ρ.int
+  let shifted := a * a + (target.bound * base.modulus : Nat) - c
+  have hshifted : 0 ≤ shifted := by
+    have haa : 0 ≤ a * a := mul_nonneg hslope.1 hslope.1
+    have hc : c < (target.bound * base.modulus : Nat) := htarget.2
+    dsimp [shifted]
+    omega
+  have hshiftedRaw : 0 ≤
+      slope.intVal.eval ρ.int * slope.intVal.eval ρ.int +
+        ((AffineSlope.finishDoubleXTarget P).bound * base.modulus : Nat) -
+          (AffineSlope.finishDoubleXTarget P).intVal.eval ρ.int := by
+    simpa [a, c, target, shifted] using hshifted
+  have htargetEvalRaw :
+      (AffineSlope.finishDoubleXTarget P).intVal.eval ρ.int = c := by
+    rfl
+  have htargetBoundRaw :
+      (AffineSlope.finishDoubleXTarget P).bound = target.bound := by
+    rfl
+  have htargetEvalExpanded :
+      (AffineSlope.scale 2 P.X).intVal.eval ρ.int = c := by
+    simpa only [AffineSlope.finishDoubleXTarget] using htargetEvalRaw
+  have htargetBoundExpanded :
+      (AffineSlope.scale 2 P.X).bound = target.bound := by
+    simpa only [AffineSlope.finishDoubleXTarget] using htargetBoundRaw
+  have hshiftCond : c ≤ a * a +
+      (target.bound * base.modulus : Nat) := by
+    change 0 ≤ a * a + (target.bound * base.modulus : Nat) - c at hshifted
+    omega
+  have hshiftCondLocal : c ≤
+      slope.intVal.eval ρ.int * slope.intVal.eval ρ.int +
+        (target.bound * base.modulus : Nat) := by
+    simpa [a] using hshiftCond
+  have hshiftCondTarget : target.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * slope.intVal.eval ρ.int +
+        (target.bound * base.modulus : Nat) := by
+    simpa [a, c] using hshiftCond
+  have hshiftCondTargetInt : target.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * slope.intVal.eval ρ.int +
+        (target.bound : Int) * base.modulus := by
+    simpa only [Nat.cast_mul] using hshiftCondTarget
+  let value := shifted.toNat
+  let bits := Modular.Aux.quotientBits 512 256
+    (value % base.modulus) (value / base.modulus)
+  refine ⟨bits, ?_, ?_⟩
+  · simp only [WF.interpHint, WF.evalArgs]
+    rw [htargetEvalExpanded, htargetBoundExpanded]
+    simp [hshiftCondLocal, bits, Modular.Aux.quotientBits, value,
+      shifted, a, c]
+    rw [if_pos hshiftCondTargetInt]
+    rfl
+  · mvcgen
+    rename_i r hr q hq
+    have hrFit : value % base.modulus < 2 ^ 256 :=
+      (Nat.mod_lt _ base.positive).trans_le base.fits
+    have hvalue : (value : Int) = shifted :=
+      Int.toNat_of_nonneg hshifted
+    have haUpper : a < base.modulus := hslopeCanonical
+    have haaUpper : a * a < (base.modulus : Int) * base.modulus := by
+      nlinarith [hslope.1]
+    have hshiftUpper : value <
+        (base.modulus + 4) * base.modulus := by
+      apply (Int.toNat_lt hshifted).2
+      have hc0 : 0 ≤ c := htarget.1
+      dsimp [shifted]
+      rw [htargetBound]
+      push_cast at haaUpper ⊢
+      ring_nf at haaUpper ⊢
+      linarith
+    have hqSmall : value / base.modulus < base.modulus + 4 :=
+      (Nat.div_lt_iff_lt_mul base.positive).2 (by
+        simpa [Nat.mul_assoc] using hshiftUpper)
+    have hqFit : value / base.modulus < 2 ^ 256 :=
+      hqSmall.trans (by
+        set_option exponentiation.threshold 300 in
+          norm_num [base, baseModulus])
+    have hrWord := Modular.Aux.quotientBits_low
+      (totalWidth := 512) (n := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Modular.Aux.quotientBits_high
+      (totalWidth := 512) (n := 256) (quotientWidth := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hqFit ρ
+    have hrVal : r.intVal.eval ρ.int = (value % base.modulus : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int = (value / base.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    constructor
+    · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+        LC.eval_ofConst, nsmul_eq_mul, hrVal, hqVal]
+      have hdecomp : (value : Int) =
+          ((value % base.modulus : Nat) : Int) +
+            (base.modulus : Int) * ((value / base.modulus : Nat) : Int) := by
+        exact_mod_cast (Nat.mod_add_div value base.modulus).symm
+      dsimp [shifted, a, c] at hvalue
+      rw [htargetBound] at hvalue
+      rw [htargetEvalExpanded, htargetBoundExpanded]
+      rw [htargetBound]
+      change slope.intVal.eval ρ.int * slope.intVal.eval ρ.int =
+        (value % base.modulus : Nat) + c +
+          (base.modulus : Int) * (value / base.modulus : Nat) -
+            (4 * base.modulus : Nat)
+      calc
+        slope.intVal.eval ρ.int * slope.intVal.eval ρ.int =
+            (value : Int) + c - (4 * base.modulus : Nat) := by omega
+        _ = (value % base.modulus : Nat) + c +
+              (base.modulus : Int) * (value / base.modulus : Nat) -
+                (4 * base.modulus : Nat) := by rw [hdecomp]; ring
+    · mvcgen
+      constructor
+      · exact ⟨hr.1, by
+          rw [hrVal]
+          exact_mod_cast Nat.mod_lt value base.positive⟩
+      · unfold Modular.Lazy.MulSubToElemZModSpec
+          Modular.Lazy.evalElemZMod Modular.Lazy.evalZMod
+        rw [hrVal]
+        have hcast := congrArg
+          (Int.castRingHom (ZMod base.modulus)) hvalue
+        simpa [shifted, a, c, target] using hcast
+
+@[spec] theorem finishDoubleY_complete {P : AffineSlope.Point}
+    {slope : AffineSlope.Rep} {x3 : Fp}
+    (hP : P.Valid ρ) (hslope : slope.Valid ρ)
+    (hslopeBound : slope.bound = 2)
+    (hslopeCanonical : slope.intVal.eval ρ.int < base.modulus)
+    (hx3 : x3.Valid ρ) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.finishDoubleY P slope x3)
+    ⦃⇓ y3 => ⌜y3.Valid ρ ∧
+      Modular.Lazy.MulSubToElemZModSpec base ρ slope
+        (AffineSlope.finishDoubleYFactor P x3) P.Y y3⌝⦄ := by
+  rcases hP with
+    ⟨_, hPX, hPXcanonical, hPYbound, hPY, _, _⟩
+  let factor := AffineSlope.finishDoubleYFactor P x3
+  have hfactor : factor.Valid ρ := by
+    dsimp [factor, AffineSlope.finishDoubleYFactor]
+    exact Modular.Lazy.sub_valid base hPX
+      (Modular.Lazy.ofElem_valid base hx3)
+  have hfactorUpper : factor.intVal.eval ρ.int <
+      (3 * base.modulus : Nat) := by
+    dsimp [factor, AffineSlope.finishDoubleYFactor,
+      AffineSlope.sub, AffineSlope.ofElem]
+    simp only [Modular.Lazy.sub, Modular.Lazy.ofElem,
+      LC.eval_sub, LC.eval_add, LC.eval_ofConst]
+    have hx30 := Modular.Elem.nonneg (p := base) hx3
+    push_cast
+    linarith
+  mvcgen [AffineSlope.finishDoubleY, AffineSlope.finishDoubleYFactor,
+    AffineSlope.finishDoubleYHint, AffineSlope.finishDoubleYDecodeR,
+    AffineSlope.finishDoubleYDecodeQ, AffineSlope.finishDoubleYCheck]
+  let a := slope.intVal.eval ρ.int
+  let b := factor.intVal.eval ρ.int
+  let c := P.Y.intVal.eval ρ.int
+  let shifted := a * b + (P.Y.bound * base.modulus : Nat) - c
+  have hshifted : 0 ≤ shifted := by
+    have hab : 0 ≤ a * b := mul_nonneg hslope.1 hfactor.1
+    have hc : c < (P.Y.bound * base.modulus : Nat) := hPY.2
+    dsimp [shifted]
+    omega
+  have hshiftedRaw : 0 ≤
+      slope.intVal.eval ρ.int *
+          (AffineSlope.finishDoubleYFactor P x3).intVal.eval ρ.int +
+        (P.Y.bound * base.modulus : Nat) - P.Y.intVal.eval ρ.int := by
+    simpa [a, b, c, factor, shifted] using hshifted
+  have hfactorEvalRaw :
+      (AffineSlope.finishDoubleYFactor P x3).intVal.eval ρ.int = b := by
+    rfl
+  have hfactorEvalExpanded :
+      (AffineSlope.sub P.X (AffineSlope.ofElem x3)).intVal.eval ρ.int = b := by
+    simpa only [AffineSlope.finishDoubleYFactor] using hfactorEvalRaw
+  have hshiftCond : c ≤ a * b +
+      (P.Y.bound * base.modulus : Nat) := by
+    change 0 ≤ a * b + (P.Y.bound * base.modulus : Nat) - c at hshifted
+    omega
+  have hshiftCondLocal : P.Y.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * factor.intVal.eval ρ.int +
+        (P.Y.bound * base.modulus : Nat) := by
+    simpa [a, b, c] using hshiftCond
+  have hshiftCondLocalInt : P.Y.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * factor.intVal.eval ρ.int +
+        (P.Y.bound : Int) * base.modulus := by
+    simpa only [Nat.cast_mul] using hshiftCondLocal
+  let value := shifted.toNat
+  let bits := Modular.Aux.quotientBits 514 256
+    (value % base.modulus) (value / base.modulus)
+  refine ⟨bits, ?_, ?_⟩
+  · simp only [WF.interpHint, WF.evalArgs]
+    rw [hfactorEvalExpanded]
+    simp [hshiftCondLocal, bits, Modular.Aux.quotientBits, value,
+      shifted, a, b, c]
+    rw [if_pos hshiftCondLocalInt]
+    rfl
+  · mvcgen
+    rename_i r hr q hq
+    have hrFit : value % base.modulus < 2 ^ 256 :=
+      (Nat.mod_lt _ base.positive).trans_le base.fits
+    have hvalue : (value : Int) = shifted :=
+      Int.toNat_of_nonneg hshifted
+    have habUpper : a * b <
+        (base.modulus : Int) * (3 * base.modulus) := by
+      have hpPos : (0 : Int) < base.modulus := by
+        exact_mod_cast base.positive
+      have hbPos : 0 < (3 * base.modulus : Int) := by nlinarith
+      exact (mul_le_mul_of_nonneg_left hfactorUpper.le hslope.1).trans_lt
+        (mul_lt_mul_of_pos_right hslopeCanonical hbPos)
+    have hshiftUpper : value <
+        (3 * base.modulus + 2) * base.modulus := by
+      apply (Int.toNat_lt hshifted).2
+      have hc0 : 0 ≤ c := hPY.1
+      dsimp [shifted]
+      rw [hPYbound]
+      push_cast at habUpper ⊢
+      ring_nf at habUpper ⊢
+      linarith
+    have hqSmall : value / base.modulus < 3 * base.modulus + 2 :=
+      (Nat.div_lt_iff_lt_mul base.positive).2 (by
+        simpa [Nat.mul_assoc] using hshiftUpper)
+    have hqFit : value / base.modulus < 2 ^ 258 :=
+      hqSmall.trans (by
+        set_option exponentiation.threshold 300 in
+          norm_num [base, baseModulus])
+    have hrWord := Modular.Aux.quotientBits_low
+      (totalWidth := 514) (n := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Modular.Aux.quotientBits_high
+      (totalWidth := 514) (n := 256) (quotientWidth := 258)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hqFit ρ
+    have hrVal : r.intVal.eval ρ.int = (value % base.modulus : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int = (value / base.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    constructor
+    · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+        LC.eval_ofConst, nsmul_eq_mul, hrVal, hqVal]
+      have hdecomp : (value : Int) =
+          ((value % base.modulus : Nat) : Int) +
+            (base.modulus : Int) * ((value / base.modulus : Nat) : Int) := by
+        exact_mod_cast (Nat.mod_add_div value base.modulus).symm
+      dsimp [shifted, a, b, c] at hvalue
+      rw [hPYbound] at hvalue
+      rw [hfactorEvalExpanded]
+      rw [hPYbound]
+      change slope.intVal.eval ρ.int * factor.intVal.eval ρ.int =
+        (value % base.modulus : Nat) + P.Y.intVal.eval ρ.int +
+          (base.modulus : Int) * (value / base.modulus : Nat) -
+            (2 * base.modulus : Nat)
+      calc
+        slope.intVal.eval ρ.int * factor.intVal.eval ρ.int =
+            (value : Int) + P.Y.intVal.eval ρ.int -
+              (2 * base.modulus : Nat) := by omega
+        _ = (value % base.modulus : Nat) + P.Y.intVal.eval ρ.int +
+              (base.modulus : Int) * (value / base.modulus : Nat) -
+                (2 * base.modulus : Nat) := by rw [hdecomp]; ring
+    · mvcgen
+      constructor
+      · exact ⟨hr.1, by
+          rw [hrVal]
+          exact_mod_cast Nat.mod_lt value base.positive⟩
+      · unfold Modular.Lazy.MulSubToElemZModSpec
+          Modular.Lazy.evalElemZMod Modular.Lazy.evalZMod
+        rw [hrVal]
+        have hcast := congrArg
+          (Int.castRingHom (ZMod base.modulus)) hvalue
+        simpa [shifted, a, b, c, factor] using hcast
+
+@[spec] theorem collapsedSlope_complete {operands : AffineSlope.SlopeOperands}
+    (hnumerator : operands.numerator.Valid ρ)
+    (hnumeratorBound : operands.numerator.bound = 5)
+    (hdenominator : operands.denominator.Valid ρ)
+    (hdenominatorBound : operands.denominator.bound = 3)
+    (hden : Modular.Lazy.evalZMod base operands.denominator ρ ≠ 0) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.collapsedSlope operands)
+    ⦃⇓ slope => ⌜slope.Valid ρ ∧ slope.bound = 2 ∧
+      slope.intVal.eval ρ.int < base.modulus ∧
+      Modular.Lazy.DivideZModSpec base ρ
+        operands.denominator operands.numerator slope⌝⦄ := by
+  let numerator := operands.numerator
+  let denominator := operands.denominator
+  mvcgen [AffineSlope.collapsedSlope, AffineSlope.collapsedSlopeHint,
+    AffineSlope.collapsedSlopeDecodeValue, AffineSlope.collapsedSlopeDecodeQ,
+    AffineSlope.collapsedSlopeCheck]
+  let numerator := operands.numerator
+  let denominator := operands.denominator
+  let a := denominator.intVal.eval ρ.int
+  let b := numerator.intVal.eval ρ.int
+  have haNat : (a.toNat : Int) = a := Int.toNat_of_nonneg hdenominator.1
+  have hbNat : (b.toNat : Int) = b := Int.toNat_of_nonneg hnumerator.1
+  let d := a.toNat % base.modulus
+  have hdlt : d < base.modulus := Nat.mod_lt _ base.positive
+  have haZ : (a : ZMod base.modulus) = (a.toNat : ZMod base.modulus) := by
+    rw [← Int.cast_natCast]
+    exact congrArg (Int.castRingHom (ZMod base.modulus)) haNat.symm
+  have hd : d ≠ 0 := by
+    intro hd0
+    apply hden
+    unfold Modular.Lazy.evalZMod
+    change (a : ZMod base.modulus) = 0
+    rw [haZ]
+    rw [show (a.toNat : ZMod base.modulus) =
+      (d : ZMod base.modulus) by simp [d], hd0]
+    simp
+  have hgcd : Nat.gcd d base.modulus = 1 := by
+    rw [Nat.gcd_comm]
+    exact (Nat.coprime_of_lt_prime hd hdlt Fact.out).gcd_eq_one
+  let inverse := ((Nat.gcdA d base.modulus) %
+    (base.modulus : Int)).toNat
+  let value := (inverse * (b.toNat % base.modulus)) % base.modulus
+  have hinverse : (inverse : ZMod base.modulus) *
+      (d : ZMod base.modulus) = 1 := by
+    have hp0 : (base.modulus : Int) ≠ 0 := by
+      exact_mod_cast base.positive.ne'
+    have hinverseInt : (inverse : Int) =
+        Nat.gcdA d base.modulus % (base.modulus : Int) := by
+      exact Int.toNat_of_nonneg (Int.emod_nonneg _ hp0)
+    have hinverseCast : (inverse : ZMod base.modulus) =
+        (Nat.gcdA d base.modulus : ZMod base.modulus) := by
+      rw [← Int.cast_natCast, hinverseInt]
+      simp
+    rw [hinverseCast]
+    have hbezout := Nat.gcd_eq_gcd_ab d base.modulus
+    have hcast := congrArg (Int.castRingHom (ZMod base.modulus)) hbezout
+    simpa [hgcd, mul_comm] using hcast.symm
+  have hbZ : (b.toNat : ZMod base.modulus) = (b : ZMod base.modulus) := by
+    rw [← Int.cast_natCast]
+    exact congrArg (Int.castRingHom (ZMod base.modulus)) hbNat
+  have hvalueZ : (value : ZMod base.modulus) *
+      (a : ZMod base.modulus) = (b : ZMod base.modulus) := by
+    rw [haZ]
+    have hvalueCast : (value : ZMod base.modulus) =
+        (inverse : ZMod base.modulus) * (b.toNat : ZMod base.modulus) := by
+      simp [value]
+    have haMod : (a.toNat : ZMod base.modulus) =
+        (d : ZMod base.modulus) := by simp [d]
+    rw [hvalueCast, haMod]
+    calc
+      (inverse : ZMod base.modulus) * (b.toNat : ZMod base.modulus) * d =
+          (inverse * d) * (b.toNat : ZMod base.modulus) := by ring
+      _ = (b.toNat : ZMod base.modulus) := by rw [hinverse]; simp
+      _ = (b : ZMod base.modulus) := hbZ
+  let shifted : Int := (value : Int) * a +
+    (numerator.bound * base.modulus : Nat) - b
+  have hshifted : 0 ≤ shifted := by
+    have hva : 0 ≤ (value : Int) * a :=
+      mul_nonneg (by positivity) hdenominator.1
+    have hbUpper : b < (numerator.bound * base.modulus : Nat) :=
+      hnumerator.2
+    dsimp [shifted]
+    omega
+  have hshiftCond : b ≤ (value : Int) * a +
+      (numerator.bound * base.modulus : Nat) := by
+    change 0 ≤ (value : Int) * a +
+      (numerator.bound * base.modulus : Nat) - b at hshifted
+    omega
+  have hshiftDvd : (base.modulus : Int) ∣ shifted := by
+    have hmod : (((value : Int) * a : Int) : ZMod base.modulus) =
+        (b : ZMod base.modulus) := by simpa using hvalueZ
+    have hdvdDiff : (base.modulus : Int) ∣ b - (value : Int) * a :=
+      (ZMod.intCast_eq_intCast_iff_dvd_sub _ _ _).1 hmod
+    have hdvdNeg : (base.modulus : Int) ∣ (value : Int) * a - b := by
+      simpa [neg_sub] using dvd_neg.mpr hdvdDiff
+    dsimp [shifted]
+    rcases hdvdNeg with ⟨k, hk⟩
+    refine ⟨k + numerator.bound, ?_⟩
+    push_cast
+    calc
+      (value : Int) * a + numerator.bound * base.modulus - b =
+          ((value : Int) * a - b) + numerator.bound * base.modulus := by ring
+      _ = base.modulus * k + numerator.bound * base.modulus := by rw [hk]
+      _ = base.modulus * (k + numerator.bound) := by ring
+  let bits := Modular.Aux.quotientBits 514 256 value
+    (shifted.toNat / base.modulus)
+  have hdenominatorEvalRaw :
+      operands.denominator.intVal.eval ρ.int = a := by rfl
+  have hnumeratorEvalRaw :
+      operands.numerator.intVal.eval ρ.int = b := by rfl
+  have ha0 : 0 ≤ a := hdenominator.1
+  have hb0 : 0 ≤ b := hnumerator.1
+  have hinverseIntNonneg : 0 ≤
+      Nat.gcdA d base.modulus % (base.modulus : Int) :=
+    Int.emod_nonneg _ (by exact_mod_cast base.positive.ne')
+  have hinverseIntEq :
+      (Nat.gcdA d base.modulus % (base.modulus : Int)) = inverse := by
+    exact (Int.toNat_of_nonneg hinverseIntNonneg).symm
+  have hvalueInt :
+      (Nat.gcdA d base.modulus % (base.modulus : Int)) * b %
+          (base.modulus : Int) = value := by
+    rw [hinverseIntEq, ← hbNat]
+    push_cast
+    rw [Int.mul_emod]
+    simp [value, Nat.mul_mod]
+  have hshiftCondInt : b ≤ (value : Int) * a +
+      (numerator.bound : Int) * base.modulus := by
+    simpa only [Nat.cast_mul] using hshiftCond
+  refine ⟨bits, ?_, ?_⟩
+  · simp only [WF.interpHint, WF.evalArgs]
+    rw [hdenominatorEvalRaw, hnumeratorEvalRaw]
+    simp [ha0, hb0, hd, hgcd, hinverseIntNonneg, hshifted, bits,
+      Modular.Aux.quotientBits, value, inverse, shifted, d]
+    rw [hvalueInt, if_pos hshiftCondInt]
+    rfl
+  · mvcgen
+    rename_i r hr q hq
+    have hvalueFit : value < 2 ^ 256 :=
+      (Nat.mod_lt _ base.positive).trans_le base.fits
+    have hshiftEq : (shifted.toNat : Int) = shifted :=
+      Int.toNat_of_nonneg hshifted
+    have haUpper : a < (3 * base.modulus : Nat) := by
+      simpa [hdenominatorBound] using hdenominator.2
+    have hvaUpper : (value : Int) * a <
+        (base.modulus : Int) * (3 * base.modulus) := by
+      have hv : (value : Int) < base.modulus := by
+        exact_mod_cast Nat.mod_lt (inverse * (b.toNat % base.modulus))
+          base.positive
+      have hp : (0 : Int) < base.modulus := by
+        exact_mod_cast base.positive
+      have haPos : 0 < (3 * base.modulus : Int) := by nlinarith
+      exact (mul_le_mul_of_nonneg_left haUpper.le (by positivity)).trans_lt
+        (mul_lt_mul_of_pos_right hv haPos)
+    have hshiftUpper : shifted.toNat <
+        (3 * base.modulus + 5) * base.modulus := by
+      apply (Int.toNat_lt hshifted).2
+      have hb0 : 0 ≤ b := hnumerator.1
+      dsimp [shifted]
+      rw [hnumeratorBound]
+      push_cast at hvaUpper ⊢
+      ring_nf at hvaUpper ⊢
+      linarith
+    have hqSmall : shifted.toNat / base.modulus <
+        3 * base.modulus + 5 :=
+      (Nat.div_lt_iff_lt_mul base.positive).2 (by
+        simpa [Nat.mul_assoc] using hshiftUpper)
+    have hqFit : shifted.toNat / base.modulus < 2 ^ 258 :=
+      hqSmall.trans (by
+        set_option exponentiation.threshold 300 in
+          norm_num [base, baseModulus])
+    have hrWord : (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 256) fun i =>
+          (Vector.map LC.ofConst bits)[i.val]'(by omega) }).toNat = value := by
+      simpa [Nat.mod_eq_of_lt hvalueFit] using
+        (Modular.Aux.quotientBits_low (totalWidth := 514)
+          (n := 256) (low := value) (high := shifted.toNat / base.modulus)
+          (by omega) hvalueFit ρ)
+    have hqWord := Modular.Aux.quotientBits_high
+      (totalWidth := 514) (n := 256) (quotientWidth := 258)
+      (low := value) (high := shifted.toNat / base.modulus)
+      (by omega) hqFit ρ
+    have hrVal : r.intVal.eval ρ.int = (value : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int =
+        (shifted.toNat / base.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    have hshiftDvdNat : base.modulus ∣ shifted.toNat := by
+      rcases hshiftDvd with ⟨k, hk⟩
+      refine ⟨k.toNat, ?_⟩
+      have hk0 : 0 ≤ k := by
+        have hp : (0 : Int) < base.modulus := by
+          exact_mod_cast base.positive
+        rw [hk] at hshifted
+        nlinarith
+      have hkNat : (k.toNat : Int) = k := Int.toNat_of_nonneg hk0
+      apply Int.ofNat_inj.mp
+      calc
+        (shifted.toNat : Int) = shifted := hshiftEq
+        _ = (base.modulus : Int) * k := hk
+        _ = (base.modulus : Int) * (k.toNat : Int) := by rw [hkNat]
+        _ = ((base.modulus * k.toNat : Nat) : Int) := by norm_num
+    have hshiftDecomp : (shifted.toNat : Int) =
+        (base.modulus : Int) *
+          (shifted.toNat / base.modulus : Nat) := by
+      have hnat := Nat.mod_add_div shifted.toNat base.modulus
+      rw [Nat.mod_eq_zero_of_dvd hshiftDvdNat] at hnat
+      simp only [zero_add] at hnat
+      exact_mod_cast hnat.symm
+    constructor
+    · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+        LC.eval_ofConst, nsmul_eq_mul, hrVal, hqVal]
+      change (value : Int) * a = b +
+        (base.modulus : Int) * (shifted.toNat / base.modulus : Nat) -
+          (numerator.bound * base.modulus : Nat)
+      calc
+        (value : Int) * a =
+            shifted - (numerator.bound * base.modulus : Nat) + b := by
+          dsimp [shifted]
+          ring
+        _ = (shifted.toNat : Int) -
+            (numerator.bound * base.modulus : Nat) + b := by rw [hshiftEq]
+        _ = (base.modulus : Int) *
+            (shifted.toNat / base.modulus : Nat) -
+              (numerator.bound * base.modulus : Nat) + b := by
+          rw [hshiftDecomp]
+        _ = b + (base.modulus : Int) *
+            (shifted.toNat / base.modulus : Nat) -
+              (numerator.bound * base.modulus : Nat) := by ring
+    · mvcgen
+      refine ⟨?_, True.intro, ?_, ?_⟩
+      · change 0 ≤ r.intVal.eval ρ.int ∧
+          r.intVal.eval ρ.int < (2 * base.modulus : Nat)
+        constructor
+        · rw [hrVal]
+          positivity
+        · rw [hrVal]
+          have hv : value < base.modulus := Nat.mod_lt _ base.positive
+          push_cast
+          omega
+      · rw [hrVal]
+        exact_mod_cast Nat.mod_lt (inverse * (b.toNat % base.modulus))
+          base.positive
+      · unfold Modular.Lazy.DivideZModSpec Modular.Lazy.evalZMod
+        rw [hrVal]
+        simpa [a, b, denominator, numerator] using hvalueZ
+
+@[spec] theorem collapsedCandidateX_complete {P Q : AffineSlope.Point}
+    {slope : AffineSlope.Rep}
+    (hP : P.Valid ρ) (hQ : Q.Valid ρ) (hslope : slope.Valid ρ)
+    (hslopeBound : slope.bound = 2)
+    (hslopeCanonical : slope.intVal.eval ρ.int < base.modulus) :
+    ⦃⌜True⌝⦄ Complete.interp ρ
+      (AffineSlope.collapsedCandidateX P Q slope)
+    ⦃⇓ x3 => ⌜x3.Valid ρ ∧
+      Modular.Lazy.MulSubToElemZModSpec base ρ slope slope
+        (AffineSlope.collapsedCandidateXTarget P Q) x3⌝⦄ := by
+  rcases hP with ⟨hPXbound, hPX, _, _, _, _, _⟩
+  rcases hQ with ⟨hQXbound, hQX, _, _, _, _, _⟩
+  let target := AffineSlope.collapsedCandidateXTarget P Q
+  have htarget : target.Valid ρ := by
+    dsimp [target, AffineSlope.collapsedCandidateXTarget]
+    exact Modular.Lazy.add_valid base hPX hQX
+  have htargetBound : target.bound = 4 := by
+    simp [target, AffineSlope.collapsedCandidateXTarget, AffineSlope.add,
+      Modular.Lazy.add, hPXbound, hQXbound]
+  mvcgen [AffineSlope.collapsedCandidateX,
+    AffineSlope.collapsedCandidateXTarget,
+    AffineSlope.collapsedCandidateXHint,
+    AffineSlope.collapsedCandidateXDecodeR,
+    AffineSlope.collapsedCandidateXDecodeQ,
+    AffineSlope.collapsedCandidateXCheck]
+  let a := slope.intVal.eval ρ.int
+  let c := target.intVal.eval ρ.int
+  let shifted := a * a + (target.bound * base.modulus : Nat) - c
+  have hshifted : 0 ≤ shifted := by
+    have haa : 0 ≤ a * a := mul_nonneg hslope.1 hslope.1
+    have hc : c < (target.bound * base.modulus : Nat) := htarget.2
+    dsimp [shifted]
+    omega
+  have htargetEvalRaw :
+      (AffineSlope.collapsedCandidateXTarget P Q).intVal.eval ρ.int = c := rfl
+  have htargetBoundRaw :
+      (AffineSlope.collapsedCandidateXTarget P Q).bound = target.bound := rfl
+  have htargetEvalExpanded :
+      (AffineSlope.add P.X Q.X).intVal.eval ρ.int = c := by
+    simpa only [AffineSlope.collapsedCandidateXTarget] using htargetEvalRaw
+  have htargetBoundExpanded :
+      (AffineSlope.add P.X Q.X).bound = target.bound := by
+    simpa only [AffineSlope.collapsedCandidateXTarget] using htargetBoundRaw
+  have hshiftCond : c ≤ a * a +
+      (target.bound * base.modulus : Nat) := by
+    change 0 ≤ a * a + (target.bound * base.modulus : Nat) - c at hshifted
+    omega
+  have hshiftCondLocal : c ≤
+      slope.intVal.eval ρ.int * slope.intVal.eval ρ.int +
+        (target.bound * base.modulus : Nat) := by
+    simpa [a] using hshiftCond
+  have hshiftCondTarget : target.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * slope.intVal.eval ρ.int +
+        (target.bound * base.modulus : Nat) := by
+    simpa [a, c] using hshiftCond
+  have hshiftCondTargetInt : target.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * slope.intVal.eval ρ.int +
+        (target.bound : Int) * base.modulus := by
+    simpa only [Nat.cast_mul] using hshiftCondTarget
+  let value := shifted.toNat
+  let bits := Modular.Aux.quotientBits 512 256
+    (value % base.modulus) (value / base.modulus)
+  refine ⟨bits, ?_, ?_⟩
+  · simp only [WF.interpHint, WF.evalArgs]
+    rw [htargetEvalExpanded, htargetBoundExpanded]
+    simp [hshiftCondLocal, bits, Modular.Aux.quotientBits, value,
+      shifted, a, c]
+    rw [if_pos hshiftCondTargetInt]
+    rfl
+  · mvcgen
+    rename_i r hr q hq
+    have hrFit : value % base.modulus < 2 ^ 256 :=
+      (Nat.mod_lt _ base.positive).trans_le base.fits
+    have hvalue : (value : Int) = shifted :=
+      Int.toNat_of_nonneg hshifted
+    have haaUpper : a * a < (base.modulus : Int) * base.modulus := by
+      nlinarith [hslope.1, hslopeCanonical]
+    have hshiftUpper : value <
+        (base.modulus + 4) * base.modulus := by
+      apply (Int.toNat_lt hshifted).2
+      have hc0 : 0 ≤ c := htarget.1
+      dsimp [shifted]
+      rw [htargetBound]
+      push_cast at haaUpper ⊢
+      ring_nf at haaUpper ⊢
+      linarith
+    have hqSmall : value / base.modulus < base.modulus + 4 :=
+      (Nat.div_lt_iff_lt_mul base.positive).2 (by
+        simpa [Nat.mul_assoc] using hshiftUpper)
+    have hqFit : value / base.modulus < 2 ^ 256 :=
+      hqSmall.trans (by
+        set_option exponentiation.threshold 300 in
+          norm_num [base, baseModulus])
+    have hrWord := Modular.Aux.quotientBits_low
+      (totalWidth := 512) (n := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Modular.Aux.quotientBits_high
+      (totalWidth := 512) (n := 256) (quotientWidth := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hqFit ρ
+    have hrVal : r.intVal.eval ρ.int = (value % base.modulus : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int = (value / base.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    constructor
+    · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+        LC.eval_ofConst, nsmul_eq_mul, hrVal, hqVal]
+      have hdecomp : (value : Int) =
+          ((value % base.modulus : Nat) : Int) +
+            (base.modulus : Int) * ((value / base.modulus : Nat) : Int) := by
+        exact_mod_cast (Nat.mod_add_div value base.modulus).symm
+      dsimp [shifted, a, c] at hvalue
+      rw [htargetBound] at hvalue
+      rw [htargetEvalExpanded, htargetBoundExpanded, htargetBound]
+      change slope.intVal.eval ρ.int * slope.intVal.eval ρ.int =
+        (value % base.modulus : Nat) + c +
+          (base.modulus : Int) * (value / base.modulus : Nat) -
+            (4 * base.modulus : Nat)
+      calc
+        slope.intVal.eval ρ.int * slope.intVal.eval ρ.int =
+            (value : Int) + c - (4 * base.modulus : Nat) := by omega
+        _ = (value % base.modulus : Nat) + c +
+              (base.modulus : Int) * (value / base.modulus : Nat) -
+                (4 * base.modulus : Nat) := by rw [hdecomp]; ring
+    · mvcgen
+      constructor
+      · exact ⟨hr.1, by
+          rw [hrVal]
+          exact_mod_cast Nat.mod_lt value base.positive⟩
+      · unfold Modular.Lazy.MulSubToElemZModSpec
+          Modular.Lazy.evalElemZMod Modular.Lazy.evalZMod
+        rw [hrVal]
+        have hcast := congrArg
+          (Int.castRingHom (ZMod base.modulus)) hvalue
+        simpa [shifted, a, c, target] using hcast
+
+@[spec] theorem collapsedCandidateY_complete {P : AffineSlope.Point}
+    {slope : AffineSlope.Rep} {x3 : Fp}
+    (hP : P.Valid ρ) (hslope : slope.Valid ρ)
+    (hslopeBound : slope.bound = 2)
+    (hslopeCanonical : slope.intVal.eval ρ.int < base.modulus)
+    (hx3 : x3.Valid ρ) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.collapsedCandidateY P slope x3)
+    ⦃⇓ y3 => ⌜y3.Valid ρ ∧
+      Modular.Lazy.MulSubToElemZModSpec base ρ slope
+        (AffineSlope.collapsedCandidateYFactor P x3) P.Y y3⌝⦄ := by
+  rcases hP with
+    ⟨_, hPX, hPXcanonical, hPYbound, hPY, _, _⟩
+  let factor := AffineSlope.collapsedCandidateYFactor P x3
+  have hfactor : factor.Valid ρ := by
+    dsimp [factor, AffineSlope.collapsedCandidateYFactor]
+    exact Modular.Lazy.sub_valid base hPX
+      (Modular.Lazy.ofElem_valid base hx3)
+  have hfactorUpper : factor.intVal.eval ρ.int <
+      (3 * base.modulus : Nat) := by
+    dsimp [factor, AffineSlope.collapsedCandidateYFactor,
+      AffineSlope.sub, AffineSlope.ofElem]
+    simp only [Modular.Lazy.sub, Modular.Lazy.ofElem,
+      LC.eval_sub, LC.eval_add, LC.eval_ofConst]
+    have hx30 := Modular.Elem.nonneg (p := base) hx3
+    push_cast
+    linarith
+  mvcgen [AffineSlope.collapsedCandidateY, AffineSlope.collapsedCandidateYFactor,
+    AffineSlope.collapsedCandidateYHint, AffineSlope.collapsedCandidateYDecodeR,
+    AffineSlope.collapsedCandidateYDecodeQ, AffineSlope.collapsedCandidateYCheck]
+  let a := slope.intVal.eval ρ.int
+  let b := factor.intVal.eval ρ.int
+  let c := P.Y.intVal.eval ρ.int
+  let shifted := a * b + (P.Y.bound * base.modulus : Nat) - c
+  have hshifted : 0 ≤ shifted := by
+    have hab : 0 ≤ a * b := mul_nonneg hslope.1 hfactor.1
+    have hc : c < (P.Y.bound * base.modulus : Nat) := hPY.2
+    dsimp [shifted]
+    omega
+  have hshiftedRaw : 0 ≤
+      slope.intVal.eval ρ.int *
+          (AffineSlope.collapsedCandidateYFactor P x3).intVal.eval ρ.int +
+        (P.Y.bound * base.modulus : Nat) - P.Y.intVal.eval ρ.int := by
+    simpa [a, b, c, factor, shifted] using hshifted
+  have hfactorEvalRaw :
+      (AffineSlope.collapsedCandidateYFactor P x3).intVal.eval ρ.int = b := by
+    rfl
+  have hfactorEvalExpanded :
+      (AffineSlope.sub P.X (AffineSlope.ofElem x3)).intVal.eval ρ.int = b := by
+    simpa only [AffineSlope.collapsedCandidateYFactor] using hfactorEvalRaw
+  have hshiftCond : c ≤ a * b +
+      (P.Y.bound * base.modulus : Nat) := by
+    change 0 ≤ a * b + (P.Y.bound * base.modulus : Nat) - c at hshifted
+    omega
+  have hshiftCondLocal : P.Y.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * factor.intVal.eval ρ.int +
+        (P.Y.bound * base.modulus : Nat) := by
+    simpa [a, b, c] using hshiftCond
+  have hshiftCondLocalInt : P.Y.intVal.eval ρ.int ≤
+      slope.intVal.eval ρ.int * factor.intVal.eval ρ.int +
+        (P.Y.bound : Int) * base.modulus := by
+    simpa only [Nat.cast_mul] using hshiftCondLocal
+  let value := shifted.toNat
+  let bits := Modular.Aux.quotientBits 514 256
+    (value % base.modulus) (value / base.modulus)
+  refine ⟨bits, ?_, ?_⟩
+  · simp only [WF.interpHint, WF.evalArgs]
+    rw [hfactorEvalExpanded]
+    simp [hshiftCondLocal, bits, Modular.Aux.quotientBits, value,
+      shifted, a, b, c]
+    rw [if_pos hshiftCondLocalInt]
+    rfl
+  · mvcgen
+    rename_i r hr q hq
+    have hrFit : value % base.modulus < 2 ^ 256 :=
+      (Nat.mod_lt _ base.positive).trans_le base.fits
+    have hvalue : (value : Int) = shifted :=
+      Int.toNat_of_nonneg hshifted
+    have habUpper : a * b <
+        (base.modulus : Int) * (3 * base.modulus) := by
+      have hpPos : (0 : Int) < base.modulus := by
+        exact_mod_cast base.positive
+      have hbPos : 0 < (3 * base.modulus : Int) := by nlinarith
+      exact (mul_le_mul_of_nonneg_left hfactorUpper.le hslope.1).trans_lt
+        (mul_lt_mul_of_pos_right hslopeCanonical hbPos)
+    have hshiftUpper : value <
+        (3 * base.modulus + 2) * base.modulus := by
+      apply (Int.toNat_lt hshifted).2
+      have hc0 : 0 ≤ c := hPY.1
+      dsimp [shifted]
+      rw [hPYbound]
+      push_cast at habUpper ⊢
+      ring_nf at habUpper ⊢
+      linarith
+    have hqSmall : value / base.modulus < 3 * base.modulus + 2 :=
+      (Nat.div_lt_iff_lt_mul base.positive).2 (by
+        simpa [Nat.mul_assoc] using hshiftUpper)
+    have hqFit : value / base.modulus < 2 ^ 258 :=
+      hqSmall.trans (by
+        set_option exponentiation.threshold 300 in
+          norm_num [base, baseModulus])
+    have hrWord := Modular.Aux.quotientBits_low
+      (totalWidth := 514) (n := 256)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hrFit ρ
+    have hqWord := Modular.Aux.quotientBits_high
+      (totalWidth := 514) (n := 256) (quotientWidth := 258)
+      (low := value % base.modulus) (high := value / base.modulus)
+      (by omega) hqFit ρ
+    have hrVal : r.intVal.eval ρ.int = (value % base.modulus : Nat) := by
+      rw [U.Rel.intVal hr, hrWord]
+    have hqVal : q.intVal.eval ρ.int = (value / base.modulus : Nat) := by
+      rw [U.Rel.intVal hq, hqWord]
+    constructor
+    · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+        LC.eval_ofConst, nsmul_eq_mul, hrVal, hqVal]
+      have hdecomp : (value : Int) =
+          ((value % base.modulus : Nat) : Int) +
+            (base.modulus : Int) * ((value / base.modulus : Nat) : Int) := by
+        exact_mod_cast (Nat.mod_add_div value base.modulus).symm
+      dsimp [shifted, a, b, c] at hvalue
+      rw [hPYbound] at hvalue
+      rw [hfactorEvalExpanded]
+      rw [hPYbound]
+      change slope.intVal.eval ρ.int * factor.intVal.eval ρ.int =
+        (value % base.modulus : Nat) + P.Y.intVal.eval ρ.int +
+          (base.modulus : Int) * (value / base.modulus : Nat) -
+            (2 * base.modulus : Nat)
+      calc
+        slope.intVal.eval ρ.int * factor.intVal.eval ρ.int =
+            (value : Int) + P.Y.intVal.eval ρ.int -
+              (2 * base.modulus : Nat) := by omega
+        _ = (value % base.modulus : Nat) + P.Y.intVal.eval ρ.int +
+              (base.modulus : Int) * (value / base.modulus : Nat) -
+                (2 * base.modulus : Nat) := by rw [hdecomp]; ring
+    · mvcgen
+      constructor
+      · exact ⟨hr.1, by
+          rw [hrVal]
+          exact_mod_cast Nat.mod_lt value base.positive⟩
+      · unfold Modular.Lazy.MulSubToElemZModSpec
+          Modular.Lazy.evalElemZMod Modular.Lazy.evalZMod
+        rw [hrVal]
+        have hcast := congrArg
+          (Int.castRingHom (ZMod base.modulus)) hvalue
+        simpa [shifted, a, b, c, factor] using hcast
+
 @[spec] theorem doubleSlope_sound {P : AffineSlope.Point} :
     ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.doubleSlope P)
     ⦃⇓ slope => ⌜DoubleSlopeSpec ρ P slope⌝⦄ := by
@@ -200,29 +1531,12 @@ def FinishDoubleSpec (ρ : WF.Valuation) (P : AffineSlope.Point)
     (hdouble : p = 0 ∨ p + p ≠ 0) :
     ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.doubleSlope P)
     ⦃⇓ slope => ⌜slope.Valid ρ ∧ slope.bound = 2 ∧
+      slope.intVal.eval ρ.int < base.modulus ∧
       DoubleSlopeSpec ρ P slope⌝⦄ := by
   rcases hvalid with
-    ⟨hPXbound, hPX, _, hPYbound, hPY, _, hPinf⟩
-  have hx2Bound : P.X.bound * P.X.bound <
-      2 ^ Modular.Lazy.quotientExtraBits := by
-    simp [hPXbound, Modular.Lazy.quotientExtraBits]
-  have hthree : (AffineSlope.ofElem three).Valid ρ :=
-    Modular.Lazy.ofElem_valid base
-      (Modular.ofNat_valid base 3 (by native_decide) (by native_decide))
-  have hinfinityNum :
-      ({ intVal := 3 • P.infinity, bound := 1 } : AffineSlope.Rep).Valid ρ := by
-    rcases hPinf with h | h <;>
-      simp [Modular.Lazy.Rep.Valid, h, base, baseModulus] <;>
-      native_decide
-  have hinfinityDen :
-      ({ intVal := P.infinity, bound := 1 } : AffineSlope.Rep).Valid ρ := by
-    rcases hPinf with h | h <;>
-      simp [Modular.Lazy.Rep.Valid, h, base, baseModulus] <;>
-      native_decide
-  have hdenValid : (AffineSlope.add (AffineSlope.scale 2 P.Y)
-      ({ intVal := P.infinity, bound := 1 } : AffineSlope.Rep)).Valid ρ :=
-    Modular.Lazy.add_valid base
-      (Modular.Lazy.scale_valid base hPY (by omega)) hinfinityDen
+    ⟨hPXbound, hPX, hPXcanonical, hPYbound, hPY, hPYcanonical, hPinf⟩
+  have hvalid' : P.Valid ρ :=
+    ⟨hPXbound, hPX, hPXcanonical, hPYbound, hPY, hPYcanonical, hPinf⟩
   have hden : Modular.Lazy.evalZMod base
       (AffineSlope.add (AffineSlope.scale 2 P.Y)
         ⟨P.infinity, 1⟩) ρ ≠ 0 := by
@@ -247,74 +1561,41 @@ def FinishDoubleSpec (ρ : WF.Valuation) (P : AffineSlope.Point)
       linear_combination hzero'
   mvcgen [AffineSlope.doubleSlope]
   all_goals first
-    | exact hPX
-    | exact hx2Bound
-    | exact Modular.Lazy.sub_valid base
-        (Modular.Lazy.scale_valid base (by assumption) (by omega)) hthree
-    | apply Modular.Lazy.add_valid base
-      · apply Modular.Lazy.sub_valid base
-        · apply Modular.Lazy.scale_valid base <;> assumption
-        · exact hthree
-      · exact hinfinityNum
-    | apply Modular.Lazy.add_valid base
-      · exact Modular.Lazy.scale_valid base hPY (by omega)
-      · exact hinfinityDen
+    | exact hvalid'
     | exact hden
-    | exact hdenValid
+    | assumption
     | skip
-  case vc5 =>
-    intros
-    exact hdenValid
-  case vc6 =>
-    intro _ hx2valid _
-    exact Modular.Lazy.add_valid base
-      (Modular.Lazy.sub_valid base
-        (Modular.Lazy.scale_valid (p := base) (k := 3) hx2valid (by omega))
-        hthree)
-      hinfinityNum
-  case vc7 =>
-    intros
-    exact hden
-  case vc8 =>
-    intro _ _ hrbound
-    simp [AffineSlope.add, AffineSlope.sub, AffineSlope.scale,
-      AffineSlope.ofElem, Modular.Lazy.add, Modular.Lazy.sub,
-      Modular.Lazy.scale, Modular.Lazy.ofElem,
-      Modular.Lazy.quotientExtraBits, hrbound, hPYbound]
-  case vc4.success.success =>
-    intros
+  all_goals
     simp_all [DoubleSlopeSpec, Modular.Lazy.MulZModSpec,
-      Modular.Lazy.DivideZModSpec, AffineSlope.add, AffineSlope.sub,
-      AffineSlope.scale, AffineSlope.ofElem, three_evalElemZMod]
+      Modular.Lazy.DivideZModSpec, AffineSlope.doubleSlopeNumerator,
+      AffineSlope.doubleSlopeDenominator, AffineSlope.add,
+      AffineSlope.sub, AffineSlope.scale, AffineSlope.ofElem,
+      three_evalElemZMod]
 
 @[spec] theorem finishDouble_complete {P : AffineSlope.Point}
     {slope : AffineSlope.Rep}
     (hP : P.Valid ρ) (hslope : slope.Valid ρ)
-    (hslopeBound : slope.bound = 2) :
+    (hslopeBound : slope.bound = 2)
+    (hslopeCanonical : slope.intVal.eval ρ.int < base.modulus) :
     ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.finishDouble P slope)
     ⦃⇓ out => ⌜out.Valid ρ ∧ FinishDoubleSpec ρ P slope out⌝⦄ := by
   rcases hP with
     ⟨hPXbound, hPX, hPXcanonical, hPYbound, hPY, hPYcanonical, hPinf⟩
+  have hP' : P.Valid ρ :=
+    ⟨hPXbound, hPX, hPXcanonical, hPYbound, hPY, hPYcanonical, hPinf⟩
   mvcgen [AffineSlope.finishDouble]
   all_goals first
+    | exact hP'
     | exact hslope
-    | exact hPX
-    | exact hPY
-    | exact Modular.Lazy.scale_valid base hPX (by omega)
-    | exact Modular.Lazy.sub_valid base hPX
-        (Modular.Lazy.ofElem_valid base (by assumption))
+    | exact hslopeBound
+    | exact hslopeCanonical
+    | assumption
     | skip
-  case vc4.hbound =>
-    simp [AffineSlope.scale, Modular.Lazy.scale,
-      Modular.Lazy.quotientExtraBits, hPXbound, hslopeBound]
-  case vc6.hy x3 hx3 =>
-    exact Modular.Lazy.sub_valid base hPX
-      (Modular.Lazy.ofElem_valid base hx3.1)
-  case vc8.hbound x3 hx3 =>
-    simp [AffineSlope.sub, AffineSlope.ofElem, Modular.Lazy.sub,
-      Modular.Lazy.ofElem, Modular.Lazy.quotientExtraBits,
-      hPXbound, hPYbound, hslopeBound]
-  case vc9.success x3 hx3 y3 hy3 =>
+  case vc9.hx3 =>
+    rename_i x3 hx3
+    exact hx3.1
+  case vc10.success =>
+    rename_i x3 hx3 y3 hy3
     constructor
     · exact ⟨rfl, Modular.Lazy.ofElem_valid base hx3.1,
         hx3.1.2, rfl, Modular.Lazy.ofElem_valid base hy3.1,
@@ -322,9 +1603,11 @@ def FinishDoubleSpec (ρ : WF.Valuation) (P : AffineSlope.Point)
     · unfold FinishDoubleSpec
       unfold Modular.Lazy.MulSubToElemZModSpec at hx3 hy3
       constructor
-      · simpa [AffineSlope.ofElem, AffineSlope.scale] using hx3.2
+      · simpa [AffineSlope.finishDoubleXTarget, AffineSlope.ofElem,
+          AffineSlope.scale] using hx3.2
       · constructor
-        · simpa [AffineSlope.ofElem, AffineSlope.sub] using hy3.2
+        · simpa [AffineSlope.finishDoubleYFactor, AffineSlope.ofElem,
+            AffineSlope.sub] using hy3.2
         · rfl
 
 theorem double_specs_mathlib {P out : AffineSlope.Point}
@@ -614,6 +1897,256 @@ def And3BitSpec (ρ : WF.Valuation) (x y z out : LC ℤ) : Prop :=
   unfold AffineSlope.selectFormula
   exact selectRep_complete hchoose hone honeFit hzero hzeroFit le_rfl
     (by norm_num [base, baseModulus]; native_decide)
+
+def Gated3Spec (ρ : WF.Valuation) (gate1 gate2 gate3 : LC ℤ)
+    (value1 value2 value3 out : AffineSlope.Rep) : Prop :=
+  (gate1.eval ρ.int = 1 →
+    Modular.Lazy.evalZMod base out ρ =
+      Modular.Lazy.evalZMod base value1 ρ) ∧
+  (gate2.eval ρ.int = 1 →
+    Modular.Lazy.evalZMod base out ρ =
+      Modular.Lazy.evalZMod base value2 ρ) ∧
+  (gate3.eval ρ.int = 1 →
+    Modular.Lazy.evalZMod base out ρ =
+      Modular.Lazy.evalZMod base value3 ρ)
+
+def Gated4Spec (ρ : WF.Valuation) (gate1 gate2 gate3 gate4 : LC ℤ)
+    (value1 value2 value3 value4 out : AffineSlope.Rep) : Prop :=
+  (gate1.eval ρ.int = 1 →
+    Modular.Lazy.evalZMod base out ρ =
+      Modular.Lazy.evalZMod base value1 ρ) ∧
+  (gate2.eval ρ.int = 1 →
+    Modular.Lazy.evalZMod base out ρ =
+      Modular.Lazy.evalZMod base value2 ρ) ∧
+  (gate3.eval ρ.int = 1 →
+    Modular.Lazy.evalZMod base out ρ =
+      Modular.Lazy.evalZMod base value3 ρ) ∧
+  (gate4.eval ρ.int = 1 →
+    Modular.Lazy.evalZMod base out ρ =
+      Modular.Lazy.evalZMod base value4 ρ)
+
+def Gated3Cases (ρ : WF.Valuation) (gate1 gate2 gate3 : LC ℤ) : Prop :=
+  (gate1.eval ρ.int = 1 ∧ gate2.eval ρ.int = 0 ∧
+      gate3.eval ρ.int = 0) ∨
+  (gate1.eval ρ.int = 0 ∧ gate2.eval ρ.int = 1 ∧
+      gate3.eval ρ.int = 0) ∨
+  (gate1.eval ρ.int = 0 ∧ gate2.eval ρ.int = 0 ∧
+      gate3.eval ρ.int = 1)
+
+def Gated4Cases (ρ : WF.Valuation)
+    (gate1 gate2 gate3 gate4 : LC ℤ) : Prop :=
+  (gate1.eval ρ.int = 1 ∧ gate2.eval ρ.int = 0 ∧
+      gate3.eval ρ.int = 0 ∧ gate4.eval ρ.int = 0) ∨
+  (gate1.eval ρ.int = 0 ∧ gate2.eval ρ.int = 1 ∧
+      gate3.eval ρ.int = 0 ∧ gate4.eval ρ.int = 0) ∨
+  (gate1.eval ρ.int = 0 ∧ gate2.eval ρ.int = 0 ∧
+      gate3.eval ρ.int = 1 ∧ gate4.eval ρ.int = 0) ∨
+  (gate1.eval ρ.int = 0 ∧ gate2.eval ρ.int = 0 ∧
+      gate3.eval ρ.int = 0 ∧ gate4.eval ρ.int = 1)
+
+@[spec] theorem selectGated3Rep_sound {width outBound : Nat}
+    {description : String} {gate1 gate2 gate3 : LC ℤ}
+    {value1 value2 value3 : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ
+      (AffineSlope.selectGated3Rep width outBound description
+        gate1 gate2 gate3 value1 value2 value3)
+    ⦃⇓ out => ⌜Gated3Spec ρ gate1 gate2 gate3 value1 value2 value3 out⌝⦄ := by
+  mvcgen [AffineSlope.selectGated3Rep, Gated3Spec]
+  intro bits
+  mvcgen
+  rename_i out hout hgate1 hgate2 hgate3
+  constructor
+  · intro hg
+    unfold Modular.Lazy.evalZMod
+    have heq := hgate1.2
+    simp [hg] at heq
+    rw [show out.intVal.eval ρ.int = value1.intVal.eval ρ.int by
+      omega]
+  · constructor
+    · intro hg
+      unfold Modular.Lazy.evalZMod
+      have heq := hgate2.2
+      simp [hg] at heq
+      rw [show out.intVal.eval ρ.int = value2.intVal.eval ρ.int by omega]
+    · intro hg
+      unfold Modular.Lazy.evalZMod
+      have heq := hgate3.2
+      simp [hg] at heq
+      rw [show out.intVal.eval ρ.int = value3.intVal.eval ρ.int by omega]
+
+@[spec] theorem selectGated4Rep_sound {width outBound : Nat}
+    {description : String} {gate1 gate2 gate3 gate4 : LC ℤ}
+    {value1 value2 value3 value4 : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ
+      (AffineSlope.selectGated4Rep width outBound description
+        gate1 gate2 gate3 gate4 value1 value2 value3 value4)
+    ⦃⇓ out => ⌜Gated4Spec ρ gate1 gate2 gate3 gate4
+      value1 value2 value3 value4 out⌝⦄ := by
+  mvcgen [AffineSlope.selectGated4Rep, Gated4Spec]
+  intro bits
+  mvcgen
+  rename_i out hout hgate1 hgate2 hgate3 hgate4
+  constructor
+  · intro hg
+    unfold Modular.Lazy.evalZMod
+    have heq := hgate1.2
+    simp [hg] at heq
+    rw [show out.intVal.eval ρ.int = value1.intVal.eval ρ.int by omega]
+  · constructor
+    · intro hg
+      unfold Modular.Lazy.evalZMod
+      have heq := hgate2.2
+      simp [hg] at heq
+      rw [show out.intVal.eval ρ.int = value2.intVal.eval ρ.int by omega]
+    · constructor
+      · intro hg
+        unfold Modular.Lazy.evalZMod
+        have heq := hgate3.2
+        simp [hg] at heq
+        rw [show out.intVal.eval ρ.int = value3.intVal.eval ρ.int by omega]
+      · intro hg
+        unfold Modular.Lazy.evalZMod
+        have heq := hgate4.2
+        simp [hg] at heq
+        rw [show out.intVal.eval ρ.int = value4.intVal.eval ρ.int by omega]
+
+theorem selectGated3Rep_complete {width outBound limit : Nat}
+    {description : String} {gate1 gate2 gate3 : LC ℤ}
+    {value1 value2 value3 : AffineSlope.Rep}
+    (hcases : Gated3Cases ρ gate1 gate2 gate3)
+    (hvalue1 : value1.Valid ρ)
+    (hvalue1Fit : value1.intVal.eval ρ.int < limit)
+    (hvalue2 : value2.Valid ρ)
+    (hvalue2Fit : value2.intVal.eval ρ.int < limit)
+    (hvalue3 : value3.Valid ρ)
+    (hvalue3Fit : value3.intVal.eval ρ.int < limit)
+    (hwidth : limit ≤ 2 ^ width)
+    (hbound : limit ≤ outBound * base.modulus) :
+    ⦃⌜True⌝⦄ Complete.interp ρ
+      (AffineSlope.selectGated3Rep width outBound description
+        gate1 gate2 gate3 value1 value2 value3)
+    ⦃⇓ out => ⌜Gated3Spec ρ gate1 gate2 gate3 value1 value2 value3 out ∧
+      out.Valid ρ ∧ out.intVal.eval ρ.int < limit ∧
+      out.bound = outBound⌝⦄ := by
+  mvcgen [AffineSlope.selectGated3Rep]
+  let value := if gate1.eval ρ.int = 1 then value1.intVal.eval ρ.int
+    else if gate2.eval ρ.int = 1 then value2.intVal.eval ρ.int
+    else value3.intVal.eval ρ.int
+  let bits : Vector Bool width := Vector.ofFn fun i => value.toNat.testBit i.val
+  refine ⟨bits, ?_, ?_⟩
+  · rcases hcases with h | h | h <;>
+      simp [WF.interpHint, WF.evalArgs, bits, value, h, hvalue1.1,
+        hvalue2.1, hvalue3.1]
+  · mvcgen
+    rename_i out hout
+    have hvalue0 : 0 ≤ value := by
+      rcases hcases with h | h | h <;>
+        simp [value, h, hvalue1.1, hvalue2.1, hvalue3.1]
+    have hvalueFit : value < limit := by
+      rcases hcases with h | h | h <;>
+        simp [value, h, hvalue1Fit, hvalue2Fit, hvalue3Fit]
+    have hfit : value.toNat < 2 ^ width := by
+      apply (Int.toNat_lt hvalue0).2
+      exact hvalueFit.trans_le (by exact_mod_cast hwidth)
+    have hword :
+        (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits }).toNat =
+          value.toNat := by
+      rw [show Vector.map LC.ofConst bits =
+          Vector.ofFn (n := width) fun i =>
+            LC.ofConst (value.toNat.testBit i.val) by
+        ext i
+        simp [bits]]
+      exact Modular.Aux.constWord_eval_toNat value.toNat hfit ρ
+    have houtVal : out.intVal.eval ρ.int = value := by
+      rw [U.Rel.intVal hout, hword, Int.toNat_of_nonneg hvalue0]
+    constructor
+    · rcases hcases with h | h | h <;> simp [h, value, houtVal]
+    · mvcgen
+      constructor
+      · rcases hcases with h | h | h <;> simp [h, value, houtVal]
+      · mvcgen
+        constructor
+        · rcases hcases with h | h | h <;> simp [h, value, houtVal]
+        · mvcgen
+          constructor
+          · rcases hcases with h | h | h <;>
+              simp [Gated3Spec, Modular.Lazy.evalZMod, h, value, houtVal]
+          · refine ⟨⟨U.intVal_nonneg out hout.1, ?_⟩, ?_⟩
+            · rw [houtVal]
+              exact hvalueFit.trans_le (by exact_mod_cast hbound)
+            · simpa [houtVal] using hvalueFit
+
+theorem selectGated4Rep_complete {width outBound limit : Nat}
+    {description : String} {gate1 gate2 gate3 gate4 : LC ℤ}
+    {value1 value2 value3 value4 : AffineSlope.Rep}
+    (hcases : Gated4Cases ρ gate1 gate2 gate3 gate4)
+    (hvalue1 : value1.Valid ρ)
+    (hvalue1Fit : value1.intVal.eval ρ.int < limit)
+    (hvalue2 : value2.Valid ρ)
+    (hvalue2Fit : value2.intVal.eval ρ.int < limit)
+    (hvalue3 : value3.Valid ρ)
+    (hvalue3Fit : value3.intVal.eval ρ.int < limit)
+    (hvalue4 : value4.Valid ρ)
+    (hvalue4Fit : value4.intVal.eval ρ.int < limit)
+    (hwidth : limit ≤ 2 ^ width)
+    (hbound : limit ≤ outBound * base.modulus) :
+    ⦃⌜True⌝⦄ Complete.interp ρ
+      (AffineSlope.selectGated4Rep width outBound description
+        gate1 gate2 gate3 gate4 value1 value2 value3 value4)
+    ⦃⇓ out => ⌜Gated4Spec ρ gate1 gate2 gate3 gate4
+      value1 value2 value3 value4 out ∧ out.Valid ρ ∧
+      out.intVal.eval ρ.int < limit ∧ out.bound = outBound⌝⦄ := by
+  mvcgen [AffineSlope.selectGated4Rep]
+  let value := if gate1.eval ρ.int = 1 then value1.intVal.eval ρ.int
+    else if gate2.eval ρ.int = 1 then value2.intVal.eval ρ.int
+    else if gate3.eval ρ.int = 1 then value3.intVal.eval ρ.int
+    else value4.intVal.eval ρ.int
+  let bits : Vector Bool width := Vector.ofFn fun i => value.toNat.testBit i.val
+  refine ⟨bits, ?_, ?_⟩
+  · rcases hcases with h | h | h | h <;>
+      simp [WF.interpHint, WF.evalArgs, bits, value, h, hvalue1.1,
+        hvalue2.1, hvalue3.1, hvalue4.1]
+  · mvcgen
+    rename_i out hout
+    have hvalue0 : 0 ≤ value := by
+      rcases hcases with h | h | h | h <;>
+        simp [value, h, hvalue1.1, hvalue2.1, hvalue3.1, hvalue4.1]
+    have hvalueFit : value < limit := by
+      rcases hcases with h | h | h | h <;>
+        simp [value, h, hvalue1Fit, hvalue2Fit, hvalue3Fit, hvalue4Fit]
+    have hfit : value.toNat < 2 ^ width := by
+      apply (Int.toNat_lt hvalue0).2
+      exact hvalueFit.trans_le (by exact_mod_cast hwidth)
+    have hword :
+        (Word.eval ρ.bool { bitsLE := Vector.map LC.ofConst bits }).toNat =
+          value.toNat := by
+      rw [show Vector.map LC.ofConst bits =
+          Vector.ofFn (n := width) fun i =>
+            LC.ofConst (value.toNat.testBit i.val) by
+        ext i
+        simp [bits]]
+      exact Modular.Aux.constWord_eval_toNat value.toNat hfit ρ
+    have houtVal : out.intVal.eval ρ.int = value := by
+      rw [U.Rel.intVal hout, hword, Int.toNat_of_nonneg hvalue0]
+    constructor
+    · rcases hcases with h | h | h | h <;> simp [h, value, houtVal]
+    · mvcgen
+      constructor
+      · rcases hcases with h | h | h | h <;> simp [h, value, houtVal]
+      · mvcgen
+        constructor
+        · rcases hcases with h | h | h | h <;> simp [h, value, houtVal]
+        · mvcgen
+          constructor
+          · rcases hcases with h | h | h | h <;> simp [h, value, houtVal]
+          · mvcgen
+            constructor
+            · rcases hcases with h | h | h | h <;>
+                simp [Gated4Spec, Modular.Lazy.evalZMod, h, value, houtVal]
+            · refine ⟨⟨U.intVal_nonneg out hout.1, ?_⟩, ?_⟩
+              · rw [houtVal]
+                exact hvalueFit.trans_le (by exact_mod_cast hbound)
+              · simpa [houtVal] using hvalueFit
 def AddControlSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
     (control : AffineSlope.AddControl) : Prop :=
   Modular.Lazy.ZeroTestZModSpec base ρ
@@ -653,6 +2186,893 @@ theorem AddControlSpec.active_bit {P Q : AffineSlope.Point}
     rw [hactive, hgenericCase0]
     simpa using hdoubleCase.2
 
+theorem AddControlSpec.slope_gated_cases {P Q : AffineSlope.Point}
+    {control : AffineSlope.AddControl}
+    (h : AddControlSpec ρ P Q control) :
+    Gated3Cases ρ control.doubleCase
+      (control.active - control.doubleCase) (LC.ofConst 1 - control.active) := by
+  have hactiveBit := h.active_bit
+  rcases h with ⟨_, _, _, _, genericCase, _, hdoubleCase,
+    hgenericCase, hactive⟩
+  rcases hactiveBit with ha | ha <;>
+    rcases hdoubleCase.2 with hd | hd <;>
+    rcases hgenericCase.2 with hg | hg <;>
+    simp_all [Gated3Cases]
+
+@[spec] theorem zeroTestBound4_sound {x : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.zeroTestBound4 x)
+    ⦃⇓ z => ⌜Modular.Lazy.ZeroTestZModSpec base ρ x z⌝⦄ := by
+  mvcgen [AffineSlope.zeroTestBound4, AffineSlope.zeroTestBound4Prepare,
+    AffineSlope.zeroTestBound4Hint, AffineSlope.zeroTestBound4DecodeZero,
+    AffineSlope.zeroTestBound4DecodeInverse,
+    AffineSlope.zeroTestBound4InverseCheck,
+    AffineSlope.zeroTestBound4ZeroCheck,
+    Modular.Lazy.ZeroTestZModSpec]
+  intro bits
+  mvcgen
+  intro inverseQBits
+  mvcgen
+  intro zeroQBits
+  mvcgen
+  rename_i zWord hzWord inverse hInverse inverseQ hInverseQ
+    hInverseEq zeroQ hZeroQ hZeroEq
+  have hzBit : zWord.intBits[0].eval ρ.int = 0 ∨
+      zWord.intBits[0].eval ρ.int = 1 := by
+    have hz := hzWord.1 (0 : Fin 1)
+    cases hb : zWord.bits.bitsLE[0].eval ρ.bool <;>
+      simp [hb] at hz
+    · exact Or.inl hz
+    · exact Or.inr hz
+  have hmul' : Modular.Lazy.evalZMod base x ρ *
+      ((inverse.intVal.eval ρ.int : Int) : ZMod base.modulus) =
+      1 - ((zWord.intBits[0].eval ρ.int : Int) : ZMod base.modulus) := by
+    have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) hInverseEq
+    simpa [Modular.Lazy.evalZMod, LC.eval_sub, LC.eval_add,
+      LC.eval_nsmul, LC.eval_ofConst, Int.cast_sub, Int.cast_add,
+      Int.cast_one] using hcast
+  have hfinalCast :=
+    congrArg (fun z : Int => (z : ZMod base.modulus)) hZeroEq
+  simp only [LC.eval_nsmul, nsmul_eq_mul, Int.cast_mul,
+    Int.cast_natCast, ZMod.natCast_self, zero_mul] at hfinalCast
+  refine ⟨hzBit, ?_, ?_⟩
+  · constructor
+    · intro hz
+      simpa [Modular.Lazy.evalZMod, hz] using hfinalCast
+    · intro hx
+      rcases hzBit with hz | hz
+      · have hzeroOne : (0 : ZMod base.modulus) = 1 := by
+          simpa [hx, hz] using hmul'
+        exact (zero_ne_one hzeroOne).elim
+      · exact hz
+  · rcases hzBit with hz | hz
+    · have hx0 : Modular.Lazy.evalZMod base x ρ ≠ 0 := by
+        intro hx
+        have hzeroOne : (0 : ZMod base.modulus) = 1 := by
+          simpa [hx, hz] using hmul'
+        exact zero_ne_one hzeroOne
+      simp [hz, hx0]
+    · have hx0 : Modular.Lazy.evalZMod base x ρ = 0 := by
+        simpa [Modular.Lazy.evalZMod, hz] using hfinalCast
+      simp [hz, hx0]
+
+@[spec] theorem zeroTestCanonicalSum_sound {x : AffineSlope.Rep} :
+    ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.zeroTestCanonicalSum x)
+    ⦃⇓ z => ⌜Modular.Lazy.ZeroTestZModSpec base ρ x z⌝⦄ := by
+  mvcgen [AffineSlope.zeroTestCanonicalSum,
+    AffineSlope.zeroTestBound4Prepare,
+    AffineSlope.zeroTestBound4Hint,
+    AffineSlope.zeroTestBound4DecodeZero,
+    AffineSlope.zeroTestBound4DecodeInverse,
+    AffineSlope.zeroTestCanonicalSumInverse,
+    AffineSlope.zeroTestCanonicalSumInverseQHint,
+    AffineSlope.zeroTestCanonicalSumInverseQDecode,
+    AffineSlope.zeroTestCanonicalSumInverseCheck,
+    AffineSlope.zeroTestCanonicalSumZero,
+    AffineSlope.zeroTestCanonicalSumZeroQHint,
+    AffineSlope.zeroTestCanonicalSumZeroQDecode,
+    AffineSlope.zeroTestCanonicalSumZeroCheck,
+    Modular.Lazy.ZeroTestZModSpec]
+  intro bits
+  mvcgen
+  intro inverseQBits
+  mvcgen
+  intro zeroQBits
+  mvcgen
+  rename_i zWord hzWord inverse hInverse inverseQ hInverseQ
+    hInverseEq zeroQ hZeroQ hZeroEq
+  have hzBit : zWord.intBits[0].eval ρ.int = 0 ∨
+      zWord.intBits[0].eval ρ.int = 1 := by
+    have hz := hzWord.1 (0 : Fin 1)
+    cases hb : zWord.bits.bitsLE[0].eval ρ.bool <;>
+      simp [hb] at hz
+    · exact Or.inl hz
+    · exact Or.inr hz
+  have hmul' : Modular.Lazy.evalZMod base x ρ *
+      ((inverse.intVal.eval ρ.int : Int) : ZMod base.modulus) =
+      1 - ((zWord.intBits[0].eval ρ.int : Int) : ZMod base.modulus) := by
+    have hcast := congrArg (fun z : Int => (z : ZMod base.modulus)) hInverseEq
+    simpa [Modular.Lazy.evalZMod, LC.eval_sub, LC.eval_add,
+      LC.eval_nsmul, LC.eval_ofConst, Int.cast_sub, Int.cast_add,
+      Int.cast_one] using hcast
+  have hfinalCast :=
+    congrArg (fun z : Int => (z : ZMod base.modulus)) hZeroEq
+  simp only [LC.eval_nsmul, nsmul_eq_mul, Int.cast_mul,
+    Int.cast_natCast, ZMod.natCast_self, zero_mul] at hfinalCast
+  refine ⟨hzBit, ?_, ?_⟩
+  · constructor
+    · intro hz
+      simpa [Modular.Lazy.evalZMod, hz] using hfinalCast
+    · intro hx
+      rcases hzBit with hz | hz
+      · have hzeroOne : (0 : ZMod base.modulus) = 1 := by
+          simpa [hx, hz] using hmul'
+        exact (zero_ne_one hzeroOne).elim
+      · exact hz
+  · rcases hzBit with hz | hz
+    · have hx0 : Modular.Lazy.evalZMod base x ρ ≠ 0 := by
+        intro hx
+        have hzeroOne : (0 : ZMod base.modulus) = 1 := by
+          simpa [hx, hz] using hmul'
+        exact zero_ne_one hzeroOne
+      simp [hz, hx0]
+    · have hx0 : Modular.Lazy.evalZMod base x ρ = 0 := by
+        simpa [Modular.Lazy.evalZMod, hz] using hfinalCast
+      simp [hz, hx0]
+
+@[spec] theorem zeroTestBound4_complete {x : AffineSlope.Rep}
+    (hx : x.Valid ρ) (hbound : x.bound = 4) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.zeroTestBound4 x)
+    ⦃⇓ z => ⌜Modular.Lazy.ZeroTestZModSpec base ρ x z⌝⦄ := by
+  mvcgen [AffineSlope.zeroTestBound4, AffineSlope.zeroTestBound4Prepare,
+    AffineSlope.zeroTestBound4Hint, AffineSlope.zeroTestBound4DecodeZero,
+    AffineSlope.zeroTestBound4DecodeInverse,
+    AffineSlope.zeroTestBound4InverseCheck,
+    AffineSlope.zeroTestBound4ZeroCheck]
+  let a := x.intVal.eval ρ.int
+  have haNat : (a.toNat : Int) = a := Int.toNat_of_nonneg hx.1
+  let d := a.toNat % base.modulus
+  let isZero := d = 0
+  let inverse := Nat.gcdA d base.modulus % (base.modulus : Int)
+  have hpInt0 : (base.modulus : Int) ≠ 0 := by
+    exact_mod_cast base.positive.ne'
+  have hinverse0 : 0 ≤ inverse := by
+    exact Int.emod_nonneg _ hpInt0
+  have hinverseLtInt : inverse < base.modulus := by
+    exact Int.emod_lt_of_pos _ (by exact_mod_cast base.positive)
+  have hinverseLt : inverse.toNat < base.modulus :=
+    (Int.toNat_lt hinverse0).2 hinverseLtInt
+  have hinverseFit : inverse.toNat < 2 ^ 256 :=
+    hinverseLt.trans_le base.fits
+  let bits : Vector Bool 257 := Vector.ofFn fun i =>
+    if hi : i.val = 0 then isZero
+    else inverse.toNat.testBit (i.val - 1)
+  have inverseWordEval :
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 256) fun i =>
+          (Vector.map LC.ofConst bits)[i.val + 1]'(by omega)
+      }).toNat = inverse.toNat := by
+    simpa [bits] using
+      Modular.Aux.constWord_eval_toNat inverse.toNat hinverseFit ρ
+  have invValid (inv : U 256) (hinv : U.Rel ρ inv
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn fun i =>
+          (Vector.map LC.ofConst bits)[i.val + 1]'(by omega) })) :
+      (Modular.Lazy.ofElem base { val := inv }).Valid ρ := by
+    apply Modular.Lazy.ofElem_valid
+    refine ⟨hinv.1, ?_⟩
+    rw [U.Rel.intVal hinv, inverseWordEval]
+    exact_mod_cast hinverseLt
+  have zBitEval (z : U 1) (hz : U.Rel ρ z
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 1) fun _ =>
+          (Vector.map LC.ofConst bits)[0] })) :
+      z.intBits[0].eval ρ.int = if isZero then 1 else 0 := by
+    have hzInt := U.Rel.intVal hz
+    have hword :
+        (Word.eval ρ.bool {
+          bitsLE := Vector.ofFn (n := 1) fun _ =>
+            (Vector.map LC.ofConst bits)[0] }).toNat =
+          if isZero then 1 else 0 := by
+      by_cases hzero : isZero
+      · simp [Word.eval, BitVec.toNat_ofFnLE, bits, isZero, hzero,
+          Nat.ofBits]
+        decide
+      · simp [Word.eval, BitVec.toNat_ofFnLE, bits, isZero, hzero,
+          Nat.ofBits]
+        decide
+    have hzIntVal : z.intVal.eval ρ.int =
+        if isZero then 1 else 0 := hzInt.trans (by exact_mod_cast hword)
+    simpa [U.intVal] using hzIntVal
+  have zeroMulSpec (z : U 1) (hz : U.Rel ρ z
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 1) fun _ =>
+          (Vector.map LC.ofConst bits)[0] }))
+      (inv : U 256) (hinv : U.Rel ρ inv
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn fun i =>
+          (Vector.map LC.ofConst bits)[i.val + 1]'(by omega) })) :
+      Modular.Lazy.AssertMulEqZModSpec base ρ x
+        (Modular.Lazy.ofElem base { val := inv })
+        { intVal := (LC.ofConst 1 : LC Int) - z.intBits[0],
+          bound := 1 } := by
+    have hzBit := zBitEval z hz
+    have hinvVal : inv.intVal.eval ρ.int = inverse.toNat := by
+      rw [U.Rel.intVal hinv, inverseWordEval]
+    have haZ : (a : ZMod base.modulus) = (d : ZMod base.modulus) := by
+      have haCast : (a : ZMod base.modulus) =
+          (a.toNat : ZMod base.modulus) := by
+        rw [← Int.cast_natCast]
+        exact (congrArg (Int.castRingHom (ZMod base.modulus)) haNat).symm
+      rw [haCast]
+      simp [d]
+    unfold Modular.Lazy.AssertMulEqZModSpec Modular.Lazy.evalZMod
+      Modular.Lazy.ofElem
+    rw [hinvVal]
+    simp only [LC.eval_sub, LC.eval_ofConst]
+    have hmain : (a : ZMod base.modulus) *
+        (inverse.toNat : ZMod base.modulus) =
+        ((1 - z.intBits[0].eval ρ.int : Int) : ZMod base.modulus) := by
+      rw [haZ, hzBit]
+      by_cases hzero : d = 0
+      · simp [isZero, hzero]
+      · have hgcd : Nat.gcd d base.modulus = 1 := by
+          rw [Nat.gcd_comm]
+          exact (Nat.coprime_of_lt_prime hzero
+            (Nat.mod_lt _ base.positive) Fact.out).gcd_eq_one
+        have hinverseCast : (inverse.toNat : ZMod base.modulus) =
+            (Nat.gcdA d base.modulus : ZMod base.modulus) := by
+          rw [← Int.cast_natCast, Int.toNat_of_nonneg hinverse0]
+          dsimp [inverse]
+          simp
+        rw [hinverseCast]
+        have hbezout := Nat.gcd_eq_gcd_ab d base.modulus
+        have hcast := congrArg
+          (Int.castRingHom (ZMod base.modulus)) hbezout
+        simpa [isZero, hzero, hgcd, mul_comm] using hcast.symm
+    have hinverseCastZ : (inverse.toNat : ZMod base.modulus) =
+        (inverse : ZMod base.modulus) := by
+      rw [← Int.cast_natCast, Int.toNat_of_nonneg hinverse0]
+    rw [hinverseCastZ] at hmain
+    simpa [a, Int.cast_sub, Int.cast_one, max_eq_left hinverse0] using hmain
+  refine ⟨bits, ?_, ?_⟩
+  · simp [WF.interpHint, WF.evalArgs, hx.1, a, d, isZero, inverse, bits]
+  · mvcgen <;> first
+      | exact invValid _ (by assumption)
+      | skip
+    rename_i z hz inv hinv
+    have hzVal := zBitEval z hz
+    have hspec := zeroMulSpec z hz inv hinv
+    let shifted : Int := a * inverse.toNat + base.modulus -
+      (1 - z.intBits[0].eval ρ.int)
+    have hshifted : 0 ≤ shifted := by
+      have hprod : 0 ≤ a * (inverse.toNat : Int) :=
+        mul_nonneg hx.1 (by positivity)
+      have hp : (0 : Int) < base.modulus := by
+        exact_mod_cast base.positive
+      have hz01 : z.intBits[0].eval ρ.int = 0 ∨
+          z.intBits[0].eval ρ.int = 1 := by
+        rw [hzVal]
+        split <;> simp
+      rcases hz01 with hz0 | hz1
+      · dsimp [shifted]
+        rw [hz0]
+        omega
+      · dsimp [shifted]
+        rw [hz1]
+        omega
+    have hshiftDvd : (base.modulus : Int) ∣ shifted := by
+      unfold Modular.Lazy.AssertMulEqZModSpec Modular.Lazy.evalZMod
+        Modular.Lazy.ofElem at hspec
+      have hinvVal : inv.intVal.eval ρ.int = inverse.toNat := by
+        rw [U.Rel.intVal hinv, inverseWordEval]
+      rw [hinvVal] at hspec
+      simp only [LC.eval_sub, LC.eval_ofConst] at hspec
+      have hmod : ((a * inverse.toNat : Int) : ZMod base.modulus) =
+          ((1 - z.intBits[0].eval ρ.int : Int) : ZMod base.modulus) := by
+        simpa [a, Int.cast_sub, Int.cast_one] using hspec
+      have hdvdDiff : (base.modulus : Int) ∣
+          (1 - z.intBits[0].eval ρ.int) - a * inverse.toNat :=
+        (ZMod.intCast_eq_intCast_iff_dvd_sub _ _ _).1 hmod
+      have hdvdNeg : (base.modulus : Int) ∣
+          a * inverse.toNat - (1 - z.intBits[0].eval ρ.int) := by
+        simpa [neg_sub] using dvd_neg.mpr hdvdDiff
+      rcases hdvdNeg with ⟨k, hk⟩
+      refine ⟨k + 1, ?_⟩
+      calc
+        shifted = a * inverse.toNat -
+            (1 - z.intBits[0].eval ρ.int) + base.modulus := by
+          dsimp [shifted]
+          ring
+        _ = (base.modulus : Int) * k + base.modulus := by rw [hk]
+        _ = (base.modulus : Int) * (k + 1) := by ring
+    let inverseQuotient := shifted.toNat / base.modulus
+    let inverseQBits : Vector Bool 258 := Vector.ofFn fun i =>
+      inverseQuotient.testBit i.val
+    have inverseWordEval' :
+        (Word.eval ρ.bool {
+          bitsLE := Vector.ofFn (n := 256) fun i =>
+            LC.ofConst bits[i.val + 1]
+        }).toNat = inverse.toNat := by
+      simpa using inverseWordEval
+    refine ⟨inverseQBits, ?_, ?_⟩
+    · have hshifted' : 0 ≤ a * inverse + base.modulus -
+          (1 - if isZero then 1 else 0) := by
+        simpa [shifted, Int.toNat_of_nonneg hinverse0, hzVal] using hshifted
+      have hcond : 1 ≤ a * inverse + base.modulus +
+          (if isZero then 1 else 0) := by omega
+      simp [WF.interpHint, WF.evalArgs, a, inverseWordEval,
+        inverseWordEval', U.Rel.intVal hinv, hzVal,
+        Int.toNat_of_nonneg hinverse0, inverseQBits, inverseQuotient, hcond]
+      apply Vector.ext
+      intro i
+      simp [shifted, Int.toNat_of_nonneg hinverse0, hzVal]
+      intro _
+      rfl
+    · mvcgen
+      rename_i inverseQ hInverseQ
+      have hshiftEq : (shifted.toNat : Int) = shifted :=
+        Int.toNat_of_nonneg hshifted
+      have hqSmall : inverseQuotient < 4 * base.modulus + 1 := by
+        dsimp [inverseQuotient]
+        apply (Nat.div_lt_iff_lt_mul base.positive).2
+        apply (Int.toNat_lt hshifted).2
+        have haUpper : a < 4 * base.modulus := by
+          simpa [hbound] using hx.2
+        have hinvUpper : (inverse.toNat : Int) < base.modulus := by
+          exact_mod_cast hinverseLt
+        have hp : (0 : Int) < base.modulus := by
+          exact_mod_cast base.positive
+        have hprodUpper : a * (inverse.toNat : Int) <
+            (4 * base.modulus : Int) * base.modulus :=
+          (mul_le_mul_of_nonneg_left hinvUpper.le hx.1).trans_lt
+            (mul_lt_mul_of_pos_right haUpper hp)
+        have hz01 : z.intBits[0].eval ρ.int = 0 ∨
+            z.intBits[0].eval ρ.int = 1 := by
+          rw [hzVal]
+          split <;> simp
+        rcases hz01 with hz0 | hz1
+        · dsimp [shifted]
+          rw [hz0]
+          push_cast
+          nlinarith
+        · dsimp [shifted]
+          rw [hz1]
+          push_cast
+          nlinarith
+      have hqFit : inverseQuotient < 2 ^ 258 := by
+        calc
+          inverseQuotient < 4 * base.modulus + 1 := hqSmall
+          _ < 2 ^ 258 := by
+            set_option exponentiation.threshold 300 in
+              norm_num [base, baseModulus]
+      have hqWord :
+          (Word.eval ρ.bool {
+            bitsLE := Vector.map LC.ofConst inverseQBits
+          }).toNat = inverseQuotient := by
+        rw [show Vector.map LC.ofConst inverseQBits =
+            Vector.ofFn fun i =>
+              LC.ofConst (inverseQuotient.testBit i.val) by
+          ext i
+          simp [inverseQBits]]
+        exact Modular.Aux.constWord_eval_toNat inverseQuotient hqFit ρ
+      have hqVal : inverseQ.intVal.eval ρ.int = inverseQuotient := by
+        rw [U.Rel.intVal hInverseQ, hqWord]
+      have hshiftDvdNat : base.modulus ∣ shifted.toNat := by
+        rcases hshiftDvd with ⟨k, hk⟩
+        have hk0 : 0 ≤ k := by
+          have hp : (0 : Int) < base.modulus := by
+            exact_mod_cast base.positive
+          rw [hk] at hshifted
+          nlinarith
+        refine ⟨k.toNat, ?_⟩
+        apply Int.ofNat_inj.mp
+        calc
+          (shifted.toNat : Int) = shifted := hshiftEq
+          _ = (base.modulus : Int) * k := hk
+          _ = (base.modulus : Int) * (k.toNat : Int) := by
+            rw [Int.toNat_of_nonneg hk0]
+          _ = ((base.modulus * k.toNat : Nat) : Int) := by norm_num
+      have hdecomp : (shifted.toNat : Int) =
+          (base.modulus : Int) * inverseQuotient := by
+        have hnat := Nat.mod_add_div shifted.toNat base.modulus
+        rw [Nat.mod_eq_zero_of_dvd hshiftDvdNat] at hnat
+        simp only [zero_add] at hnat
+        dsimp [inverseQuotient]
+        exact_mod_cast hnat.symm
+      constructor
+      · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+          LC.eval_ofConst, nsmul_eq_mul, hqVal]
+        have hinvVal : inv.intVal.eval ρ.int = inverse.toNat := by
+          rw [U.Rel.intVal hinv, inverseWordEval]
+        rw [hinvVal]
+        calc
+          a * (inverse.toNat : Int) =
+              shifted - base.modulus +
+                (1 - z.intBits[0].eval ρ.int) := by
+            dsimp [shifted]
+            ring
+          _ = (shifted.toNat : Int) - base.modulus +
+                (1 - z.intBits[0].eval ρ.int) := by rw [hshiftEq]
+          _ = (base.modulus : Int) * inverseQuotient - base.modulus +
+                (1 - z.intBits[0].eval ρ.int) := by rw [hdecomp]
+          _ = 1 - z.intBits[0].eval ρ.int +
+                (base.modulus : Int) * inverseQuotient - base.modulus := by ring
+      · mvcgen
+        let product := (z.intBits[0].eval ρ.int * a).toNat
+        let quotient := product / base.modulus
+        let zeroQBits : Vector Bool 2 := Vector.ofFn fun i =>
+          quotient.testBit i.val
+        refine ⟨zeroQBits, ?_, ?_⟩
+        · rfl
+        · mvcgen
+          rename_i zeroQ hZeroQ
+          have hproduct0 : 0 ≤ z.intBits[0].eval ρ.int * a := by
+            rw [hzVal]
+            split
+            · simpa using hx.1
+            · simp
+          have hproductEq : (product : Int) =
+              z.intBits[0].eval ρ.int * a :=
+            Int.toNat_of_nonneg hproduct0
+          have hqSmall : quotient < 4 := by
+            dsimp [quotient, product]
+            apply (Nat.div_lt_iff_lt_mul base.positive).2
+            apply (Int.toNat_lt hproduct0).2
+            have hp : (0 : Int) < base.modulus := by
+              exact_mod_cast base.positive
+            rw [hzVal]
+            split
+            · simpa [hbound] using hx.2
+            · simp
+              nlinarith
+          have hqFit : quotient < 2 ^ 2 := by simpa using hqSmall
+          have hqWord :
+              (Word.eval ρ.bool {
+                bitsLE := Vector.map LC.ofConst zeroQBits
+              }).toNat = quotient := by
+            rw [show Vector.map LC.ofConst zeroQBits =
+                Vector.ofFn fun i => LC.ofConst (quotient.testBit i.val) by
+              ext i
+              simp [zeroQBits]]
+            exact Modular.Aux.constWord_eval_toNat quotient hqFit ρ
+          have hqVal : zeroQ.intVal.eval ρ.int = quotient := by
+            rw [U.Rel.intVal hZeroQ, hqWord]
+          constructor
+          · simp only [LC.eval_nsmul, nsmul_eq_mul, hqVal]
+            change z.intBits[0].eval ρ.int * a =
+              (base.modulus : Int) * quotient
+            by_cases hzero : isZero
+            · have hd0 : d = 0 := hzero
+              have hmod : a.toNat % base.modulus = 0 := by
+                simpa [d] using hd0
+              have hdecomp := Nat.mod_add_div a.toNat base.modulus
+              rw [hmod] at hdecomp
+              simp only [zero_add] at hdecomp
+              have hproduct : product = a.toNat := by
+                simp [product, hzVal, hzero]
+              have hquotient : quotient = a.toNat / base.modulus := by
+                simp [quotient, hproduct]
+              rw [hzVal, if_pos hzero, hquotient]
+              simp only [one_mul]
+              calc
+                a = (a.toNat : Int) := haNat.symm
+                _ = (base.modulus : Int) *
+                    (a.toNat / base.modulus : Nat) := by
+                  exact_mod_cast hdecomp.symm
+            · have hproduct : product = 0 := by
+                simp [product, hzVal, hzero]
+              have hquotient : quotient = 0 := by
+                simp [quotient, hproduct]
+              rw [hzVal, if_neg hzero, hquotient]
+              simp
+          · have hxZero : Modular.Lazy.evalZMod base x ρ = 0 ↔
+                isZero := by
+              unfold Modular.Lazy.evalZMod
+              have haCast : (a : ZMod base.modulus) =
+                  (a.toNat : ZMod base.modulus) := by
+                rw [← Int.cast_natCast]
+                exact (congrArg
+                  (Int.castRingHom (ZMod base.modulus)) haNat).symm
+              change (a : ZMod base.modulus) = 0 ↔ isZero
+              rw [haCast, ZMod.natCast_eq_zero_iff]
+              simp [isZero, d, Nat.dvd_iff_mod_eq_zero]
+            mvcgen
+            unfold Modular.Lazy.ZeroTestZModSpec
+            rw [hzVal]
+            constructor
+            · split <;> simp
+            · constructor
+              · rw [hxZero]
+                by_cases hzero : isZero <;> simp [hzero]
+              · by_cases hzero : isZero
+                · have hxz : Modular.Lazy.evalZMod base x ρ = 0 :=
+                    hxZero.mpr hzero
+                  simp [hzero, hxz]
+                · have hxz : Modular.Lazy.evalZMod base x ρ ≠ 0 :=
+                    fun h => hzero (hxZero.mp h)
+                  simp [hzero, hxz]
+
+@[spec] theorem zeroTestCanonicalSum_complete {x : AffineSlope.Rep}
+    (hx : x.Valid ρ)
+    (hcanonicalSum : x.intVal.eval ρ.int < 2 * base.modulus) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.zeroTestCanonicalSum x)
+    ⦃⇓ z => ⌜Modular.Lazy.ZeroTestZModSpec base ρ x z⌝⦄ := by
+  mvcgen [AffineSlope.zeroTestCanonicalSum,
+    AffineSlope.zeroTestBound4Prepare,
+    AffineSlope.zeroTestBound4Hint,
+    AffineSlope.zeroTestBound4DecodeZero,
+    AffineSlope.zeroTestBound4DecodeInverse,
+    AffineSlope.zeroTestCanonicalSumInverse,
+    AffineSlope.zeroTestCanonicalSumInverseQHint,
+    AffineSlope.zeroTestCanonicalSumInverseQDecode,
+    AffineSlope.zeroTestCanonicalSumInverseCheck,
+    AffineSlope.zeroTestCanonicalSumZero,
+    AffineSlope.zeroTestCanonicalSumZeroQHint,
+    AffineSlope.zeroTestCanonicalSumZeroQDecode,
+    AffineSlope.zeroTestCanonicalSumZeroCheck]
+  let a := x.intVal.eval ρ.int
+  have haNat : (a.toNat : Int) = a := Int.toNat_of_nonneg hx.1
+  let d := a.toNat % base.modulus
+  let isZero := d = 0
+  let inverse := Nat.gcdA d base.modulus % (base.modulus : Int)
+  have hpInt0 : (base.modulus : Int) ≠ 0 := by
+    exact_mod_cast base.positive.ne'
+  have hinverse0 : 0 ≤ inverse := by
+    exact Int.emod_nonneg _ hpInt0
+  have hinverseLtInt : inverse < base.modulus := by
+    exact Int.emod_lt_of_pos _ (by exact_mod_cast base.positive)
+  have hinverseLt : inverse.toNat < base.modulus :=
+    (Int.toNat_lt hinverse0).2 hinverseLtInt
+  have hinverseFit : inverse.toNat < 2 ^ 256 :=
+    hinverseLt.trans_le base.fits
+  let bits : Vector Bool 257 := Vector.ofFn fun i =>
+    if hi : i.val = 0 then isZero
+    else inverse.toNat.testBit (i.val - 1)
+  have inverseWordEval :
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 256) fun i =>
+          (Vector.map LC.ofConst bits)[i.val + 1]'(by omega)
+      }).toNat = inverse.toNat := by
+    simpa [bits] using
+      Modular.Aux.constWord_eval_toNat inverse.toNat hinverseFit ρ
+  have invValid (inv : U 256) (hinv : U.Rel ρ inv
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn fun i =>
+          (Vector.map LC.ofConst bits)[i.val + 1]'(by omega) })) :
+      (Modular.Lazy.ofElem base { val := inv }).Valid ρ := by
+    apply Modular.Lazy.ofElem_valid
+    refine ⟨hinv.1, ?_⟩
+    rw [U.Rel.intVal hinv, inverseWordEval]
+    exact_mod_cast hinverseLt
+  have zBitEval (z : U 1) (hz : U.Rel ρ z
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 1) fun _ =>
+          (Vector.map LC.ofConst bits)[0] })) :
+      z.intBits[0].eval ρ.int = if isZero then 1 else 0 := by
+    have hzInt := U.Rel.intVal hz
+    have hword :
+        (Word.eval ρ.bool {
+          bitsLE := Vector.ofFn (n := 1) fun _ =>
+            (Vector.map LC.ofConst bits)[0] }).toNat =
+          if isZero then 1 else 0 := by
+      by_cases hzero : isZero
+      · simp [Word.eval, BitVec.toNat_ofFnLE, bits, isZero, hzero,
+          Nat.ofBits]
+        decide
+      · simp [Word.eval, BitVec.toNat_ofFnLE, bits, isZero, hzero,
+          Nat.ofBits]
+        decide
+    have hzIntVal : z.intVal.eval ρ.int =
+        if isZero then 1 else 0 := hzInt.trans (by exact_mod_cast hword)
+    simpa [U.intVal] using hzIntVal
+  have zeroMulSpec (z : U 1) (hz : U.Rel ρ z
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn (n := 1) fun _ =>
+          (Vector.map LC.ofConst bits)[0] }))
+      (inv : U 256) (hinv : U.Rel ρ inv
+      (Word.eval ρ.bool {
+        bitsLE := Vector.ofFn fun i =>
+          (Vector.map LC.ofConst bits)[i.val + 1]'(by omega) })) :
+      Modular.Lazy.AssertMulEqZModSpec base ρ x
+        (Modular.Lazy.ofElem base { val := inv })
+        { intVal := (LC.ofConst 1 : LC Int) - z.intBits[0],
+          bound := 1 } := by
+    have hzBit := zBitEval z hz
+    have hinvVal : inv.intVal.eval ρ.int = inverse.toNat := by
+      rw [U.Rel.intVal hinv, inverseWordEval]
+    have haZ : (a : ZMod base.modulus) = (d : ZMod base.modulus) := by
+      have haCast : (a : ZMod base.modulus) =
+          (a.toNat : ZMod base.modulus) := by
+        rw [← Int.cast_natCast]
+        exact (congrArg (Int.castRingHom (ZMod base.modulus)) haNat).symm
+      rw [haCast]
+      simp [d]
+    unfold Modular.Lazy.AssertMulEqZModSpec Modular.Lazy.evalZMod
+      Modular.Lazy.ofElem
+    rw [hinvVal]
+    simp only [LC.eval_sub, LC.eval_ofConst]
+    have hmain : (a : ZMod base.modulus) *
+        (inverse.toNat : ZMod base.modulus) =
+        ((1 - z.intBits[0].eval ρ.int : Int) : ZMod base.modulus) := by
+      rw [haZ, hzBit]
+      by_cases hzero : d = 0
+      · simp [isZero, hzero]
+      · have hgcd : Nat.gcd d base.modulus = 1 := by
+          rw [Nat.gcd_comm]
+          exact (Nat.coprime_of_lt_prime hzero
+            (Nat.mod_lt _ base.positive) Fact.out).gcd_eq_one
+        have hinverseCast : (inverse.toNat : ZMod base.modulus) =
+            (Nat.gcdA d base.modulus : ZMod base.modulus) := by
+          rw [← Int.cast_natCast, Int.toNat_of_nonneg hinverse0]
+          dsimp [inverse]
+          simp
+        rw [hinverseCast]
+        have hbezout := Nat.gcd_eq_gcd_ab d base.modulus
+        have hcast := congrArg
+          (Int.castRingHom (ZMod base.modulus)) hbezout
+        simpa [isZero, hzero, hgcd, mul_comm] using hcast.symm
+    have hinverseCastZ : (inverse.toNat : ZMod base.modulus) =
+        (inverse : ZMod base.modulus) := by
+      rw [← Int.cast_natCast, Int.toNat_of_nonneg hinverse0]
+    rw [hinverseCastZ] at hmain
+    simpa [a, Int.cast_sub, Int.cast_one, max_eq_left hinverse0] using hmain
+  refine ⟨bits, ?_, ?_⟩
+  · simp [WF.interpHint, WF.evalArgs, hx.1, a, d, isZero, inverse, bits]
+  · mvcgen <;> first
+      | exact invValid _ (by assumption)
+      | skip
+    rename_i z hz inv hinv
+    have hzVal := zBitEval z hz
+    have hspec := zeroMulSpec z hz inv hinv
+    let shifted : Int := a * inverse.toNat + base.modulus -
+      (1 - z.intBits[0].eval ρ.int)
+    have hshifted : 0 ≤ shifted := by
+      have hprod : 0 ≤ a * (inverse.toNat : Int) :=
+        mul_nonneg hx.1 (by positivity)
+      have hp : (0 : Int) < base.modulus := by
+        exact_mod_cast base.positive
+      have hz01 : z.intBits[0].eval ρ.int = 0 ∨
+          z.intBits[0].eval ρ.int = 1 := by
+        rw [hzVal]
+        split <;> simp
+      rcases hz01 with hz0 | hz1
+      · dsimp [shifted]
+        rw [hz0]
+        omega
+      · dsimp [shifted]
+        rw [hz1]
+        omega
+    have hshiftDvd : (base.modulus : Int) ∣ shifted := by
+      unfold Modular.Lazy.AssertMulEqZModSpec Modular.Lazy.evalZMod
+        Modular.Lazy.ofElem at hspec
+      have hinvVal : inv.intVal.eval ρ.int = inverse.toNat := by
+        rw [U.Rel.intVal hinv, inverseWordEval]
+      rw [hinvVal] at hspec
+      simp only [LC.eval_sub, LC.eval_ofConst] at hspec
+      have hmod : ((a * inverse.toNat : Int) : ZMod base.modulus) =
+          ((1 - z.intBits[0].eval ρ.int : Int) : ZMod base.modulus) := by
+        simpa [a, Int.cast_sub, Int.cast_one] using hspec
+      have hdvdDiff : (base.modulus : Int) ∣
+          (1 - z.intBits[0].eval ρ.int) - a * inverse.toNat :=
+        (ZMod.intCast_eq_intCast_iff_dvd_sub _ _ _).1 hmod
+      have hdvdNeg : (base.modulus : Int) ∣
+          a * inverse.toNat - (1 - z.intBits[0].eval ρ.int) := by
+        simpa [neg_sub] using dvd_neg.mpr hdvdDiff
+      rcases hdvdNeg with ⟨k, hk⟩
+      refine ⟨k + 1, ?_⟩
+      calc
+        shifted = a * inverse.toNat -
+            (1 - z.intBits[0].eval ρ.int) + base.modulus := by
+          dsimp [shifted]
+          ring
+        _ = (base.modulus : Int) * k + base.modulus := by rw [hk]
+        _ = (base.modulus : Int) * (k + 1) := by ring
+    let inverseQuotient := shifted.toNat / base.modulus
+    let inverseQBits : Vector Bool 257 := Vector.ofFn fun i =>
+      inverseQuotient.testBit i.val
+    have inverseWordEval' :
+        (Word.eval ρ.bool {
+          bitsLE := Vector.ofFn (n := 256) fun i =>
+            LC.ofConst bits[i.val + 1]
+        }).toNat = inverse.toNat := by
+      simpa using inverseWordEval
+    refine ⟨inverseQBits, ?_, ?_⟩
+    · have hshifted' : 0 ≤ a * inverse + base.modulus -
+          (1 - if isZero then 1 else 0) := by
+        simpa [shifted, Int.toNat_of_nonneg hinverse0, hzVal] using hshifted
+      have hcond : 1 ≤ a * inverse + base.modulus +
+          (if isZero then 1 else 0) := by omega
+      simp [WF.interpHint, WF.evalArgs, a, inverseWordEval,
+        inverseWordEval', U.Rel.intVal hinv, hzVal,
+        Int.toNat_of_nonneg hinverse0, inverseQBits, inverseQuotient, hcond]
+      apply Vector.ext
+      intro i
+      simp [shifted, Int.toNat_of_nonneg hinverse0, hzVal]
+      intro _
+      rfl
+    · mvcgen
+      rename_i inverseQ hInverseQ
+      have hshiftEq : (shifted.toNat : Int) = shifted :=
+        Int.toNat_of_nonneg hshifted
+      have hqSmall : inverseQuotient < 2 * base.modulus + 1 := by
+        dsimp [inverseQuotient]
+        apply (Nat.div_lt_iff_lt_mul base.positive).2
+        apply (Int.toNat_lt hshifted).2
+        have haUpper : a < 2 * base.modulus := hcanonicalSum
+        have hinvUpper : (inverse.toNat : Int) < base.modulus := by
+          exact_mod_cast hinverseLt
+        have hp : (0 : Int) < base.modulus := by
+          exact_mod_cast base.positive
+        have hprodUpper : a * (inverse.toNat : Int) <
+            (2 * base.modulus : Int) * base.modulus :=
+          (mul_le_mul_of_nonneg_left hinvUpper.le hx.1).trans_lt
+            (mul_lt_mul_of_pos_right haUpper hp)
+        have hz01 : z.intBits[0].eval ρ.int = 0 ∨
+            z.intBits[0].eval ρ.int = 1 := by
+          rw [hzVal]
+          split <;> simp
+        rcases hz01 with hz0 | hz1
+        · dsimp [shifted]
+          rw [hz0]
+          push_cast
+          nlinarith
+        · dsimp [shifted]
+          rw [hz1]
+          push_cast
+          nlinarith
+      have hqFit : inverseQuotient < 2 ^ 257 := by
+        calc
+          inverseQuotient < 2 * base.modulus + 1 := hqSmall
+          _ < 2 ^ 257 := by
+            set_option exponentiation.threshold 300 in
+              norm_num [base, baseModulus]
+      have hqWord :
+          (Word.eval ρ.bool {
+            bitsLE := Vector.map LC.ofConst inverseQBits
+          }).toNat = inverseQuotient := by
+        rw [show Vector.map LC.ofConst inverseQBits =
+            Vector.ofFn fun i =>
+              LC.ofConst (inverseQuotient.testBit i.val) by
+          ext i
+          simp [inverseQBits]]
+        exact Modular.Aux.constWord_eval_toNat inverseQuotient hqFit ρ
+      have hqVal : inverseQ.intVal.eval ρ.int = inverseQuotient := by
+        rw [U.Rel.intVal hInverseQ, hqWord]
+      have hshiftDvdNat : base.modulus ∣ shifted.toNat := by
+        rcases hshiftDvd with ⟨k, hk⟩
+        have hk0 : 0 ≤ k := by
+          have hp : (0 : Int) < base.modulus := by
+            exact_mod_cast base.positive
+          rw [hk] at hshifted
+          nlinarith
+        refine ⟨k.toNat, ?_⟩
+        apply Int.ofNat_inj.mp
+        calc
+          (shifted.toNat : Int) = shifted := hshiftEq
+          _ = (base.modulus : Int) * k := hk
+          _ = (base.modulus : Int) * (k.toNat : Int) := by
+            rw [Int.toNat_of_nonneg hk0]
+          _ = ((base.modulus * k.toNat : Nat) : Int) := by norm_num
+      have hdecomp : (shifted.toNat : Int) =
+          (base.modulus : Int) * inverseQuotient := by
+        have hnat := Nat.mod_add_div shifted.toNat base.modulus
+        rw [Nat.mod_eq_zero_of_dvd hshiftDvdNat] at hnat
+        simp only [zero_add] at hnat
+        dsimp [inverseQuotient]
+        exact_mod_cast hnat.symm
+      constructor
+      · simp only [LC.eval_add, LC.eval_sub, LC.eval_nsmul,
+          LC.eval_ofConst, nsmul_eq_mul, hqVal]
+        have hinvVal : inv.intVal.eval ρ.int = inverse.toNat := by
+          rw [U.Rel.intVal hinv, inverseWordEval]
+        rw [hinvVal]
+        calc
+          a * (inverse.toNat : Int) =
+              shifted - base.modulus +
+                (1 - z.intBits[0].eval ρ.int) := by
+            dsimp [shifted]
+            ring
+          _ = (shifted.toNat : Int) - base.modulus +
+                (1 - z.intBits[0].eval ρ.int) := by rw [hshiftEq]
+          _ = (base.modulus : Int) * inverseQuotient - base.modulus +
+                (1 - z.intBits[0].eval ρ.int) := by rw [hdecomp]
+          _ = 1 - z.intBits[0].eval ρ.int +
+                (base.modulus : Int) * inverseQuotient - base.modulus := by ring
+      · mvcgen
+        let product := (z.intBits[0].eval ρ.int * a).toNat
+        let quotient := product / base.modulus
+        let zeroQBits : Vector Bool 1 := Vector.ofFn fun i =>
+          quotient.testBit i.val
+        refine ⟨zeroQBits, ?_, ?_⟩
+        · rfl
+        · mvcgen
+          rename_i zeroQ hZeroQ
+          have hproduct0 : 0 ≤ z.intBits[0].eval ρ.int * a := by
+            rw [hzVal]
+            split
+            · simpa using hx.1
+            · simp
+          have hproductEq : (product : Int) =
+              z.intBits[0].eval ρ.int * a :=
+            Int.toNat_of_nonneg hproduct0
+          have hqSmall : quotient < 2 := by
+            dsimp [quotient, product]
+            apply (Nat.div_lt_iff_lt_mul base.positive).2
+            apply (Int.toNat_lt hproduct0).2
+            have hp : (0 : Int) < base.modulus := by
+              exact_mod_cast base.positive
+            rw [hzVal]
+            split
+            · simpa using hcanonicalSum
+            · simp
+              nlinarith
+          have hqFit : quotient < 2 ^ 1 := by simpa using hqSmall
+          have hqWord :
+              (Word.eval ρ.bool {
+                bitsLE := Vector.map LC.ofConst zeroQBits
+              }).toNat = quotient := by
+            rw [show Vector.map LC.ofConst zeroQBits =
+                Vector.ofFn fun i => LC.ofConst (quotient.testBit i.val) by
+              ext i
+              simp [zeroQBits]]
+            exact Modular.Aux.constWord_eval_toNat quotient hqFit ρ
+          have hqVal : zeroQ.intVal.eval ρ.int = quotient := by
+            rw [U.Rel.intVal hZeroQ, hqWord]
+          constructor
+          · simp only [LC.eval_nsmul, nsmul_eq_mul, hqVal]
+            change z.intBits[0].eval ρ.int * a =
+              (base.modulus : Int) * quotient
+            by_cases hzero : isZero
+            · have hd0 : d = 0 := hzero
+              have hmod : a.toNat % base.modulus = 0 := by
+                simpa [d] using hd0
+              have hdecomp := Nat.mod_add_div a.toNat base.modulus
+              rw [hmod] at hdecomp
+              simp only [zero_add] at hdecomp
+              have hproduct : product = a.toNat := by
+                simp [product, hzVal, hzero]
+              have hquotient : quotient = a.toNat / base.modulus := by
+                simp [quotient, hproduct]
+              rw [hzVal, if_pos hzero, hquotient]
+              simp only [one_mul]
+              calc
+                a = (a.toNat : Int) := haNat.symm
+                _ = (base.modulus : Int) *
+                    (a.toNat / base.modulus : Nat) := by
+                  exact_mod_cast hdecomp.symm
+            · have hproduct : product = 0 := by
+                simp [product, hzVal, hzero]
+              have hquotient : quotient = 0 := by
+                simp [quotient, hproduct]
+              rw [hzVal, if_neg hzero, hquotient]
+              simp
+          · have hxZero : Modular.Lazy.evalZMod base x ρ = 0 ↔
+                isZero := by
+              unfold Modular.Lazy.evalZMod
+              have haCast : (a : ZMod base.modulus) =
+                  (a.toNat : ZMod base.modulus) := by
+                rw [← Int.cast_natCast]
+                exact (congrArg
+                  (Int.castRingHom (ZMod base.modulus)) haNat).symm
+              change (a : ZMod base.modulus) = 0 ↔ isZero
+              rw [haCast, ZMod.natCast_eq_zero_iff]
+              simp [isZero, d, Nat.dvd_iff_mod_eq_zero]
+            mvcgen
+            unfold Modular.Lazy.ZeroTestZModSpec
+            rw [hzVal]
+            constructor
+            · split <;> simp
+            · constructor
+              · rw [hxZero]
+                by_cases hzero : isZero <;> simp [hzero]
+              · by_cases hzero : isZero
+                · have hxz : Modular.Lazy.evalZMod base x ρ = 0 :=
+                    hxZero.mpr hzero
+                  simp [hzero, hxz]
+                · have hxz : Modular.Lazy.evalZMod base x ρ ≠ 0 :=
+                    fun h => hzero (hxZero.mp h)
+                  simp [hzero, hxz]
+
 @[spec] theorem classifyAdd_sound {P Q : AffineSlope.Point} :
   ⦃⌜True⌝⦄ Sound.interp ρ (AffineSlope.classifyAdd P Q)
     ⦃⇓ control => ⌜AddControlSpec ρ P Q control⌝⦄ := by
@@ -666,20 +3086,22 @@ theorem AddControlSpec.active_bit {P Q : AffineSlope.Point}
     (hP : P.Valid ρ) (hQ : Q.Valid ρ) :
     ⦃⌜True⌝⦄ Complete.interp ρ (AffineSlope.classifyAdd P Q)
     ⦃⇓ control => ⌜AddControlSpec ρ P Q control⌝⦄ := by
-  rcases hP with ⟨hPXb, hPX, _, hPYb, hPY, _, hPinf⟩
-  rcases hQ with ⟨hQXb, hQX, _, hQYb, hQY, _, hQinf⟩
+  rcases hP with
+    ⟨hPXb, hPX, _, hPYb, hPY, hPYcanonical, hPinf⟩
+  rcases hQ with
+    ⟨hQXb, hQX, _, hQYb, hQY, hQYcanonical, hQinf⟩
   have hdx : (AffineSlope.sub Q.X P.X).Valid ρ :=
     Modular.Lazy.sub_valid base hQX hPX
   have hysum : (AffineSlope.add P.Y Q.Y).Valid ρ :=
     Modular.Lazy.add_valid base hPY hQY
-  have hdxBound : (AffineSlope.sub Q.X P.X).bound * 2 + 1 <
-      2 ^ Modular.Lazy.quotientExtraBits := by
+  have hdxBound : (AffineSlope.sub Q.X P.X).bound = 4 := by
     simp [AffineSlope.sub, Modular.Lazy.sub, hPXb, hQXb]
-    native_decide
-  have hysumBound : (AffineSlope.add P.Y Q.Y).bound * 2 + 1 <
-      2 ^ Modular.Lazy.quotientExtraBits := by
+  have hysumBound : (AffineSlope.add P.Y Q.Y).bound = 4 := by
     simp [AffineSlope.add, Modular.Lazy.add, hPYb, hQYb]
-    native_decide
+  have hysumCanonical :
+      (AffineSlope.add P.Y Q.Y).intVal.eval ρ.int < 2 * base.modulus := by
+    simp only [AffineSlope.add, Modular.Lazy.add, LC.eval_add]
+    omega
   have hnotP : (LC.ofConst 1 - P.infinity).eval ρ.int = 0 ∨
       (LC.ofConst 1 - P.infinity).eval ρ.int = 1 := by
     rcases hPinf with h | h <;> simp [h]
@@ -702,6 +3124,7 @@ theorem AddControlSpec.active_bit {P Q : AffineSlope.Point}
     | exact hysum
     | exact hdxBound
     | exact hysumBound
+    | exact hysumCanonical
     | exact hnotP
     | exact hnotQ
     | exact zeroTestBit (by assumption)
@@ -825,6 +3248,58 @@ def SlopeOperandsSpec (ρ : WF.Valuation) (P Q : AffineSlope.Point)
   all_goals intros
   all_goals try assumption
   all_goals intros <;> assumption
+
+@[spec] theorem selectSlopeOperandsCollapsed_sound {P Q : AffineSlope.Point}
+    {control : AffineSlope.AddControl}
+    (hcontrol : AddControlSpec ρ P Q control) :
+    ⦃⌜True⌝⦄ Sound.interp ρ
+      (AffineSlope.selectSlopeOperandsCollapsed P Q control)
+    ⦃⇓ operands => ⌜SlopeOperandsSpec ρ P Q control operands⌝⦄ := by
+  mvcgen [AffineSlope.selectSlopeOperandsCollapsed,
+    AffineSlope.finishSelectSlopeOperandsCollapsed,
+    AffineSlope.selectCollapsedNumerator,
+    AffineSlope.selectCollapsedDenominator]
+  rename_i x2 hx2 numerator hnumerator denominator hdenominator
+  unfold SlopeOperandsSpec
+  constructor
+  · intro hactive
+    constructor
+    · intro hdouble
+      constructor
+      · calc
+          Modular.Lazy.evalZMod base numerator ρ =
+              Modular.Lazy.evalZMod base
+                (AffineSlope.sub (AffineSlope.scale 3 x2)
+                  (AffineSlope.ofElem three)) ρ := hnumerator.1 hdouble
+          _ = _ := by
+            simp [Modular.Lazy.MulZModSpec] at hx2
+            simp [hx2, AffineSlope.sub, AffineSlope.scale,
+              AffineSlope.ofElem]
+      · calc
+          Modular.Lazy.evalZMod base denominator ρ =
+              Modular.Lazy.evalZMod base (AffineSlope.scale 2 P.Y) ρ :=
+            hdenominator.1 hdouble
+          _ = _ := by simp [AffineSlope.scale]
+    · intro hdouble
+      have hgeneric :
+          (control.active - control.doubleCase).eval ρ.int = 1 := by
+        simp [hactive, hdouble]
+      constructor
+      · calc
+          Modular.Lazy.evalZMod base numerator ρ =
+              Modular.Lazy.evalZMod base (AffineSlope.sub Q.Y P.Y) ρ :=
+            hnumerator.2.1 hgeneric
+          _ = _ := by simp [AffineSlope.sub]
+      · calc
+          Modular.Lazy.evalZMod base denominator ρ =
+              Modular.Lazy.evalZMod base (AffineSlope.sub Q.X P.X) ρ :=
+            hdenominator.2.1 hgeneric
+          _ = _ := by simp [AffineSlope.sub]
+  · intro hactive
+    have hinactive : (LC.ofConst 1 - control.active).eval ρ.int = 1 := by
+      simp [hactive]
+    exact ⟨by simpa [AffineSlope.ofElem] using hnumerator.2.2 hinactive,
+      by simpa [AffineSlope.ofElem] using hdenominator.2.2 hinactive⟩
 
 theorem SlopeOperandsSpec.denominator_ne_zero
     {P Q : AffineSlope.Point} {control : AffineSlope.AddControl}

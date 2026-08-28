@@ -1,5 +1,5 @@
-import Freigen.F2Z.Examples.EcdsaP256.Lemmas
-import Freigen.F2Z.Examples.EcdsaP256.WF
+import Freigen.F2Z.Examples.EcdsaP256.Radix32ProductionLemmas
+import Freigen.F2Z.Examples.EcdsaP256.FixedBaseCombWF
 
 /-!
 # ECDSA-P256 verification and Mathlib equivalence
@@ -36,7 +36,7 @@ theorem verifyDigest_sound
     (circ := verifyDigestFromBits)
     (P := fun _ _ => VerifyDigestAccepts inputs)
   · simpa [Sound.csValuation, VerifyDigestAccepts, verifyDigestCS] using
-      verifyDigestFromBits_sound_aux
+      verifyDigestFromBits_sound_radix32_aux
         (ρ := Sound.csValuation verifyDigestCS.2 wit) inputs
   · exact hinputs
   · simpa [verifyDigestCS] using hsat
@@ -72,11 +72,11 @@ theorem verifyDigest_complete
       (Complete.witnessValuation inputs.toArray).bool i.val = inputs[i] := by
     intro i
     simp [Complete.witnessValuation, getElem!_pos]
-  have hcomplete := verifyDigestFromBits_complete_aux
+  have hcomplete := verifyDigestFromBits_complete_radix32_aux
     (ρ := Complete.witnessValuation inputs.toArray) inputs publicKey hbits
     hkeyXlt hkeyYlt hrInvlt hsInvlt hcoords horder hrInvMul hsInvMul hverifies
   have had := Complete.adequate
-    verifyDigestFromBits_wf_aux
+    verifyDigestFromBits_radix32_wf_aux
     hcomplete
   simpa [verifyDigestCS] using had
 
@@ -84,7 +84,7 @@ theorem verifyDigest_complete
 theorem verifyDigest_wf :
     WF.GadgetSpec VerifyDigestBits.WFRel verifyDigestFromBits
       (fun _ _ _ _ => True) :=
-  verifyDigestFromBits_wf_aux
+  verifyDigestFromBits_radix32_wf_aux
 
 /-! ## Prehashed digest verification circuit size -/
 
@@ -92,7 +92,7 @@ theorem verifyDigest_wf :
 message hash supplied as input. SHA-256 is not part of this circuit. -/
 
 /--
-info: { mRows := 1215663, mCols := 1215663, r1csRows := 7061 }
+info: { mRows := 874763, mCols := 874763, r1csRows := 7954, cost := 2632243 }
 -/
 #guard_msgs in
 #eval verifyDigestCS.2.stats

@@ -1,5 +1,8 @@
 import Freigen.F2Z.Examples.EcdsaP256.Impl
 import Freigen.F2Z.Examples.P256.WF
+import Freigen.F2Z.Examples.P256.CollapsedWF
+import Freigen.F2Z.Examples.P256.XOnlyWF
+import Freigen.F2Z.Examples.P256.CanonicalXWF
 
 /-!
 # Auxiliary quotient well-formedness proofs for ECDSA-P256
@@ -72,8 +75,9 @@ private theorem projective_ofElems_wfRel {lv rv : WF.Valuation}
 theorem materializeMultiples_wf_aux :
     WF.GadgetSpec Projective.WFRel materializeMultiples
       (WF.VectorRel AffineSlope.Point.WFRel) := by
-  wfgen' using [AffineSlope.addComplete_wf_aux]
-    unfold [materializeMultiples]
+  wfgen' using [AffineSlope.addCompleteCollapsed_wf_aux,
+    AffineSlope.doubleComplete_wf_aux]
+    unfold [materializeMultiples, addMultiple, doubleMultiple]
   case vc1 =>
     rename_i _ _ _ h1 _ _ _ h2 _ _ _ h3 _ _ _ h4
       _ _ _ h5 _ _ _ h6 _ _ _ h7 _ _ _ h8 _ _ _ h9
@@ -514,6 +518,32 @@ theorem accumulateJoint_wf_aux :
           have h1 := hacc1 lv rv h2.1
           exact ⟨h4.2, h1.1.2.2.2⟩
 
+theorem accumulateInitialJoint_wf_aux :
+    WF.GadgetSpec JointTerms.WFRel accumulateInitialJoint
+      AffineSlope.Point.WFRel := by
+  unfold WF.GadgetSpec
+  intro left right
+  unfold accumulateInitialJoint
+  apply WF.GadgetSpec.bind_rule
+    (left := left.qhi) (right := right.qhi) doubleFour_wf_aux
+  · intro lv rv h
+    exact h.1
+  · intro B acc1L acc1R hacc1
+    apply WF.GadgetSpec.bind_rule
+      (left := (acc1L, left.qlo))
+      (right := (acc1R, right.qlo)) AffineSlope.addComplete_wf_aux
+    · intro lv rv hB
+      have h := hacc1 lv rv hB
+      exact ⟨h.2, h.1.2.1⟩
+    · intro C acc2L acc2R hacc2
+      apply WF.GadgetSpec.direct_rule
+        (left := (acc2L, left.g))
+        (right := (acc2R, right.g)) AffineSlope.addComplete_wf_aux
+      intro lv rv hC
+      have h2 := hacc2 lv rv hC
+      have h1 := hacc1 lv rv h2.1
+      exact ⟨h2.2, h1.1.2.2⟩
+
 theorem jointByteStep_wf_aux (i : Nat) (hi : i < 32) :
     WF.GadgetSpec
       (fun lv rv
@@ -542,6 +572,27 @@ theorem jointByteStep_wf_aux (i : Nat) (hi : i < 32) :
     have h := hterms lv rv hB
     exact ⟨h.1.2.2.2, h.2⟩
 
+theorem initialJointByteStep_wf_aux :
+    WF.GadgetSpec
+      (fun lv rv
+          (left right : Fn × Fn × Vector AffineSlope.Point 16) =>
+        Modular.Elem.ScalarWFRel lv rv left.1 right.1 ∧
+        Modular.Elem.ScalarWFRel lv rv left.2.1 right.2.1 ∧
+        WF.VectorRel AffineSlope.Point.WFRel lv rv left.2.2 right.2.2)
+      (fun input => initialJointByteStep input.1 input.2.1 input.2.2)
+      AffineSlope.Point.WFRel := by
+  unfold WF.GadgetSpec
+  intro left right
+  unfold initialJointByteStep
+  apply WF.GadgetSpec.bind_rule
+    (selectJointTerms_wf_aux 0 (by omega))
+  · intro lv rv h
+    exact h
+  · intro B termsL termsR hterms
+    apply WF.GadgetSpec.direct_rule accumulateInitialJoint_wf_aux
+    intro lv rv hB
+    exact (hterms lv rv hB).2
+
 def JointScalarInput.WFRel :
     WF.Post (Fn × Fn × Projective) :=
   fun lv rv left right =>
@@ -560,30 +611,39 @@ theorem jointScalarMul_wf_aux :
   · intro lv rv h
     exact h.2.2
   · intro B tableL tableR htable
-    refine WF.Rel.mono (WF.Rel.foldRange_rule
-      (I := fun lv rv left right =>
-        B lv rv ∧ AffineSlope.Point.WFRel lv rv left right) ?_ ?_) ?_
+    apply WF.GadgetSpec.bind_rule
+      (left := (left.1, left.2.1, tableL))
+      (right := (right.1, right.2.1, tableR))
+      initialJointByteStep_wf_aux
     · intro lv rv hB
-      exact ⟨hB, AffineSlope.infinity_wfRel lv rv⟩
-    · intro i hi P accL accR hacc
-      have hinput : ∀ lv rv, P lv rv →
-          Modular.Elem.ScalarWFRel lv rv left.1 right.1 ∧
-          Modular.Elem.ScalarWFRel lv rv left.2.1 right.2.1 ∧
-          WF.VectorRel AffineSlope.Point.WFRel lv rv tableL tableR ∧
-          AffineSlope.Point.WFRel lv rv accL accR := by
-        intro lv rv hP
-        have hstate := hacc lv rv hP
-        have ht := htable lv rv hstate.1
-        exact ⟨ht.1.1, ht.1.2.1, ht.2, hstate.2⟩
-      have hstep := (jointByteStep_wf_aux i hi.2.1).relHom P
-        (left.1, left.2.1, tableL, accL)
-        (right.1, right.2.1, tableR, accR) hinput
-      exact WF.Rel.mono hstep (by
-        intro lv rv outL outR hpost
-        exact ⟨hpost.1, (hacc lv rv hpost.1).1, hpost.2⟩
-      )
-    · intro lv rv outL outR hpost
-      exact hpost.2
+      have ht := htable lv rv hB
+      exact ⟨ht.1.1, ht.1.2.1, ht.2⟩
+    · intro C initialL initialR hinitial
+      refine WF.Rel.mono (WF.Rel.foldRange_rule
+        (I := fun lv rv left right =>
+          C lv rv ∧ AffineSlope.Point.WFRel lv rv left right) ?_ ?_) ?_
+      · intro lv rv hC
+        exact ⟨hC, (hinitial lv rv hC).2⟩
+      · intro i hi P accL accR hacc
+        have hinput : ∀ lv rv, P lv rv →
+            Modular.Elem.ScalarWFRel lv rv left.1 right.1 ∧
+            Modular.Elem.ScalarWFRel lv rv left.2.1 right.2.1 ∧
+            WF.VectorRel AffineSlope.Point.WFRel lv rv tableL tableR ∧
+            AffineSlope.Point.WFRel lv rv accL accR := by
+          intro lv rv hP
+          have hstate := hacc lv rv hP
+          have hini := hinitial lv rv hstate.1
+          have ht := htable lv rv hini.1
+          exact ⟨ht.1.1, ht.1.2.1, ht.2, hstate.2⟩
+        have hstep := (jointByteStep_wf_aux i hi.2.1).relHom P
+          (left.1, left.2.1, tableL, accL)
+          (right.1, right.2.1, tableR, accR) hinput
+        exact WF.Rel.mono hstep (by
+          intro lv rv outL outR hpost
+          exact ⟨hpost.1, (hacc lv rv hpost.1).1, hpost.2⟩
+        )
+      · intro lv rv outL outR hpost
+        exact hpost.2
 
 private theorem fnOne_wfRel (lv rv : WF.Valuation) :
     Modular.Elem.WFRel lv rv fnOne fnOne := by
@@ -931,11 +991,11 @@ theorem prepareVerification_wf_aux :
         ⟨hc.1.1, hc.2.1.1, one_wfRel lv rv⟩, hc.2.2.1.1⟩
 
 theorem computeVerificationSum_wf_aux :
-    WF.GadgetSpec PreparedVerification.WFRel computeVerificationSum
+    WF.GadgetSpec PreparedVerification.WFRel computeVerificationSumLegacy
       AffineSlope.Point.WFRel := by
   unfold WF.GadgetSpec
   intro left right
-  unfold computeVerificationSum
+  unfold computeVerificationSumLegacy
   apply WF.GadgetSpec.direct_rule
     (left := (left.u1, left.u2, left.q))
     (right := (right.u1, right.u2, right.q)) jointScalarMul_wf_aux
@@ -948,22 +1008,30 @@ def CheckVerificationX.WFRel :
     Modular.Elem.WFRel lv rv left.1 right.1 ∧
     AffineSlope.Point.WFRel lv rv left.2 right.2
 
-theorem checkVerificationX_wf_aux :
-    WF.GadgetSpec CheckVerificationX.WFRel
-      (fun input => checkVerificationX input.1 input.2)
+def CheckVerificationXAndInfinity.WFRel :
+    WF.Post (Fn × AffineSlope.Rep × LC ℤ) :=
+  fun lv rv left right =>
+    Modular.Elem.WFRel lv rv left.1 right.1 ∧
+    Modular.Lazy.Rep.WFRel lv rv left.2.1 right.2.1 ∧
+    WF.LCEq lv.int rv.int left.2.2 right.2.2
+
+theorem checkVerificationXAndInfinity_wf_aux :
+    WF.GadgetSpec CheckVerificationXAndInfinity.WFRel
+      (fun input => checkVerificationXAndInfinity
+        input.1 input.2.1 input.2.2)
       (fun _ _ _ _ => True) := by
   unfold WF.GadgetSpec
   intro left right
-  unfold checkVerificationX
+  unfold checkVerificationXAndInfinity
   apply WF.Rel.assertR1C
   · intro _ _ _
     rfl
   · intro _ _ _
     rfl
   · intro lv rv h
-    exact h.2.2.2
+    exact h.2.2
   · apply WF.GadgetSpec.bind_rule
-      (left := left.2.X) (right := right.2.X)
+      (left := left.2.1) (right := right.2.1)
       (Modular.Lazy.reduce_wf base)
     · intro lv rv h
       exact h.2.1
@@ -982,12 +1050,97 @@ theorem checkVerificationX_wf_aux :
         have hc := hx lv rv hm.1
         exact ⟨hm.2, hc.1.1⟩
 
-theorem finishVerification_wf_aux :
-    WF.GadgetSpec PreparedVerification.WFRel finishVerification
+theorem checkVerificationX_wf_aux :
+    WF.GadgetSpec CheckVerificationX.WFRel
+      (fun input => checkVerificationX input.1 input.2)
       (fun _ _ _ _ => True) := by
   unfold WF.GadgetSpec
   intro left right
-  unfold finishVerification
+  unfold checkVerificationX
+  apply WF.GadgetSpec.direct_rule
+    (left := (left.1, left.2.X, left.2.infinity))
+    (right := (right.1, right.2.X, right.2.infinity))
+    checkVerificationXAndInfinity_wf_aux
+  intro lv rv h
+  exact ⟨h.1, h.2.1, h.2.2.2⟩
+
+def CheckVerificationCanonicalX.WFRel :
+    WF.Post (Fn × AffineSlope.CanonicalXPoint) :=
+  fun lv rv left right =>
+    Modular.Elem.WFRel lv rv left.1 right.1 ∧
+    AffineSlope.CanonicalXPoint.WFRel lv rv left.2 right.2
+
+set_option maxHeartbeats 200000 in
+theorem checkVerificationCanonicalX_wf_aux :
+    WF.GadgetSpec CheckVerificationCanonicalX.WFRel
+      (fun input => checkVerificationCanonicalX input.1 input.2)
+      (fun _ _ _ _ => True) := by
+  unfold WF.GadgetSpec
+  intro left right
+  unfold checkVerificationCanonicalX
+  apply WF.Rel.assertR1C
+  · intro _ _ _
+    rfl
+  · intro _ _ _
+    rfl
+  · intro lv rv h
+    exact h.2.2
+  · have hargs : ∀ lv rv, CheckVerificationCanonicalX.WFRel lv rv left right →
+        WF.ArgsEq lv rv
+          h![left.2.X.val.intVal, left.1.val.intVal]
+          h![right.2.X.val.intVal, right.1.val.intVal] := by
+      intro lv rv h
+      simp_all [WF.ArgsEq, WF.evalArgs,
+        CheckVerificationCanonicalX.WFRel,
+        AffineSlope.CanonicalXPoint.WFRel, Modular.Elem.WFRel,
+        U.WFRel, WF.LCEq]
+    apply WF.Rel.hint
+    · exact hargs
+    · intro lv rv h
+      exact WF.HintRel.of_argsEq terminalScalarQuotientHint
+        (hargs lv rv h)
+    · intro bitsL bitsR
+      let S : WF.Assumption := fun lv rv =>
+        CheckVerificationCanonicalX.WFRel lv rv left right ∧ ∃ values,
+          WF.HintReturns
+            (terminalScalarQuotientHint (WF.evalArgs lv
+              h![left.2.X.val.intVal, left.1.val.intVal])) values ∧
+          WF.HintReturns
+            (terminalScalarQuotientHint (WF.evalArgs rv
+              h![right.2.X.val.intVal, right.1.val.intVal])) values ∧
+          WF.RealizesBools lv.bool bitsL values ∧
+          WF.RealizesBools rv.bool bitsR values
+      have hbits : ∀ lv rv, S lv rv → ∀ i : Fin 1,
+          WF.LCEq lv.bool rv.bool bitsL[i] bitsR[i] := by
+        intro lv rv h i
+        exact Modular.Aux.WF.lceq_of_common_realizes
+          (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
+      have hword := U.fromWord_wf_rel.relHom S
+        ({ bitsLE := bitsL } : Word 1) ({ bitsLE := bitsR } : Word 1)
+        hbits
+      apply hword.bind
+      intro B quotientL quotientR hquotient
+      apply WF.Rel.assertR1C_pure
+      · intro lv rv hB
+        have h := (hquotient lv rv hB).1.1
+        exact WF.eval_sub rfl h.2.2
+      · intro lv rv hB
+        have hq := hquotient lv rv hB
+        have h := hq.1.1
+        exact WF.eval_sub h.2.1.1
+          (WF.eval_add h.1.1
+            (WF.eval_nsmul scalar.modulus hq.2.1))
+      · intro _ _ _
+        rfl
+      · intro _ _ _
+        trivial
+
+theorem finishVerification_wf_aux :
+    WF.GadgetSpec PreparedVerification.WFRel finishVerificationLegacy
+      (fun _ _ _ _ => True) := by
+  unfold WF.GadgetSpec
+  intro left right
+  unfold finishVerificationLegacy
   apply WF.GadgetSpec.bind_rule_direct
     (left := left) (right := right) computeVerificationSum_wf_aux
   · intro lv rv h
@@ -1001,11 +1154,11 @@ theorem finishVerification_wf_aux :
 
 theorem verifyDigest_wf_aux :
     WF.GadgetSpec VerifyInput.WFRel
-      (fun input => verifyDigest input.1 input.2.1 input.2.2.1 input.2.2.2)
+      (fun input => verifyDigestLegacy input.1 input.2.1 input.2.2.1 input.2.2.2)
       (fun _ _ _ _ => True) := by
   unfold WF.GadgetSpec
   intro left right
-  unfold verifyDigest
+  unfold verifyDigestLegacy
   apply WF.GadgetSpec.bind_rule_direct
     (left := (left.2.1, left.2.2.1, left.2.2.2))
     (right := (right.2.1, right.2.2.1, right.2.2.2))
@@ -1030,7 +1183,7 @@ def VerifyDigestBits.WFRel (lv rv : WF.Valuation)
     (fun lv rv left right => WF.LCEq lv.bool rv.bool left right)
     lv rv left right
 
-private theorem mapM_fromWord_wf_full :
+theorem mapM_fromWord_wf_full :
     WF.GadgetSpec (WF.VectorRel Word.WFRel)
       (fun xs : Vector (Word n) m => xs.mapM U.fromWord)
       (WF.VectorRel U.FullWFRel) := by
@@ -1043,7 +1196,7 @@ private theorem mapM_fromWord_wf_full :
   have hi := h.2 i
   exact ⟨⟨hi.2.2, hi.1⟩, hi.2.1⟩
 
-private theorem verifyDigestInputWords_wf
+theorem verifyDigestInputWords_wf
     {lv rv : WF.Valuation}
     {left right : Vector (LC Bool) verifyDigestInputBits}
     (h : VerifyDigestBits.WFRel lv rv left right) :
@@ -1056,11 +1209,11 @@ private theorem verifyDigestInputWords_wf
       omega⟩
 
 theorem verifyDigestFromBits_wf_aux :
-    WF.GadgetSpec VerifyDigestBits.WFRel verifyDigestFromBits
+    WF.GadgetSpec VerifyDigestBits.WFRel verifyDigestFromBitsLegacy
       (fun _ _ _ _ => True) := by
   unfold WF.GadgetSpec
   intro left right
-  unfold verifyDigestFromBits
+  unfold verifyDigestFromBitsLegacy
   apply WF.GadgetSpec.bind_rule_direct
     (left := verifyDigestInputWords left)
     (right := verifyDigestInputWords right) mapM_fromWord_wf_full
