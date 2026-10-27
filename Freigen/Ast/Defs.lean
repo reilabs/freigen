@@ -2,6 +2,7 @@ import Freigen.Eff
 import Freigen.Free.Basic
 import Freigen.CompM.Basic
 import Freigen.CompM.WF
+import Freigen.Wheels
 import Std.Data.ExtHashMap.Lemmas
 
 namespace Freigen.Ast
@@ -9,7 +10,6 @@ namespace Freigen.Ast
 /-- Object-language types. -/
 inductive Tp
 | uInt32
-| int32
 | bool
 | array (tp : Tp)
 | unit
@@ -21,41 +21,37 @@ def FnRef : Type := Nat
 
 abbrev Tp.denote : Tp → Type
 | .uInt32 => UInt32
-| .int32 => Int32
 | .bool => Bool
 | .array tp => Array (Tp.denote tp)
 | .unit => Unit
 | .prod l r => l.denote × r.denote
 | .fn _ _ => FnRef
 
-def Tp.listProd : List Tp → Tp
-| [] => .unit
-| tp :: tps => .prod tp (Tp.listProd tps)
-
+/-- Types that may cross effect boundaries and program entry points. -/
 inductive IsAbiTp : Tp → Prop
 | uInt32 : IsAbiTp .uInt32
-| int32 : IsAbiTp .int32
 | bool : IsAbiTp .bool
+| unit : IsAbiTp .unit
 | array {tp} : IsAbiTp tp → IsAbiTp (Tp.array tp)
 | prod {fst snd} : IsAbiTp fst → IsAbiTp snd → IsAbiTp (Tp.prod fst snd)
 
 abbrev AbiTp := {tp : Tp // IsAbiTp tp}
 
 abbrev AbiTp.uInt32 : AbiTp := ⟨.uInt32, .uInt32⟩
-abbrev AbiTp.int32 : AbiTp := ⟨.int32, .int32⟩
 abbrev AbiTp.bool : AbiTp := ⟨.bool, .bool⟩
+abbrev AbiTp.unit : AbiTp := ⟨.unit, .unit⟩
 abbrev AbiTp.array (tp : AbiTp) : AbiTp :=
   ⟨.array tp.val, .array tp.property⟩
 abbrev AbiTp.prod (fst snd : AbiTp) : AbiTp :=
   ⟨.prod fst.val snd.val, .prod fst.property snd.property⟩
 
 structure EffSig where
-  Ctx : Type u
+  Ctx : Type
   [decidableEqCtx : DecidableEq Ctx]
-  tag : Ctx → Type u
+  tag : Ctx → Type
   input : (γ : Ctx) → tag γ → AbiTp
   output : (γ : Ctx) → tag γ → AbiTp
-  blockTag : (γ : Ctx) → tag γ → Type u
+  blockTag : (γ : Ctx) → tag γ → Type
   blockCtx : (γ : Ctx) → (e : tag γ) → blockTag γ e → Ctx
   blockInputs : (γ : Ctx) → (e : tag γ) → blockTag γ e → AbiTp
   blockOutputs : (γ : Ctx) → (e : tag γ) → blockTag γ e → AbiTp
@@ -63,7 +59,7 @@ structure EffSig where
 attribute [instance] EffSig.decidableEqCtx
 
 /-- Pull the syntactic signature back along `Tp.denote`; inputs live in tags. -/
-def EffSig.denote (s : EffSig) : s.Ctx → Type u :=
+def EffSig.denote (s : EffSig) : s.Ctx → Type :=
   fun γ => Σ e : s.tag γ, (s.input γ e).val.denote
 
 instance EffSig.denoteSpec (s : EffSig) : Eff.Spec s.denote where
@@ -73,23 +69,65 @@ instance EffSig.denoteSpec (s : EffSig) : Eff.Spec s.denote where
   blockInputs := fun γ ⟨e, _⟩ b => (s.blockInputs γ e b).val.denote
   blockOutputs := fun γ ⟨e, _⟩ b => (s.blockOutputs γ e b).val.denote
 
-abbrev SourceM (eff : EffSig) (γ : eff.Ctx) (α : Type) :=
-  Free eff.denote γ α
-
-abbrev EvalEff (eff : EffSig) : eff.Ctx → Type u :=
-  Eff.Tau ⊕ₑ (Eff.Fail ⊕ₑ eff.denote)
+/-- The evaluator's effects: failure, silent steps, then the user signature. -/
+abbrev EvalEff (eff : EffSig) : eff.Ctx → Type :=
+  Eff.Fail ⊕ₑ Eff.Tau ⊕ₑ eff.denote
 
 abbrev EvalM (eff : EffSig) (γ : eff.Ctx) (α : Type) :=
   CompM (EvalEff eff) γ α
 
+/-- Primitive operations. Data construction and projection are builtins too,
+so the AST has a single node (and a single certificate rule) for all of them. -/
 inductive Builtin : List Tp → Tp → Type
 | uAdd : Builtin [.uInt32, .uInt32] .uInt32
 | uSub : Builtin [.uInt32, .uInt32] .uInt32
 | uMul : Builtin [.uInt32, .uInt32] .uInt32
 | uDiv : Builtin [.uInt32, .uInt32] .uInt32
-
+| uMod : Builtin [.uInt32, .uInt32] .uInt32
 | uEq : Builtin [.uInt32, .uInt32] .bool
 | uLt : Builtin [.uInt32, .uInt32] .bool
+| uLe : Builtin [.uInt32, .uInt32] .bool
+
+| not : Builtin [.bool] .bool
+| and : Builtin [.bool, .bool] .bool
+| or : Builtin [.bool, .bool] .bool
+| bEq : Builtin [.bool, .bool] .bool
+
+| pair {a b} : Builtin [a, b] (.prod a b)
+| fst {a b} : Builtin [.prod a b] a
+| snd {a b} : Builtin [.prod a b] b
+
+| arrEmpty {a} : Builtin [] (.array a)
+| arrPush {a} : Builtin [.array a, a] (.array a)
+| arrGet {a} : Builtin [.array a, .uInt32] a
+| arrSet {a} : Builtin [.array a, .uInt32, a] (.array a)
+| arrLen {a} : Builtin [.array a] .uInt32
+
+/-- Semantics of builtins. `none` means the evaluator fails (out-of-bounds
+array access). Division and remainder by zero follow `UInt32` (result `0` and
+the dividend respectively); array lengths wrap modulo `2^32`. -/
+def Builtin.denote : Builtin inp out → HList Tp.denote inp → Option out.denote
+| .uAdd, h![x, y] => some (x + y)
+| .uSub, h![x, y] => some (x - y)
+| .uMul, h![x, y] => some (x * y)
+| .uDiv, h![x, y] => some (x / y)
+| .uMod, h![x, y] => some (x % y)
+| .uEq, h![x, y] => some (decide (x = y))
+| .uLt, h![x, y] => some (decide (x < y))
+| .uLe, h![x, y] => some (decide (x ≤ y))
+| .not, h![x] => some (!x)
+| .and, h![x, y] => some (x && y)
+| .or, h![x, y] => some (x || y)
+| .bEq, h![x, y] => some (decide (x = y))
+| .pair, h![x, y] => some (x, y)
+| .fst, h![p] => some p.1
+| .snd, h![p] => some p.2
+| .arrEmpty, h![] => some #[]
+| .arrPush, h![xs, x] => some (xs.push x)
+| .arrGet, h![xs, i] => xs[i.toNat]?
+| .arrSet, h![xs, i, x] =>
+    if h : i.toNat < xs.size then some (xs.set i.toNat x h) else none
+| .arrLen, h![xs] => some xs.size.toUInt32
 
 inductive Expr
     (eff : EffSig) (Var : Tp → Type) :
@@ -98,7 +136,7 @@ inductive Expr
 | lit {γ outK} : (tp : AbiTp) → (v : tp.val.denote) →
     (Var tp → Expr eff Var γ outK) → Expr eff Var γ outK
 | builtin {γ inp out outK} :
-    (b : Builtin inp out) → Var (Tp.listProd inp) →
+    (b : Builtin inp out) → HList Var inp →
     (Var out → Expr eff Var γ outK) → Expr eff Var γ outK
 | lam {γ inp out outK} : (Var inp → Expr eff Var γ out) →
     (Var (.fn inp out) → Expr eff Var γ outK) → Expr eff Var γ outK
@@ -194,34 +232,19 @@ def Heap.lookup
     else
       none
 
-inductive ExprCont
-    (eff : EffSig) (γ : eff.Ctx) :
-    Tp → Tp → Type where
-| pure {o i} :
-    (i.denote → Expr eff Tp.denote γ o) →
-    ExprCont eff γ i o
-| bind {o' o i} :
-    (i.denote → Expr eff Tp.denote γ o') →
-    ExprCont eff γ o' o →
-    ExprCont eff γ i o
-
 inductive EvalState (eff : EffSig): eff.Ctx × Type → Type _ where
 | done {γ} {R}: R → EvalState eff (γ, R)
 | cont {γ} {R} {i : Tp}: Heap eff → Expr eff Tp.denote γ i →
     (Heap eff → Tp.denote i → EvalState eff (γ, R)) → EvalState eff (γ, R)
 
-def Expr.denoteCo {eff} (i : eff.Ctx × Type) : EvalState eff i → Eff.Step eff.Ctx (Eff.Fail ⊕ₑ Eff.Tau ⊕ₑ eff.denote) (EvalState eff) i
+def Expr.denoteCo {eff} (i : eff.Ctx × Type) : EvalState eff i → Eff.Step eff.Ctx (EvalEff eff) (EvalState eff) i
 | .done v => Eff.Step.ret v
 | .cont s e k => match e with
   | .ret v => Eff.Step.tau (k s v)
   | .lit _ v k' => Eff.Step.tau (EvalState.cont s (k' v) k)
-  | .builtin b i k' => match b, i with
-    | .uAdd, ⟨x, y, ()⟩ => Eff.Step.tau (EvalState.cont s (k' (x + y)) k)
-    | .uSub, ⟨x, y, ()⟩ => Eff.Step.tau (EvalState.cont s (k' (x - y)) k)
-    | .uMul, ⟨x, y, ()⟩ => Eff.Step.tau (EvalState.cont s (k' (x * y)) k)
-    | .uDiv, ⟨x, y, ()⟩ => Eff.Step.tau (EvalState.cont s (k' (x / y)) k)
-    | .uEq, ⟨x, y, ()⟩ => Eff.Step.tau (EvalState.cont s (k' (x = y)) k)
-    | .uLt, ⟨x, y, ()⟩ => Eff.Step.tau (EvalState.cont s (k' (x < y)) k)
+  | .builtin b args k' => match b.denote args with
+    | some r => Eff.Step.tau (EvalState.cont s (k' r) k)
+    | none => Eff.Step.fail
   | .lam b k' =>
     let (s', l) := s.alloc (fun _ x => b x)
     Eff.Step.tau (EvalState.cont s' (k' l) k)
@@ -241,7 +264,7 @@ def Expr.denoteCo {eff} (i : eff.Ctx × Type) : EvalState eff i → Eff.Step eff
     ) fun o => EvalState.cont s (k' o) k
 
 def Expr.denote {eff} {γ : eff.Ctx} {o : Tp} (state : Heap eff) (expr : Expr eff Tp.denote γ o) :
-    CompM (Eff.Fail ⊕ₑ Eff.Tau ⊕ₑ eff.denote) γ (Heap eff × o.denote) :=
+    EvalM eff γ (Heap eff × o.denote) :=
   CompM.corec denoteCo (EvalState.cont state expr fun s r => EvalState.done (s, r))
 
 structure ExprCertAt {srcEff : EffSig} {tgtEff : srcEff.Ctx → Type} [Eff.Spec tgtEff]
@@ -268,17 +291,17 @@ def ExprCert {srcEff : EffSig} {tgtEff : srcEff.Ctx → Type} [Eff.Spec tgtEff]
   ∀ h', h ≤ h' → ExprCertAt handler h' e t
 
 def Program.denote' {eff} {γ} {iT oT} (p: Program eff γ iT oT Tp.denote) (i: iT.val.denote):
-    CompM (Eff.Fail ⊕ₑ Eff.Tau ⊕ₑ eff.denote) γ (Heap eff × oT.val.denote) :=
+    EvalM eff γ (Heap eff × oT.val.denote) :=
   go (Heap.empty _) p where
   go : Heap eff → Program eff γ iT oT Tp.denote →
-    CompM (Eff.Fail ⊕ₑ Eff.Tau ⊕ₑ eff.denote) γ (Heap eff × oT.val.denote) := fun s => fun
+    EvalM eff γ (Heap eff × oT.val.denote) := fun s => fun
   | .define body k =>
     let (s', f) := s.alloc (fun f x => body f x)
     go s' (k f)
   | .main body => Expr.denote s (body i)
 
 def Program.denote {eff} {γ} {iT oT} (p: Program eff γ iT oT Tp.denote) (i: iT.val.denote):
-    CompM (Eff.Fail ⊕ₑ Eff.Tau ⊕ₑ eff.denote) γ oT.val.denote :=
+    EvalM eff γ oT.val.denote :=
   (·.2) <$> Program.denote' p i
 
 structure ProgramCert {srcEff : EffSig} {tgtEff : srcEff.Ctx → Type} [Eff.Spec tgtEff]

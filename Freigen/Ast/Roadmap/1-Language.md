@@ -40,8 +40,13 @@ Two options:
   variables, and keep products for data only. Builtin calls become direct,
   but products still need their own nodes anyway.
 
-The likely answer is explicit nodes for data, plus builtins taking
-heterogeneous argument lists so arithmetic doesn't go through tuples.
+**Decision:** builtins take heterogeneous argument lists, and data
+construction and projection are themselves (type-polymorphic) builtins:
+pairs, projections, and array creation, push, indexing, update and length.
+This gives one AST node and one certificate rule for all primitive
+operations. Builtin semantics are partial, and a failing builtin (an
+out-of-bounds array access) makes the evaluator fail, so partiality is
+handled once.
 
 ### Primitive semantics
 
@@ -51,17 +56,21 @@ continuation receives the builtin's result" without referring to evaluator
 internals.
 
 The builtin set covers only unsigned 32-bit arithmetic and comparison. The
-minimal milestone needs boolean operations. Whether signed integers stay in
-the language at all should be decided now, before anything depends on them.
+minimal milestone needs boolean operations.
 
-Division by zero currently inherits Lean's convention. That is acceptable as
-long as it is the documented semantics the external compiler must follow.
+**Decision:** signed integers are removed. Nothing used them, and the F2Z
+numeric types will be designed with F2Z.
+
+Division and remainder by zero follow Lean's `UInt32` convention, and array
+lengths wrap modulo `2^32`. This is documented as the semantics the external
+compiler must follow.
 
 ### Unit and the ABI
 
 `unit` is not an ABI type, so operations with no meaningful input or output
-have to invent one. Either make `unit` ABI, or give signatures an explicit
-"no payload" option.
+have to invent one.
+
+**Decision:** `unit` is ABI.
 
 ### Leftovers
 
@@ -71,7 +80,9 @@ have to invent one. Either make `unit` ABI, or give signatures an explicit
 - **Dead code.** The unused source-monad alias and the superseded
   continuation type should go.
 - **Universe mismatch.** Certificates force the context type into the lowest
-  universe while signatures are universe-polymorphic. Pick one.
+  universe while signatures are universe-polymorphic.
+
+  **Decision:** signatures are monomorphic (`Type`).
 
 ## Test signature
 
@@ -83,6 +94,8 @@ that changes context. Every later stage uses it for examples.
 
 - Every construct the minimal macro will emit is expressible, with no
   encoding tricks.
-- Builtin semantics are a standalone function.
-- The test signature exists, and a few hand-written programs over it evaluate
-  as expected via `#eval`/`#guard`.
+- Builtin semantics are a standalone function, tested with `#guard`.
+- The test signature exists, and hand-written programs over it covering every
+  construct type-check (`Ast/Examples/Basic.lean`). Running them through the
+  evaluator is not a goal: `CompM` is far too slow to execute, so their
+  behaviour is checked by the hand-written certificates of stage 4 instead.
