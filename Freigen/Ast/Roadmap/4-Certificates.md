@@ -24,7 +24,10 @@ The behaviour satisfies two conditions:
 - projecting out the heaps gives the source computation;
 - every final heap extends the initial one.
 
-Bind is then the stage 2 congruence principle plus the stage 3 heap growth.
+Certificates are stated with the stage 2 pipeline relation, which carries
+no proof arguments. Bind is then its bind law, with stage 3 heap growth
+supplying the reachable-heap hypothesis. The stage 2 congruence principle
+projects the heaps out again.
 
 ### Result types
 

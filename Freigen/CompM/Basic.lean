@@ -246,3 +246,230 @@ instance {γ : Γ} [Eff.Has Eff.Tau E] :
   forIn _ init body := loop (fun a => forInStepToSum <$> (body () a)) init
 
 end Freigen.CompM
+
+/-! ## Observation laws
+
+These describe `observe` on the monad operations, so that proofs about
+`CompM` never see the codensity encoding or the underlying `ITree`. -/
+
+namespace Freigen.CompM
+
+variable
+  {Γ : Type u} {E : Γ → Type u} [eS : Eff.Spec E]
+  {γ : Γ}
+
+@[simp]
+theorem observe_pure {α : Type v} (x : α) :
+    observe (pure x : CompM E γ α) = Eff.Step.ret x := by
+  change IxPoly.map (fun _ => treeEquiv.symm) (γ, α)
+    (ITree.observe (ITree.ret (E := E) (γ := γ) x)) = _
+  rw [ITree.observe_ret, Eff.Step.map_ret]
+
+@[simp]
+theorem observe_op_bind {α : Type v} (e : E γ)
+    (blocks :
+      (t : eS.blockTag γ e) →
+      eS.blockInputs γ e t →
+      CompM E (eS.blockCtx γ e t) (eS.blockOutputs γ e t))
+    (k : eS.output γ e → CompM E γ α) :
+    observe (bind (α := no_index _) (op e blocks) k) = Eff.Step.op e blocks k := by
+  change IxPoly.map (fun _ => treeEquiv.symm) (γ, α)
+    (ITree.observe (ITree.op e (fun t i => treeEquiv (blocks t i))
+      (fun o => treeEquiv (k o)))) = _
+  rw [ITree.observe_op]
+  simp only [IxPoly.map, Eff.Step.op]
+  congr 1
+  funext x
+  cases x <;> apply Equiv.symm_apply_apply
+
+theorem roll_ret {α : Type v} (x : α) :
+    roll (Eff.Step.ret x) = (pure x : CompM E γ α) :=
+  observe.injective (by simp)
+
+theorem roll_op {α : Type v} (e : E γ)
+    (blocks :
+      (t : eS.blockTag γ e) →
+      eS.blockInputs γ e t →
+      CompM E (eS.blockCtx γ e t) (eS.blockOutputs γ e t))
+    (k : eS.output γ e → CompM E γ α) :
+    roll (Eff.Step.op e blocks k) = op e blocks >>= k :=
+  observe.injective (by simp)
+
+/-- Every computation is a return or an operation followed by a
+continuation. -/
+theorem eq_pure_or_op_bind {α : Type v} (x : CompM E γ α) :
+    (∃ a, x = pure a) ∨
+      ∃ (e : E γ) (blocks :
+          (t : eS.blockTag γ e) →
+          eS.blockInputs γ e t →
+          CompM E (eS.blockCtx γ e t) (eS.blockOutputs γ e t))
+        (k : eS.output γ e → CompM E γ α),
+        x = op e blocks >>= k := by
+  suffices h : ∀ (i : Γ × Type v)
+      (s : Eff.Step Γ E (fun i => CompM E i.1 i.2) i),
+      (∃ a, roll (γ := i.1) (α := i.2) s = pure a) ∨
+        ∃ (e : E i.1) (blocks :
+            (t : eS.blockTag i.1 e) →
+            eS.blockInputs i.1 e t →
+            CompM E (eS.blockCtx i.1 e t) (eS.blockOutputs i.1 e t))
+          (k : eS.output i.1 e → CompM E i.1 i.2),
+          roll (γ := i.1) (α := i.2) s = op e blocks >>= k by
+    simpa only [roll_observe] using h (γ, α) (observe x)
+  intro i s
+  cases s using Eff.Step.casesOn with
+  | ret a => exact .inl ⟨a, roll_ret a⟩
+  | op e blocks k => exact .inr ⟨e, blocks, k, roll_op e blocks k⟩
+
+theorem pure_inj {α : Type v} {a b : α} :
+    (pure a : CompM E γ α) = pure b ↔ a = b := by
+  refine ⟨fun h => ?_, fun h => h ▸ rfl⟩
+  have h := congrArg observe h
+  simp only [observe_pure, Eff.Step.ret] at h
+  injection h with h
+  injection h
+
+theorem pure_ne_op_bind {α : Type v} {a : α} {e : E γ}
+    {blocks :
+      (t : eS.blockTag γ e) →
+      eS.blockInputs γ e t →
+      CompM E (eS.blockCtx γ e t) (eS.blockOutputs γ e t)}
+    {k : eS.output γ e → CompM E γ α} :
+    pure a ≠ op e blocks >>= k := by
+  intro h
+  have h := congrArg observe h
+  simp only [observe_pure, observe_op_bind, Eff.Step.ret, Eff.Step.op] at h
+  injection h with h
+  injection h
+
+theorem op_bind_inj {α : Type v} {e₁ e₂ : E γ}
+    {blocks₁ :
+      (t : eS.blockTag γ e₁) →
+      eS.blockInputs γ e₁ t →
+      CompM E (eS.blockCtx γ e₁ t) (eS.blockOutputs γ e₁ t)}
+    {blocks₂ :
+      (t : eS.blockTag γ e₂) →
+      eS.blockInputs γ e₂ t →
+      CompM E (eS.blockCtx γ e₂ t) (eS.blockOutputs γ e₂ t)}
+    {k₁ : eS.output γ e₁ → CompM E γ α}
+    {k₂ : eS.output γ e₂ → CompM E γ α} :
+    op e₁ blocks₁ >>= k₁ = op e₂ blocks₂ >>= k₂ ↔
+      ∃ _h : e₁ = e₂, HEq blocks₁ blocks₂ ∧ HEq k₁ k₂ := by
+  constructor
+  · intro h
+    have h := congrArg observe h
+    simp only [observe_op_bind, Eff.Step.op] at h
+    injection h with htag hfields
+    injection htag with he
+    subst he
+    have hfields := eq_of_heq hfields
+    refine ⟨rfl, heq_of_eq ?_, heq_of_eq ?_⟩
+    · funext t i
+      exact congrFun hfields (.inr ⟨t, i⟩)
+    · funext o
+      exact congrFun hfields (.inl o)
+  · rintro ⟨rfl, hb, hk⟩
+    cases hb
+    cases hk
+    rfl
+
+section Tau
+
+variable [Eff.Has.{u, 0} Eff.Tau E]
+
+/-- The operation a silent step is made of. -/
+abbrev tauOp (γ : Γ) : E γ := Eff.Has.mk (α := Eff.Tau) Eff.TauCarrier.mk
+
+/-- `Tau` has no blocks. -/
+def tauBlocks :
+    (t : eS.blockTag γ (tauOp γ)) →
+    eS.blockInputs γ (tauOp γ) t →
+    CompM E (eS.blockCtx γ (tauOp γ) t) (eS.blockOutputs γ (tauOp γ) t) :=
+  fun t => nomatch Eff.Step.Has.lowerBlockTag (F := Eff.Tau) (E := E) t
+
+@[simp]
+theorem observe_tick_bind {α : Type} (k : Unit → CompM E γ α) :
+    observe (tick >>= k) = Eff.Step.tau (k ()) := by
+  change IxPoly.map (fun _ => treeEquiv.symm) (γ, α)
+    (ITree.observe (ITree.tau (E := E) (treeEquiv (k ())))) = _
+  rw [ITree.observe_tau]
+  simp only [IxPoly.map, Eff.Step.tau, Eff.Step.Has.op, Eff.Step.op]
+  congr 1
+  funext x
+  rcases x with _ | ⟨t, _⟩
+  · apply Equiv.symm_apply_apply
+  · exact nomatch Eff.Step.Has.lowerBlockTag t
+
+/-- A silent step is an operation of the `Tau` effect. Its blocks are
+irrelevant, as `Tau` has none. -/
+theorem tick_bind {α : Type} (k : Unit → CompM E γ α)
+    (blocks :
+      (t : eS.blockTag γ (tauOp γ)) →
+      eS.blockInputs γ (tauOp γ) t →
+      CompM E (eS.blockCtx γ (tauOp γ) t) (eS.blockOutputs γ (tauOp γ) t)) :
+    tick >>= k = op (tauOp γ) blocks >>= fun _ => k () := by
+  apply observe.injective
+  rw [observe_op_bind, observe_tick_bind]
+  simp only [Eff.Step.tau, Eff.Step.Has.op]
+  congr 1
+  funext t
+  exact nomatch Eff.Step.Has.lowerBlockTag t
+
+end Tau
+
+section Fail
+
+variable [Eff.Has.{u, 0} Eff.Fail E]
+
+/-- The operation failure is made of. -/
+abbrev failOp (γ : Γ) : E γ := Eff.Has.mk (α := Eff.Fail) Eff.FailCarrier.mk
+
+/-- `Fail` has no blocks. -/
+def failBlocks :
+    (t : eS.blockTag γ (failOp γ)) →
+    eS.blockInputs γ (failOp γ) t →
+    CompM E (eS.blockCtx γ (failOp γ) t) (eS.blockOutputs γ (failOp γ) t) :=
+  fun t => nomatch Eff.Step.Has.lowerBlockTag (F := Eff.Fail) (E := E) t
+
+/-- `Fail` has no outputs. -/
+def failCont {α : Type} : eS.output γ (failOp γ) → CompM E γ α :=
+  fun o => nomatch Eff.Step.Has.lowerOutput (F := Eff.Fail) (E := E) o
+
+@[simp]
+theorem observe_fail {α : Type} :
+    observe (fail : CompM E γ α) = Eff.Step.fail := by
+  change IxPoly.map (fun _ => treeEquiv.symm) (γ, α)
+    (ITree.observe (ITree.fail (E := E))) = _
+  simp only [ITree.fail, ITree.observe_roll]
+  simp only [IxPoly.map, Eff.Step.fail, Eff.Step.Has.op, Eff.Step.op]
+  congr 1
+  funext x
+  rcases x with o | ⟨t, _⟩
+  · exact nomatch Eff.Step.Has.lowerOutput o
+  · exact nomatch Eff.Step.Has.lowerBlockTag t
+
+/-- Failure is an operation of the `Fail` effect. Its blocks and
+continuation are irrelevant, as `Fail` has neither blocks nor outputs. -/
+theorem fail_eq {α : Type}
+    (blocks :
+      (t : eS.blockTag γ (failOp γ)) →
+      eS.blockInputs γ (failOp γ) t →
+      CompM E (eS.blockCtx γ (failOp γ) t) (eS.blockOutputs γ (failOp γ) t))
+    (k : eS.output γ (failOp γ) → CompM E γ α) :
+    (fail : CompM E γ α) = op (failOp γ) blocks >>= k := by
+  apply observe.injective
+  rw [observe_op_bind, observe_fail]
+  simp only [Eff.Step.fail, Eff.Step.Has.op]
+  congr 1
+  · funext t
+    exact nomatch Eff.Step.Has.lowerBlockTag t
+  · funext o
+    exact nomatch Eff.Step.Has.lowerOutput o
+
+@[simp]
+theorem fail_bind {α β : Type} (f : α → CompM E γ β) :
+    (fail : CompM E γ α) >>= f = fail :=
+  rfl
+
+end Fail
+
+end Freigen.CompM

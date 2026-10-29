@@ -51,8 +51,8 @@ nothing mentions the hash map.
 ### Heap growth
 
 Every heap an evaluation can end in extends the heap it started from. This
-is stated with the reachable-results predicate from stage 2, after
-reification, so it composes through bind like any other invariant.
+is stated with the stage 2 reachable-results predicate, directly on the
+evaluator's computation, which is the form the stage 2 bind law consumes.
 
 ### Programs
 

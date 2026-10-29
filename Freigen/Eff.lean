@@ -181,6 +181,15 @@ def Has.lowerOutput
   | Has.inl r => lowerOutput (h:=r) o
   | Has.inr r => lowerOutput (h:=r) o
 
+def Has.liftOutput
+    {Γ : Type u} {E F : Γ → Type u} {γ : Γ}
+    [s : Spec E] [s' : Spec F] [h : Has F E]
+    {e : F γ} (o : s'.output γ e) :
+    s.output γ (Has.mk (r := h) e) := match h with
+  | Has.here => o
+  | Has.inl r => liftOutput (h:=r) o
+  | Has.inr r => liftOutput (h:=r) o
+
 def Has.op
     {Γ : Type u} {E F : Γ → Type u} {γ : Γ} {α : Type v}
     {Y : Γ × Type v → Type w}

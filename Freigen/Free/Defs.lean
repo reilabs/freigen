@@ -71,7 +71,7 @@ theorem Free.toRaw_op
       (t : eS.blockTag γ e) →
       eS.blockInputs γ e t →
       Free E (eS.blockCtx γ e t) (eS.blockOutputs γ e t)) :
-    Free.toRaw (Free.op e blocks) =
+    Free.toRaw (α := no_index _) (Free.op e blocks) =
       RawFree.op e (fun t input =>
         Free.toRaw (blocks t input)) :=
   ExactCodensity.equiv.apply_symm_apply _
@@ -98,7 +98,7 @@ theorem Free.op_inj
       (t : eS.blockTag γ e) →
       eS.blockInputs γ e t →
       Free E (eS.blockCtx γ e t) (eS.blockOutputs γ e t)} :
-    Free.op e blocks₁ = Free.op e blocks₂ ↔
+    @Eq (no_index _) (Free.op e blocks₁) (Free.op e blocks₂) ↔
       blocks₁ = blocks₂ :=
   (Free.op_injective e).eq_iff
 
@@ -110,7 +110,7 @@ theorem Free.op_ne_pure
       eS.blockInputs γ e t →
       Free E (eS.blockCtx γ e t) (eS.blockOutputs γ e t))
     (x : eS.output γ e) :
-    Free.op e blocks ≠ pure x := by
+    Ne (α := no_index _) (Free.op e blocks) (pure x) := by
   intro h
   apply RawFree.op_ne_pure e
     (fun t input => Free.toRaw (blocks t input)) x
@@ -125,7 +125,7 @@ theorem Free.pure_ne_op
       eS.blockInputs γ e t →
       Free E (eS.blockCtx γ e t) (eS.blockOutputs γ e t))
     (x : eS.output γ e) :
-    pure x ≠ op e blocks :=
+    Ne (α := no_index _) (pure x) (op e blocks) :=
   Ne.symm (op_ne_pure e blocks x)
 
 @[simp]
@@ -137,7 +137,7 @@ theorem Free.pure_ne_op_bind
       Free E (eS.blockCtx γ e t) (eS.blockOutputs γ e t)}
     {k : eS.output γ e → Free E γ α}
     {x : α} :
-    pure x ≠ Free.op e blocks >>= k := by
+    pure x ≠ bind (α := no_index _) (Free.op e blocks) k := by
   intro h
   apply RawFree.pure_ne_op_bind e
     (fun t input => Free.toRaw (blocks t input))
@@ -211,8 +211,8 @@ theorem Free.op_bind_inj
       Free E (eS.blockCtx γ e₂ t) (eS.blockOutputs γ e₂ t)}
     {k₁ : eS.output γ e₁ → Free E γ α}
     {k₂ : eS.output γ e₂ → Free E γ α} :
-    (Free.op e₁ blocks₁ >>= k₁) =
-        (Free.op e₂ blocks₂ >>= k₂) ↔
+    bind (α := no_index _) (Free.op e₁ blocks₁) k₁ =
+        bind (α := no_index _) (Free.op e₂ blocks₂) k₂ ↔
       ∃ _h : e₁ = e₂,
         HEq (Free.op e₁ blocks₁) (Free.op e₂ blocks₂) ∧
           HEq k₁ k₂ := by
@@ -242,7 +242,8 @@ theorem Free.op_bind_inj'
       Free E (eS.blockCtx γ e₂ t) (eS.blockOutputs γ e₂ t)}
     {k : eS.output γ e₁ →
       Free E γ (eS.output γ e₂)} :
-    (Free.op e₁ blocks₁ >>= k) = Free.op e₂ blocks₂ ↔
+    @Eq (no_index _) (bind (α := no_index _) (Free.op e₁ blocks₁) k)
+        (Free.op e₂ blocks₂) ↔
       ∃ _h : e₁ = e₂,
         HEq (Free.op e₁ blocks₁) (Free.op e₂ blocks₂) ∧
           HEq k (fun x : eS.output γ e₂ =>
@@ -457,7 +458,7 @@ theorem Free.interp_op
       (t : eS.blockTag γ e) →
       eS.blockInputs γ e t →
       Free E (eS.blockCtx γ e t) (eS.blockOutputs γ e t)) :
-    Free.interp handler (Free.op e blocks) =
+    Free.interp (α := no_index _) handler (Free.op e blocks) =
       handler e (fun t input =>
         Free.interp handler (blocks t input)) := by
   letI := monadM γ
@@ -524,23 +525,5 @@ theorem Free.unusedL_op_bind {Γ} {γ : Γ} {F E : Γ → Type u} [sF: Eff.Spec 
     exists op e B >>= K
     simp only [interp_bind, interp_op, op_bind_inj, heq_eq_eq, op_inj, exists_const]
     apply And.intro <;> ext <;> apply_assumption
-
-def Free.elideL {Γ} {γ : Γ} {F E : Γ → Type u} [sF: Eff.Spec F] [sE: Eff.Spec E] (m: Free (F ⊕ₑ E) γ α)
-    (hm : Free.UnusedL m) : Free E γ α :=
-  m.recOn (motive := fun γ α m => Free.UnusedL m → Free E γ α)
-    (fun x _ => pure x)
-    (fun e blocks k rb rk hU => match e with
-      | .inl e' => False.elim $ (by
-          rw [Free.unusedL_op_bind] at hU
-          rcases hU with ⟨⟨⟩, _⟩
-        )
-      | .inr e' => op e' (fun e i => rb e i (by
-        simp only [Free.unusedL_op_bind] at hU
-        simp_all
-      )) >>= fun x => rk x (by
-          simp only [Free.unusedL_op_bind] at hU
-          simp_all
-        ))
-    hm
 
 end Freigen

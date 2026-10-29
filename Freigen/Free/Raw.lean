@@ -378,6 +378,67 @@ theorem interp_op
       interp monadM handler (blocks t input))
   rw [bind_pure]
 
+section Elide
+
+variable {F : Γ → Type u} [fS : Eff.Spec.{u, v} F]
+
+/-- The tree never performs an operation of the left effect `F`. -/
+inductive NoLeft :
+    {i : Γ × Type v} → IxPoly.W (Eff.Step Γ (F ⊕ₑ E)) i → Prop
+| ret {γ : Γ} {α : Type v} {a : α} {children} :
+    NoLeft (IxPoly.W.mk (γ, α) (.ret a) children)
+| op {γ : Γ} {α : Type v} {e : E γ} {children} :
+    (∀ field, NoLeft (children field)) →
+    NoLeft (IxPoly.W.mk (γ, α) (.op (.inr e)) children)
+
+theorem NoLeft.child {γ : Γ} {α : Type v} {e : E γ} {children}
+    (h : NoLeft (F := F) (IxPoly.W.mk (γ, α) (.op (.inr e)) children))
+    (field) : NoLeft (children field) := by
+  cases h with
+  | op h => exact h field
+
+theorem NoLeft.not_inl {γ : Γ} {α : Type v} {e : F γ} {children} :
+    ¬ NoLeft (E := E) (IxPoly.W.mk (γ, α) (.op (.inl e)) children) :=
+  nofun
+
+/-- Remove the left effect from a tree that never performs it. -/
+def elideL :
+    {i : Γ × Type v} →
+    (m : IxPoly.W (Eff.Step Γ (F ⊕ₑ E)) i) → NoLeft m →
+    IxPoly.W (Eff.Step Γ E) i
+  | (_, _), .mk _ (.ret a) _, _ => .mk _ (.ret a) nofun
+  | (_, _), .mk _ (.op (.inl _)) _, h => absurd h NoLeft.not_inl
+  | (_, _), .mk _ (.op (.inr e)) children, h => .mk _ (.op e) fun
+    | .inl o => elideL (children (.inl o)) (h.child _)
+    | .inr ⟨t, i⟩ => elideL (children (.inr ⟨t, i⟩)) (h.child _)
+
+theorem elideL_op_bind {γ : Γ} {α : Type v} {e : E γ}
+    {blocks :
+      (t : eS.blockTag γ e) →
+      eS.blockInputs γ e t →
+      RawFree (F ⊕ₑ E) (eS.blockCtx γ e t) (eS.blockOutputs γ e t)}
+    {k : eS.output γ e → RawFree (F ⊕ₑ E) γ α}
+    (h : NoLeft (RawFree.op (E := F ⊕ₑ E) (.inr e) blocks >>= k))
+    (hb : ∀ t i, NoLeft (blocks t i)) (hk : ∀ o, NoLeft (k o)) :
+    elideL (RawFree.op (E := F ⊕ₑ E) (.inr e) blocks >>= k) h =
+      RawFree.op e (fun t i => elideL (blocks t i) (hb t i)) >>=
+        fun o => elideL (k o) (hk o) := by
+  have key : ∀ (m : IxPoly.W (Eff.Step Γ (F ⊕ₑ E)) (γ, α)) (hm : NoLeft m),
+      m = RawFree.bind (RawFree.op (E := F ⊕ₑ E) (.inr e) blocks) k →
+      elideL m hm =
+        RawFree.op e (fun t i => elideL (blocks t i) (hb t i)) >>=
+          fun o => elideL (k o) (hk o) := by
+    intro m hm hmk
+    rw [bind_op] at hmk
+    subst hmk
+    rw [elideL.eq_3]
+    change _ = RawFree.bind (RawFree.op e _) _
+    rw [bind_op]
+    congr 1
+  exact key _ h rfl
+
+end Elide
+
 end RawFree
 
 end Freigen
