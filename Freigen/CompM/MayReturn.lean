@@ -111,4 +111,68 @@ theorem not_returns_fail [Eff.Has.{u, 0} Eff.Fail E] {α : Type} {a : α} :
   rintro ⟨o, -⟩
   exact nomatch Eff.Step.Has.lowerOutput (F := Eff.Fail) (E := E) o
 
+/-! ## Invariants of corecursive computations -/
+
+/-- One step of a corecursive computation respects an invariant: it either
+returns a value satisfying `Q`, or performs an operation whose continuation
+seeds all satisfy `P`. Blocks are unconstrained, as `MayReturn` never looks
+inside them. -/
+def StepInv {A : Γ × Type v → Type w} {β : Type v}
+    (P : A (γ, β) → Prop) (Q : β → Prop) :
+    Eff.Step Γ E A (γ, β) → Prop
+  | ⟨.ret r, _⟩ => Q r
+  | ⟨.op _, ch⟩ => ∀ o, P (ch (.inl o))
+
+/-- If every step from a seed satisfying `P` respects the invariant, then
+everything a corecursive computation from such a seed may return satisfies
+`Q`. -/
+theorem mayReturn_corec {A : Γ × Type v → Type w}
+    {f : (i : Γ × Type v) → A i → Eff.Step Γ E A i} {β : Type v}
+    (P : A (γ, β) → Prop) (Q : β → Prop)
+    (step : ∀ a, P a → StepInv P Q (f (γ, β) a))
+    {a : A (γ, β)} (ha : P a) {r : β}
+    (h : (corec f a : CompM E γ β).MayReturn r) : Q r := by
+  generalize hx : (corec f a : CompM E γ β) = x at h
+  induction h generalizing a with
+  | pure r =>
+    have hobs := congrArg observe hx
+    rw [observe_corec, observe_pure] at hobs
+    have hs := step a ha
+    revert hobs hs
+    generalize f (γ, β) a = s
+    rcases s with ⟨tag, ch⟩
+    cases tag with
+    | ret r' =>
+      intro hobs hs
+      simp only [IxPoly.map, Eff.Step.ret] at hobs
+      injection hobs with htag
+      injection htag with hr
+      exact hr ▸ hs
+    | op e =>
+      intro hobs
+      simp only [IxPoly.map, Eff.Step.ret] at hobs
+      injection hobs with htag
+      injection htag
+  | op o _ ih =>
+    have hobs := congrArg observe hx
+    rw [observe_corec, observe_op_bind] at hobs
+    have hs := step a ha
+    revert hobs hs
+    generalize f (γ, β) a = s
+    rcases s with ⟨tag, ch⟩
+    cases tag with
+    | ret r' =>
+      intro hobs
+      simp only [IxPoly.map, Eff.Step.op] at hobs
+      injection hobs with htag
+      injection htag
+    | op e' =>
+      intro hobs hs
+      simp only [IxPoly.map, Eff.Step.op] at hobs
+      injection hobs with htag hch
+      injection htag with he
+      subst he
+      have hch := congrFun (eq_of_heq hch) (.inl o)
+      exact ih (hs o) hch
+
 end Freigen.CompM

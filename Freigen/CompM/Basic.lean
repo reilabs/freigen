@@ -472,4 +472,53 @@ theorem fail_bind {α β : Type} (f : α → CompM E γ β) :
 
 end Fail
 
+/-! ## Coinduction -/
+
+/-- One coinduction step for `R`: the two computations are equal, or perform
+the same operation with blocks and continuations that are equal or related.
+The relation may relate computations in any context, since blocks run in a
+different one. -/
+def CoindStep (R : ∀ {γ : Γ} {α : Type v}, CompM E γ α → CompM E γ α → Prop)
+    {α : Type v} (x y : CompM E γ α) : Prop :=
+  x = y ∨
+    ∃ (e : E γ)
+      (b₁ b₂ :
+        (t : eS.blockTag γ e) →
+        eS.blockInputs γ e t →
+        CompM E (eS.blockCtx γ e t) (eS.blockOutputs γ e t))
+      (k₁ k₂ : eS.output γ e → CompM E γ α),
+      x = op e b₁ >>= k₁ ∧ y = op e b₂ >>= k₂ ∧
+        (∀ t i, b₁ t i = b₂ t i ∨ R (b₁ t i) (b₂ t i)) ∧
+        ∀ o, k₁ o = k₂ o ∨ R (k₁ o) (k₂ o)
+
+/-- Coinduction up to equality: computations related by a relation that is
+closed under `CoindStep` are equal. -/
+theorem coind
+    (R : ∀ {γ : Γ} {α : Type v}, CompM E γ α → CompM E γ α → Prop)
+    (step : ∀ {γ : Γ} {α : Type v} {x y : CompM E γ α}, R x y →
+      CoindStep R x y)
+    {α : Type v} {x y : CompM E γ α} (h : R x y) : x = y := by
+  apply treeEquiv.injective
+  refine ITree.bisim
+    (R := fun i t₁ t₂ => t₁ = t₂ ∨
+      ∃ x y : CompM E i.1 i.2, R x y ∧ treeEquiv x = t₁ ∧ treeEquiv y = t₂)
+    ?_ (.inr ⟨x, y, h, rfl, rfl⟩)
+  have lift : ∀ {γ : Γ} {α : Type v} {x y : CompM E γ α}, x = y ∨ R x y →
+      treeEquiv x = treeEquiv y ∨
+        ∃ x' y' : CompM E γ α, R x' y' ∧
+          treeEquiv x' = treeEquiv x ∧ treeEquiv y' = treeEquiv y
+    | _, _, _, _, .inl h => .inl (congrArg _ h)
+    | _, _, _, _, .inr h => .inr ⟨_, _, h, rfl, rfl⟩
+  rintro ⟨γ, α⟩ t₁ t₂ (rfl | ⟨x, y, hxy, rfl, rfl⟩)
+  · exact ITree.BisimRelF.refl (fun _ => .inl rfl) _
+  rcases step hxy with rfl | ⟨e, b₁, b₂, k₁, k₂, rfl, rfl, hb, hk⟩
+  · exact ITree.BisimRelF.refl (fun _ => .inl rfl) _
+  change ITree.BisimRelF _ _
+    (ITree.observe (ITree.op e (fun t i => treeEquiv (b₁ t i))
+      (fun o => treeEquiv (k₁ o))))
+    (ITree.observe (ITree.op e (fun t i => treeEquiv (b₂ t i))
+      (fun o => treeEquiv (k₂ o))))
+  rw [ITree.observe_op, ITree.observe_op]
+  exact .op e _ _ _ _ (fun o => lift (hk o)) (fun t i => lift (hb t i))
+
 end Freigen.CompM

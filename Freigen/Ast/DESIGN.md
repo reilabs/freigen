@@ -102,10 +102,11 @@ the minimal version it is the identity. For F2Z it will encode each AST
 operation as a circuit gadget.
 
 Correctness is stated against all heaps extending the current one, so it
-composes across allocations. Intermediate results carry a postcondition
-that their final heap extends the initial one. Without it, a certificate for
-"evaluate this, then continue" cannot be assembled from certificates of its
-parts.
+composes across allocations. A certificate for "evaluate this, then
+continue" applies the continuation's certificate at the heap the first part
+ended in. That works because every evaluation's final heap extends its
+initial one, which is proved once about the evaluator rather than carried by
+each certificate.
 
 At the top level, a program certificate says that for every input the whole
 program is correct with respect to the source function. Inputs and outputs are
