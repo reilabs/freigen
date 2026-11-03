@@ -10,14 +10,25 @@ There is no macro yet; this stage builds it from scratch.
 
 ## Source fragment
 
-The source fragment is `Free` programs over the test signature built from:
+The source fragment is `Free` programs over the test signature, taken as
+elaborated, built from:
 - return, bind, and operations (with blocks);
-- `if` on booleans;
+- `if` on booleans, including the join points `do` notation introduces for
+  code following a branch;
 - `let`;
 - builtin arithmetic and comparisons on ABI values, and literals;
-- data construction and projection on ABI types;
+- data construction, and projection by field access;
 - calls to other source definitions in the same fragment, which become AST
   definitions.
+
+The first iteration rejects:
+- conditions on decidable propositions (only booleans are accepted);
+- destructuring, which elaborates to a pattern match;
+- join points taking several arguments, which come from mutable variables.
+
+Operations, builtins and source definitions are recognized through an
+explicit table in the macro, from source head symbol to stage 4 rule. Source definitions are assumed to already
+have the shape of AST definitions: one input, one fixed context, monomorphic.
 
 Anything else is rejected with an error pointing at the offending
 subterm.
@@ -36,7 +47,12 @@ Each definition becomes one AST definition. Definitions are never inlined.
 ### Emission
 
 A single traversal of each definition body produces both the AST fragment and
-its certificate, by applying the matching stage 4 rule at each node. It keeps
+its certificate, by applying the matching stage 4 rule at each node. Only the
+structural forms are handled directly: bind, return, `let`/`have`, and join
+points. Everything else is dispatched through the rule table, with built-in
+rules registered there like any other entry. Rules carry no macro code of
+their own: emission instantiates the template, recursively emits the holes,
+and continues with the continuation. It keeps
 an environment mapping:
 - source local variables to AST variables;
 - source definitions to their AST references and function certificates.
@@ -56,10 +72,15 @@ program and its correctness theorem.
 
 - **No normalization.** The macro never reduces the source beyond what is
   needed to recognize the next construct, and never unfolds user definitions
-  or recursion. Proof size stays linear in source size.
+  or recursion. In particular it never inlines a local binding such as a join
+  point: that would duplicate code the elaborator shared. Proof size stays
+  linear in source size.
 - **Untrusted.** If the macro emits a wrong AST, the certificate fails to
   check. It still aims to fail early with a readable error rather than
   produce a term the kernel rejects.
+- **Extensible.** Adding a construct means adding a table entry, never
+  changing the traversal. Registering entries from outside the macro is a
+  stage 6 extension; the table must not assume it is closed.
 - **Rules only.** The macro depends only on stage 4 rules. It never refers to
   evaluator internals or to stage 2/3 lemmas.
 
@@ -70,7 +91,8 @@ program and its correctness theorem.
 - The axiom footprint of the generated theorems is pinned.
 - Negative tests cover unsupported constructs.
 - Elaboration-time and proof-size checks on larger generated inputs: long
-  definition lists, many call sites, deep binds.
+  definition lists, many call sites, deep binds, and long chains of
+  sequential branches, whose join points must not blow up.
 
 ## Done when
 

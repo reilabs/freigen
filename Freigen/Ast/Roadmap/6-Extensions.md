@@ -31,10 +31,26 @@ The choice depends on how F2Z sources express iteration.
 
 ## Closures as values
 
-Lambda expressions, and function-typed arguments and results. Certificates
+Local closures that are only called (join points) are already part of the
+minimal milestone. This extension is about closures passed around: lambda
+expressions as values, and function-typed arguments and results. Certificates
 would then relate source functions to heap references as *values*, which
-reintroduces value relations indexed by type. This is deferred until a source
+reintroduces value relations indexed by type. The same relations would let
+registered rules change data representations. This is deferred until a source
 program actually needs higher-order code.
+
+## Registered rules
+
+Users register rules of the form "translate this source function into this
+AST, with this proof", in the stage 4 rule format, as new entries in the
+macro's rule table. A hand-lifted definition with its own function
+certificate is a special case.
+
+This covers translations that keep the data and change the algorithm, such as
+a source recursion implemented by an AST loop. Translations that change the
+data representation, such as source lists implemented by AST arrays, cannot be
+expressed: certificates compare source and AST values by equality. They need
+the value relations described under closures as values.
 
 ## Pretty-printing
 

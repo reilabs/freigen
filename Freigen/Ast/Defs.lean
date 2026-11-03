@@ -267,29 +267,6 @@ def Expr.denote {eff} {γ : eff.Ctx} {o : Tp} (state : Heap eff) (expr : Expr ef
     EvalM eff γ (Heap eff × o.denote) :=
   CompM.corec denoteCo (EvalState.cont state expr fun s r => EvalState.done (s, r))
 
-structure ExprCertAt {srcEff : EffSig} {tgtEff : srcEff.Ctx → Type} [Eff.Spec tgtEff]
-    (handler : Eff.Handler srcEff.denote (Free tgtEff))
-    {γ : srcEff.Ctx} {oTp : AbiTp}
-    (h : Heap srcEff)
-    (e : Expr srcEff Tp.denote γ oTp.val)
-    (t : Free tgtEff γ oTp.val.denote) : Prop where
-  wf : CompM.WF (Expr.denote h e)
-  nofail : Free.UnusedL ((Expr.denote h e).toFree wf)
-  correct :
-    (·.2) <$> ((Expr.denote h e).toFree wf
-      |>.elideL nofail
-      |>.interpL (fun _ _ => pure ())
-      |>.interp handler
-    ) = t
-
-def ExprCert {srcEff : EffSig} {tgtEff : srcEff.Ctx → Type} [Eff.Spec tgtEff]
-    (handler : Eff.Handler srcEff.denote (Free tgtEff))
-    {γ : srcEff.Ctx} {oTp : AbiTp}
-    (h : Heap srcEff)
-    (e : Expr srcEff Tp.denote γ oTp.val)
-    (t : Free tgtEff γ oTp.val.denote) : Prop :=
-  ∀ h', h ≤ h' → ExprCertAt handler h' e t
-
 def Program.denote' {eff} {γ} {iT oT} (p: Program eff γ iT oT Tp.denote) (i: iT.val.denote):
     EvalM eff γ (Heap eff × oT.val.denote) :=
   go (Heap.empty _) p where

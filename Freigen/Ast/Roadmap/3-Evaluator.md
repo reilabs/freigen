@@ -82,7 +82,8 @@ closures from the heap. It goes by induction on the finite path to the
 result, with an invariant over all machine states.
 
 Because this holds for every evaluation, certificates do not need to carry
-heap growth as a postcondition of their own.
+heap growth as a postcondition of their own. (Stage 4 ended up stating
+certificates over continuations, which made this fact unnecessary there.)
 
 ### Programs
 
