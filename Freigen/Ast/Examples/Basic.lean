@@ -68,11 +68,11 @@ variable {V : Tp → Type} {out : Tp}
 
 def print (x : V .uInt32) (k : V .unit → Expr sig V Scope.main out) :
     Expr sig V Scope.main out :=
-  Expr.op (eff := sig) (γ := Scope.main) MainOp.print x nofun k
+  Expr.op (eff := sig) (γ := Scope.main) MainOp.print x (fun b => Empty.elim b) k
 
 def input (u : V .unit) (k : V .uInt32 → Expr sig V Scope.main out) :
     Expr sig V Scope.main out :=
-  Expr.op (eff := sig) (γ := Scope.main) MainOp.input u nofun k
+  Expr.op (eff := sig) (γ := Scope.main) MainOp.input u (fun b => Empty.elim b) k
 
 def hint (x : V .uInt32) (body : V .uInt32 → Expr sig V Scope.hint .uInt32)
     (k : V .uInt32 → Expr sig V Scope.main out) :

@@ -159,19 +159,20 @@ closures.
   statements mention no machine states, heap contents, well-foundedness
   proofs, or reification.
 - **Matching the macro.** Rule conclusions should unify with elaborated source
-  terms at reducible transparency, so that matching a rule, built-in or
-  registered, never triggers expensive unfolding.
+  terms without unfolding user definitions, so that matching a rule, built-in
+  or registered, never sees through the source. Unfolding the signature, the
+  handler and library definitions is fine: they are fixed and cheap.
 - **Handler.** The handler is a parameter of every rule. In the minimal
   milestone it is the identity, but nothing may depend on that.
 - **Out of scope:** closures as values, loops, and recursive definitions;
   see [stage 6](6-Extensions.md). Stage 3 already provides the loop
   equation, so loops need only their rule.
-- **Declaring signatures.** Rewriting with stage 3 equations inside blocks of
-  the test signature needs a workaround, because terms there only typecheck by
-  unfolding the signature's definition. Rules are applied as terms rather
-  than rewritten with, so this may not arise. Test it on the block example
-  first, and change how signatures are declared only if it does. (Tested: it
-  does not arise; see the status below.)
+- **Declaring signatures.** Signatures are ordinary definitions. Types an
+  operation involves, such as its output, are computed from the signature by
+  unfolding it. Rules are applied as terms, and matching may unfold the
+  signature, so this needs nothing special. Only hand-written proofs that
+  rewrite inside blocks need `erw`, because tactic rewriting does not unfold
+  the signature.
 
 ## Validation
 
@@ -197,11 +198,11 @@ four validation programs with rules alone.
 Findings:
 - **Tail variants.** Rules whose source ends in a bind (branches, effects,
   calls) also come in a tail-position form, with a return as the
-  continuation. Binding into `pure` is only definitionally the identity by
-  unfolding the monad, not at reducible transparency, so the macro should use
-  the tail forms rather than rely on that.
+  continuation. Binding into `pure` is the identity only by unfolding the
+  monad's definition, which matching does not do, so the macro uses the tail
+  forms.
 - **Signatures.** The block example checks by plain rule application, so the
-  test signature needs no change.
+  test signature stays an ordinary definition.
 - **Elaboration order.** Written as terms, some proofs need implicit arguments
   given explicitly (a literal's type, an effect's tag), because arguments
   elaborate before the conclusion is unified with the goal. The macro should

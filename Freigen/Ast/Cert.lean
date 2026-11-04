@@ -49,6 +49,10 @@ def ProgCert {γ : eff.Ctx} {iT oT : AbiTp} (h : Heap eff)
     Prop :=
   ∀ i, Implements handler (Prod.snd <$> Program.denote'.go i h p) (t i)
 
+/-- The identity handler: AST operations are source operations. -/
+def idHandler (eff : EffSig) : Eff.Handler eff.denote (Free eff.denote) :=
+  fun e blocks => Free.op e blocks
+
 variable {handler} {γ : eff.Ctx} {o : Tp} {h : Heap eff}
 
 theorem ContCert.mono {β : Type} {K : Heap eff × o.denote → EvalM eff γ β}

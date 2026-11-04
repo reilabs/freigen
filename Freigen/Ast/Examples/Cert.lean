@@ -11,10 +11,6 @@ namespace Freigen.Ast.Examples
 
 /-! ## Source programs -/
 
-/-- The identity handler. -/
-def idHandler : Eff.Handler sig.denote (Free sig.denote) :=
-  fun e blocks => Free.op e blocks
-
 abbrev Src (γ : Scope) (α : Type) := Free sig.denote γ α
 
 def srcPrint (x : UInt32) : Src .main Unit :=
@@ -65,13 +61,13 @@ end
 
 /-! ## Certificates -/
 
-example : ProgramCert idHandler poly srcPoly :=
+example : ProgramCert (idHandler sig) poly srcPoly :=
   .of_progCert <| .main fun x =>
     .builtin (tk := fun y => pure (x + y)) rfl fun _ =>
     .builtin (tk := pure) rfl fun z =>
     .ret z
 
-example : ProgramCert idHandler branch srcBranch := by
+example : ProgramCert (idHandler sig) branch srcBranch := by
   refine .of_progCert <| .main fun _ =>
     .lam (src := fun _ => pure 3) (fun _ => .lit (tk := pure) fun v => .ret v)
       fun _ _ _ hjp => ?_
@@ -81,13 +77,13 @@ example : ProgramCert idHandler branch srcBranch := by
     · exact fun b => nomatch b
     · exact .app_tail hjp
 
-example : ProgramCert idHandler hintSquare srcHintSquare :=
+example : ProgramCert (idHandler sig) hintSquare srcHintSquare :=
   .of_progCert <| .main fun _ =>
     .op_tail fun _ _ =>
       .builtin (tk := pure) rfl fun z =>
       .ret z
 
-example : ProgramCert idHandler doubleTwice srcDoubleTwice :=
+example : ProgramCert (idHandler sig) doubleTwice srcDoubleTwice :=
   .of_progCert <|
     .define (src := srcDouble) (fun _ _ => .builtin (tk := pure) rfl fun z => .ret z)
       fun _ _ _ hd =>

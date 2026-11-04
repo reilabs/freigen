@@ -118,5 +118,5 @@ a twice-called helper, and one with a block.
 Builtins and calls also get single equations that case on the result, for
 rewriting when it is computable. On the concrete test signature, terms inside
 blocks only typecheck by unfolding the signature's definition, so rewriting
-there needs `erw`. Stage 4 should settle how signatures are declared so that
-plain rewriting works.
+there needs `erw`. This only affects hand-written proofs: the certificate
+rules and the macro unfold the signature as needed (see stage 4).
