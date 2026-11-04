@@ -683,7 +683,8 @@ def liftProgram (name entry : Name) (helpers wrappers : Array Name) : Term.TermE
   unless (← isTypeCorrect astVal) && (← isDefEq (← inferType astVal) astTy) do
     throwError "lift: internal error, the generated AST does not type-check{indentExpr astVal}"
   let astName := name ++ `ast
-  addDecl <| .defnDecl
+  -- Compiled too, so the AST can be evaluated, e.g. printed.
+  addAndCompile <| .defnDecl
     { name := astName, levelParams := [], type := astTy, value := astVal
       hints := .regular 0, safety := .safe }
   let thm ← mkRule ``ProgramCert.of_progCert [(`eff, eff), (`F, E), (`handler, handler),

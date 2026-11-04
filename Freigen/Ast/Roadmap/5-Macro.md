@@ -144,7 +144,9 @@ code. Only the certificate is built; the AST is read off its conclusion and
 generalized over the variable type, then type-checked before it is added.
 
 `Ast/Examples/Macro.lean` lifts the four stage 4 programs, whose ASTs equal
-the hand-written ones, and pins the ASTs of further programs: repeated
+the hand-written ones, and pins every generated AST in its printed form
+(`Ast/Print.lean`: S-expressions, with variables instantiated to names). The
+further programs cover: repeated
 subterms, a branch followed by a bind, an eta-reduced continuation, boolean
 and unit literals, and arrays. It also lifts a maximum via projections, a
 chain of helpers, effects in sequential branches with a block, and raw input

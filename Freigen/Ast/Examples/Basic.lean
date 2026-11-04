@@ -1,4 +1,4 @@
-import Freigen.Ast.Defs
+import Freigen.Ast.Print
 
 /-!
 A small effect signature used by AST tests, and sample programs exercising
@@ -57,6 +57,26 @@ def sig : EffSig where
     | .hint, e, _ => nomatch e
   blockOutputs := fun
     | .main, .hint, _ => .uInt32
+    | .main, .print, b => nomatch b
+    | .main, .input, b => nomatch b
+    | .hint, e, _ => nomatch e
+
+instance : EffSig.Print sig where
+  ctxName
+    | .main => "main"
+    | .hint => "hint"
+  tagName := fun
+    | .main, .print => "print"
+    | .main, .input => "input"
+    | .main, .hint => "hint"
+    | .hint, e => nomatch e
+  blocks := fun
+    | .main, .hint => [()]
+    | .main, .print => []
+    | .main, .input => []
+    | .hint, e => nomatch e
+  blockName := fun
+    | .main, .hint, _ => "body"
     | .main, .print, b => nomatch b
     | .main, .input, b => nomatch b
     | .hint, e, _ => nomatch e
