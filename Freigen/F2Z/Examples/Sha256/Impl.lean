@@ -17,11 +17,14 @@ def k : Vector (BitVec 32) 64 := #v[
 
 section Circuit
 
+variable [ctx : Context]
+
 /-- Bit-producing reference gadget retained for its standalone specification.
 The SHA-256 round circuit uses `ch2` below and does not call this gadget. -/
 def U.ch (u v w : U n) : Circuit (U n) := do
   let chBits ← Vector.ofFnM (n:=n) fun i => do
-    let h ← hint h![u.bits[i], v.bits[i], w.bits[i]] fun h![u, v, w] =>
+    let h ← hint (argTps := [.f₂, .f₂, .f₂])
+      h![u.bits[i], v.bits[i], w.bits[i]] fun h![u, v, w] =>
       pure $ #v[(u && v) ^^ ((!u) && w)]
     pure h[0]
   let ch ← U.fromWord { bitsLE := chBits }
@@ -34,7 +37,8 @@ def U.ch (u v w : U n) : Circuit (U n) := do
 The SHA-256 round circuit uses `maj2` below and does not call this gadget. -/
 def U.maj (u v w : U n) : Circuit (U n) := do
   let majBits ← Vector.ofFnM (n:=n) fun i => do
-    let h ← hint h![u.bits[i], v.bits[i], w.bits[i]] fun h![u, v, w] =>
+    let h ← hint (argTps := [.f₂, .f₂, .f₂])
+      h![u.bits[i], v.bits[i], w.bits[i]] fun h![u, v, w] =>
       pure $ #v[(u && v) ^^ (u && w) ^^ (v && w)]
     pure h[0]
   let maj ← U.fromWord { bitsLE := majBits }
@@ -42,19 +46,19 @@ def U.maj (u v w : U n) : Circuit (U n) := do
   assertR1C 0 0 $ u.intVal + v.intVal + w.intVal - uvw.intVal - 2 • maj.intVal
   pure maj
 
-def U.ch2 (u v w : U n) : Circuit (LC ℤ) := do
+def U.ch2 (u v w : U n) : Circuit ctx.Wℤ := do
   let uv ← U.fromWord $ u.bits ^^^ v.bits
   let uw ← U.fromWord $ u.bits ^^^ w.bits
   pure $ v.intVal + w.intVal - uv.intVal + uw.intVal
 
-def U.maj2 (u v w : U n) : Circuit (LC ℤ) := do
+def U.maj2 (u v w : U n) : Circuit ctx.Wℤ := do
   let uvw ← U.fromWord $ u.bits ^^^ v.bits ^^^ w.bits
   pure $ u.intVal + v.intVal + w.intVal - uvw.intVal
 
 /-- Witness the 35-bit quotient of an even nonnegative integer by two.  The
 constraint proves the shift without allocating the known-zero low input bit. -/
-def U.fromDoubledInt35 (x : LC ℤ) : Circuit (U 35) := do
-  let bits ← hint h![x] fun h![(x : Int)] => match x with
+def U.fromDoubledInt35 (x : ctx.Wℤ) : Circuit (U 35) := do
+  let bits ← hint (argTps := [.z]) h![x] fun h![(x : Int)] => match x with
     | .ofNat n => pure $ Vector.ofFn fun i => (n / 2).testBit i
     | _ => fail s!"negative integer {x} in U.fromDoubledInt35"
   let r ← U.fromWord { bitsLE := bits }
@@ -65,16 +69,16 @@ def U.fromDoubledInt35 (x : LC ℤ) : Circuit (U 35) := do
 unsigned value.  Keeping the whole expression doubled lets `CH` and `MAJ`
 remain linear combinations; witnessing only the 35-bit quotient removes the
 common factor without allocating the known-zero low bit or `CH`/`MAJ` bits. -/
-def U.sumDoubled32 (us : Array (U 32)) (doubled : Array (LC ℤ)) : Circuit (U 32) := do
+def U.sumDoubled32 (us : Array (U 32)) (doubled : Array ctx.Wℤ) : Circuit (U 32) := do
   let ordinary := us.map (·.intVal) |>.sum
   let total := 2 • ordinary + doubled.sum
   let half ← U.fromDoubledInt35 total
   pure $ half.takeLE 32 (by omega)
 
-def U.sum5Doubled1 (a b c d e : U 32) (x2 : LC ℤ) : Circuit (U 32) :=
+def U.sum5Doubled1 (a b c d e : U 32) (x2 : ctx.Wℤ) : Circuit (U 32) :=
   U.sumDoubled32 #[a, b, c, d, e] #[x2]
 
-def U.sum5Doubled2 (a b c d e : U 32) (x2 y2 : LC ℤ) : Circuit (U 32) :=
+def U.sum5Doubled2 (a b c d e : U 32) (x2 y2 : ctx.Wℤ) : Circuit (U 32) :=
   U.sumDoubled32 #[a, b, c, d, e] #[x2, y2]
 
 def permCircuit (m : Vector (Word 32) 16)
@@ -128,13 +132,14 @@ def permCircuit (m : Vector (Word 32) 16)
     ←U.sum #[s[7], h]
   ]
 
-def permCirc' (inp : Vector (LC Bool) 768): Circuit (Vector (LC Bool) 256) := do
+def permCirc' (inp : Vector ctx.WBool 768): Circuit (Vector ctx.WBool 256) := do
   let m := Vector.ofFn fun wi => Word.mk $ Vector.ofFn fun bi => inp[wi.val * 32 + bi.val]
   let s := Vector.ofFn fun si => Word.mk $ Vector.ofFn fun bi => inp[512 + si.val * 32 + bi.val]
   let out ← permCircuit m s
   pure $ Vector.ofFn fun si => out[si.val / 32].bits.bitsLE[si.val % 32]
 
-abbrev sha256CS : Vector (LC Bool) 256 × Semantics.CS := Semantics.CSBuilder.runWithInputs permCirc'
+abbrev sha256CS : Vector (LC Bool) 256 × Semantics.CS :=
+  Semantics.CSBuilder.runWithInputs (@permCirc' lcContext)
 
 end Circuit
 

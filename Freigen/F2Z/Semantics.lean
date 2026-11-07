@@ -43,6 +43,8 @@ deriving Inhabited
 
 namespace CSBuilder
 
+local instance : Context := lcContext
+
 def fresh : StateM CSBuilder (LC Bool) := do
   modifyGet (fun s => ({ s.nextWit }, { s with nextWit := s.nextWit + 1 }))
 
@@ -69,7 +71,7 @@ instance : (γ : Eff.Scope) → LawfulMonad (RunnerM γ)
 | .constraint => inferInstance
 | .hint       => inferInstance
 
-def handler : Freigen.Eff.Handler Eff RunnerM :=
+def handler : Freigen.Eff.Handler (Eff lcContext) RunnerM :=
   @fun
     | .constraint, .assertR1C a b c, _ => do
         let cs ← get
@@ -89,7 +91,7 @@ def handler : Freigen.Eff.Handler Eff RunnerM :=
         pure out
     | .hint, .fail _ _, _ => ()
 
-def runAt {γ : Eff.Scope} {α} (circ : Free Eff γ α) : RunnerM γ α :=
+def runAt {γ : Eff.Scope} {α} (circ : Free (Eff lcContext) γ α) : RunnerM γ α :=
   Free.interp handler circ
 
 def run' {α} (circ : Circuit α): StateM CSBuilder α :=
@@ -116,7 +118,8 @@ theorem Extends.trans {s₁ s₂ s₃ : CSBuilder}
 
 theorem run'_extends {a : Circuit α} {s : CSBuilder} :
     Extends s (StateT.run (run' a) s).2 := by
-  let motive := fun (γ : Eff.Scope) (α : Type) (a : Free Eff γ α) =>
+  let motive := fun (γ : Eff.Scope) (α : Type)
+      (a : Free (Eff lcContext) γ α) =>
     match γ with
     | .constraint => ∀ s, Extends s (StateT.run (runAt a) s).2
     | .hint => True
@@ -155,11 +158,14 @@ theorem run'_extends {a : Circuit α} {s : CSBuilder} :
           simp [runAt, handler]
           apply Extends.trans (s₂ := { s with nextWit := s.nextWit + n })
           · simp [Extends]
-          · exact ihk (Vector.ofFn fun i => {s.nextWit + i.val}) _
+          · exact ihk (Vector.ofFn fun i =>
+              ({s.nextWit + i.val} : LC Bool)) _
 
 end CSBuilder
 
 namespace Witgen
+
+local instance : Context := valueContext
 
 structure State where
   bools : Array Bool := #[]
@@ -171,13 +177,15 @@ def State.boolWitness (s : State) : Nat → Bool :=
 def zeroWitness : Nat → ℤ := fun _ => 0
 
 def evalArgs (s : State) : {argTps : List Eff.WitnessSide} →
-    HList Eff.WitnessSide.denoteW argTps →
+    HList (Eff.WitnessSide.denoteW valueContext) argTps →
     HList Eff.WitnessSide.denoteF argTps
   | [], .nil => .nil
-  | Eff.WitnessSide.z :: _, .cons x xs =>
-      .cons (show ℤ from LC.eval zeroWitness x) (evalArgs s xs)
-  | Eff.WitnessSide.f₂ :: _, .cons x xs =>
-      .cons (show Bool from LC.eval s.boolWitness x) (evalArgs s xs)
+  | Eff.WitnessSide.z :: _, .cons x xs => by
+      simp only [Eff.WitnessSide.denoteW] at x
+      exact .cons x (evalArgs s xs)
+  | Eff.WitnessSide.f₂ :: _, .cons x xs => by
+      simp only [Eff.WitnessSide.denoteW] at x
+      exact .cons x (evalArgs s xs)
 
 abbrev RunnerM : Eff.Scope → Type → Type
 | .constraint => StateT State Option
@@ -191,24 +199,23 @@ instance : (γ : Eff.Scope) → LawfulMonad (RunnerM γ)
 | .constraint => inferInstance
 | .hint       => inferInstance
 
-def handler : Freigen.Eff.Handler Eff RunnerM :=
+def handler : Freigen.Eff.Handler (Eff valueContext) RunnerM :=
   @fun
-    | .constraint, .assertR1C a b c, _ => do
-      if a.eval zeroWitness * b.eval zeroWitness = c.eval zeroWitness then
-        pure ()
-      else
-        failure
-    | .constraint, .f2z a, _ => do
-      let s ← get
-      pure ((a.eval s.boolWitness).toInt : LC ℤ)
+    | .constraint, .assertR1C a b c, _ => by
+      change ℤ at a b c
+      exact do
+        if a * b = c then pure () else failure
+    | .constraint, .f2z a, _ => by
+      change Bool at a
+      exact pure a.toInt
     | .constraint, .hint _ args _, blkO => do
       let s ← get
       let r ← StateT.lift (blkO PUnit.unit (evalArgs s args))
       set { s with bools := s.bools ++ r.toArray }
-      pure (r.map LC.ofConst)
+      pure r
     | .hint, .fail _ _, _ => none
 
-def runAt { γ : Eff.Scope } (circ : Free Eff γ α) : RunnerM γ α :=
+def runAt { γ : Eff.Scope } (circ : Free (Eff valueContext) γ α) : RunnerM γ α :=
   Free.interp handler circ
 
 def run' (circ : Circuit α) : StateT State Option α :=
@@ -218,10 +225,10 @@ def run (circ : Circuit α) (initial : State) : Option (Array Bool) := do
   let (_, s) ← StateT.run (run' circ) initial
   pure s.bools
 
-def runWithInputs {α n} (circ : Vector (LC Bool) n → Circuit α)
+def runWithInputs {α n} (circ : Vector Bool n → Circuit α)
     (inputs : Vector Bool n) : Option (Array Bool) := do
   let initial : State := { bools := inputs.toArray }
-  run (circ (Vector.ofFn fun i => {i.val})) initial
+  run (circ inputs) initial
 
 end Witgen
 

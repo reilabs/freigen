@@ -10,6 +10,9 @@ contains their main boundary correctness statements.
 
 namespace Freigen.F2Z.Examples.EcdsaP256
 
+-- Boundary execution and constraint generation use the canonical LC context.
+local instance : Context := lcContext
+
 open Std.Do
 open scoped Std.Do
 
@@ -35,7 +38,8 @@ theorem verifyDigest_sound
   apply Sound.adequate
     (circ := verifyDigestFromBits)
     (P := fun _ _ => VerifyDigestAccepts inputs)
-  · simpa [Sound.csValuation, VerifyDigestAccepts, verifyDigestCS] using
+  · simpa [Sound.csValuation, VerifyDigestAccepts, verifyDigestCS,
+      LC.valuation, LC.eval_singleton] using
       verifyDigestFromBits_sound_aux
         (ρ := Sound.csValuation verifyDigestCS.2 wit) inputs
   · exact hinputs
@@ -66,12 +70,14 @@ theorem verifyDigest_complete
       (verifyDigestInputValue inputs 3).toNat
       (verifyDigestInputValue inputs 4).toNat publicKey) :
     ∃ wit,
-      Semantics.Witgen.runWithInputs verifyDigestFromBits inputs = some wit ∧
+      Semantics.Witgen.runWithInputs
+        (@verifyDigestFromBits valueContext) inputs = some wit ∧
       verifyDigestCS.2.satisfies (wit[·]!) := by
   have hbits : ∀ i : Fin verifyDigestInputBits,
-      (Complete.witnessValuation inputs.toArray).bool i.val = inputs[i] := by
+      (Complete.witnessValuation inputs.toArray).bool
+        ({i.val} : LC Bool) = inputs[i] := by
     intro i
-    simp [Complete.witnessValuation, getElem!_pos]
+    simp [Complete.witnessValuation, LC.valuation, LC.eval_singleton]
   have hcomplete := verifyDigestFromBits_complete_aux
     (ρ := Complete.witnessValuation inputs.toArray) inputs publicKey hbits
     hkeyXlt hkeyYlt hrInvlt hsInvlt hcoords horder hrInvMul hsInvMul hverifies

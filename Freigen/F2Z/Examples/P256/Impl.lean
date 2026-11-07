@@ -41,37 +41,37 @@ def scalar : Params 256 where
   fits := by native_decide
   lowerHalf := by native_decide
 
-abbrev Fp := Elem base
-abbrev Fn := Elem scalar
+abbrev Fp [ctx : Context] := Elem base
+abbrev Fn [ctx : Context] := Elem scalar
 
-def fpConst (x : Nat) (h : x < baseModulus) : Fp :=
+def fpConst [ctx : Context] (x : Nat) (h : x < baseModulus) : Fp :=
   Modular.ofNat base x (h.trans_le base.fits) h
 
-def fnConst (x : Nat) (h : x < scalarModulus) : Fn :=
+def fnConst [ctx : Context] (x : Nat) (h : x < scalarModulus) : Fn :=
   Modular.ofNat scalar x (h.trans_le scalar.fits) h
 
-def fnOne : Fn := fnConst 1 (by native_decide)
+def fnOne [ctx : Context] : Fn := fnConst 1 (by native_decide)
 
-def zero : Fp := fpConst 0 (by native_decide)
-def one : Fp := fpConst 1 (by native_decide)
-def two : Fp := fpConst 2 (by native_decide)
-def three : Fp := fpConst 3 (by native_decide)
-def four : Fp := fpConst 4 (by native_decide)
-def eight : Fp := fpConst 8 (by native_decide)
+def zero [ctx : Context] : Fp := fpConst 0 (by native_decide)
+def one [ctx : Context] : Fp := fpConst 1 (by native_decide)
+def two [ctx : Context] : Fp := fpConst 2 (by native_decide)
+def three [ctx : Context] : Fp := fpConst 3 (by native_decide)
+def four [ctx : Context] : Fp := fpConst 4 (by native_decide)
+def eight [ctx : Context] : Fp := fpConst 8 (by native_decide)
 
-def curveB : Fp := fpConst
+def curveB [ctx : Context] : Fp := fpConst
   0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
   (by native_decide)
 
-def generatorX : Fp := fpConst
+def generatorX [ctx : Context] : Fp := fpConst
   0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296
   (by native_decide)
 
-def generatorY : Fp := fpConst
+def generatorY [ctx : Context] : Fp := fpConst
   0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5
   (by native_decide)
 
-structure Projective where
+structure Projective [ctx : Context] where
   X : Fp
   Y : Fp
   Z : Fp
@@ -80,31 +80,39 @@ namespace Projective
 
 /-- A projective carrier retained at the circuit boundary.  ECDSA supplies
 `Z = 1`; elliptic-curve semantics live exclusively in `P256.Reference`. -/
-def Valid (P : Projective) (ρ : WF.Valuation) : Prop :=
+def Valid [ctx : Context] (P : @Projective ctx)
+    (ρ : @WF.Valuation ctx) : Prop :=
   P.X.Valid ρ ∧ P.Y.Valid ρ ∧ P.Z.Valid ρ
 
-def WFRel (lv rv : WF.Valuation) (P Q : Projective) : Prop :=
-  Elem.WFRel lv rv P.X Q.X ∧ Elem.WFRel lv rv P.Y Q.Y ∧
-    Elem.WFRel lv rv P.Z Q.Z
+def WFRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (P : @Projective leftCtx) (Q : @Projective rightCtx) : Prop :=
+  Elem.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+      (@Projective.X leftCtx P) (@Projective.X rightCtx Q) ∧
+    Elem.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+      (@Projective.Y leftCtx P) (@Projective.Y rightCtx Q) ∧
+    Elem.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+      (@Projective.Z leftCtx P) (@Projective.Z rightCtx Q)
 
 namespace Lazy
 
-abbrev Rep := Modular.Lazy.Rep base
+abbrev Rep [ctx : Context] := Modular.Lazy.Rep base
 
-def OnCurveZModSpec (ρ : WF.Valuation) (x y : Fp) : Prop :=
+def OnCurveZModSpec [ctx : Context] (ρ : @WF.Valuation ctx)
+    (x y : Fp) : Prop :=
   let X : ZMod base.modulus :=
-    Int.castRingHom (ZMod base.modulus) (x.val.intVal.eval ρ.int)
+    Int.castRingHom (ZMod base.modulus) (ρ.int x.val.intVal)
   let Y : ZMod base.modulus :=
-    Int.castRingHom (ZMod base.modulus) (y.val.intVal.eval ρ.int)
+    Int.castRingHom (ZMod base.modulus) (ρ.int y.val.intVal)
   Y ^ 2 = X ^ 3 - 3 * X +
     (0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b :
       ZMod base.modulus)
 
-def mul (x y : Rep) : Circuit Rep := Modular.Lazy.mul base x y
+def mul [ctx : Context] (x y : Rep) : Circuit Rep := Modular.Lazy.mul base x y
 
 /-- Fused affine curve check.  Mathlib's equation is the semantic endpoint;
 this implementation merely supplies its integer constraints. -/
-def assertOnCurve (x y : Fp) : Circuit Unit := do
+def assertOnCurve [ctx : Context] (x y : Fp) : Circuit Unit := do
   let x := Modular.Lazy.ofElem base x
   let y := Modular.Lazy.ofElem base y
   let x2 ← mul x x
@@ -130,55 +138,64 @@ formula operands may use six extra bits of representative slack.
 
 namespace AffineSlope
 
-abbrev Rep := Modular.Lazy.Rep base
+abbrev Rep [ctx : Context] := Modular.Lazy.Rep base
 
-structure Point where
+structure Point [ctx : Context] where
   X : Rep
   Y : Rep
-  infinity : LC ℤ
+  infinity : ctx.Wℤ
 
 /-- Construction invariant for affine circuit state.  Coordinates are
 canonical integer representatives; the separate infinity flag is Boolean.
 This is stronger than the quotient semantics and is consumed only by witness
 generation/completeness. -/
-def Point.Valid (P : Point) (ρ : WF.Valuation) : Prop :=
+def Point.Valid [ctx : Context] (P : @Point ctx)
+    (ρ : @WF.Valuation ctx) : Prop :=
   P.X.bound = 2 ∧ P.X.Valid ρ ∧
-    P.X.intVal.eval ρ.int < base.modulus ∧
+    ρ.int P.X.intVal < base.modulus ∧
     P.Y.bound = 2 ∧ P.Y.Valid ρ ∧
-    P.Y.intVal.eval ρ.int < base.modulus ∧
-    (P.infinity.eval ρ.int = 0 ∨ P.infinity.eval ρ.int = 1)
+    ρ.int P.Y.intVal < base.modulus ∧
+    (ρ.int P.infinity = 0 ∨ ρ.int P.infinity = 1)
 
-def Point.WFRel (lv rv : WF.Valuation) (left right : Point) : Prop :=
-  left.X.WFRel lv rv right.X ∧ left.Y.WFRel lv rv right.Y ∧
-    WF.LCEq lv.int rv.int left.infinity right.infinity
+def Point.WFRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (left : @Point leftCtx) (right : @Point rightCtx) : Prop :=
+  Modular.Lazy.Rep.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+      (@Point.X leftCtx left) (@Point.X rightCtx right) ∧
+    Modular.Lazy.Rep.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+      (@Point.Y leftCtx left) (@Point.Y rightCtx right) ∧
+    WF.LCEq lv.int rv.int (@Point.infinity leftCtx left)
+      (@Point.infinity rightCtx right)
 
-def ofElems (x y : Fp) : Point :=
+def ofElems [ctx : Context] (x y : Fp) : Point :=
   ⟨Modular.Lazy.ofElem base x, Modular.Lazy.ofElem base y, 0⟩
 
-def infinity : Point :=
+def infinity [ctx : Context] : Point :=
   ⟨Modular.Lazy.ofElem base zero, Modular.Lazy.ofElem base zero, 1⟩
 
-def add (x y : Rep) : Rep := Modular.Lazy.add base x y
-def sub (x y : Rep) : Rep := Modular.Lazy.sub base x y
-def scale (k : Nat) (x : Rep) : Rep := Modular.Lazy.scale base k x
-def ofElem (x : Fp) : Rep := Modular.Lazy.ofElem base x
+def add [ctx : Context] (x y : Rep) : Rep := Modular.Lazy.add base x y
+def sub [ctx : Context] (x y : Rep) : Rep := Modular.Lazy.sub base x y
+def scale [ctx : Context] (k : Nat) (x : Rep) : Rep := Modular.Lazy.scale base k x
+def ofElem [ctx : Context] (x : Fp) : Rep := Modular.Lazy.ofElem base x
 
-def AndBitSpec (ρ : WF.Valuation) (x y out : LC ℤ) : Prop :=
-  out.eval ρ.int = x.eval ρ.int * y.eval ρ.int ∧
-    (out.eval ρ.int = 0 ∨ out.eval ρ.int = 1)
+def AndBitSpec [ctx : Context] (ρ : @WF.Valuation ctx)
+    (x y out : ctx.Wℤ) : Prop :=
+  ρ.int out = ρ.int x * ρ.int y ∧
+    (ρ.int out = 0 ∨ ρ.int out = 1)
 
-def SelectZModSpec (ρ : WF.Valuation) (choose : LC ℤ)
+def SelectZModSpec [ctx : Context] (ρ : @WF.Valuation ctx) (choose : ctx.Wℤ)
     (whenOne whenZero out : Rep) : Prop :=
-  (choose.eval ρ.int = 1 →
+  (ρ.int choose = 1 →
       Modular.Lazy.evalZMod base out ρ =
         Modular.Lazy.evalZMod base whenOne ρ) ∧
-  (choose.eval ρ.int = 0 →
+  (ρ.int choose = 0 →
       Modular.Lazy.evalZMod base out ρ =
         Modular.Lazy.evalZMod base whenZero ρ)
 
 /-- Boolean conjunction as one witnessed bit and one R1C. -/
-def andBit (x y : LC ℤ) : Circuit (LC ℤ) := do
-  let bits ← hint h![x, y] fun h![(a : Int), (b : Int)] =>
+def andBit [ctx : Context] (x y : ctx.Wℤ) : @Circuit ctx ctx.Wℤ := do
+  let bits ← hint (argTps := [.z, .z]) h![x, y]
+    fun h![(a : Int), (b : Int)] =>
     pure $ Vector.ofFn (n := 1) fun _ => a = 1 && b = 1
   let out ← U.fromWord { bitsLE := bits }
   assertR1C x y out.intVal
@@ -187,14 +204,15 @@ def andBit (x y : LC ℤ) : Circuit (LC ℤ) := do
 /-- Three-input conjunction.  Keeping the intermediate product inside this
 gadget gives completeness a local Boolean invariant instead of exposing it
 to callers. -/
-def and3Bit (x y z : LC ℤ) : Circuit (LC ℤ) := do
+def and3Bit [ctx : Context] (x y z : ctx.Wℤ) : @Circuit ctx ctx.Wℤ := do
   let xy ← andBit x y
   andBit z xy
 
 /-- Exact selection at a statically chosen witness width and slack bound. -/
-def selectRep (width outBound : Nat) (description : String)
-    (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep := do
-  let bits ← hint h![choose, whenOne.intVal, whenZero.intVal]
+def selectRep [ctx : Context] (width outBound : Nat) (description : String)
+    (choose : ctx.Wℤ) (whenOne whenZero : Rep) : @Circuit ctx Rep := do
+  let bits ← hint (argTps := [.z, .z, .z])
+    h![choose, whenOne.intVal, whenZero.intVal]
     fun h![(b : Int), (x : Int), (y : Int)] =>
       let value := if b = 1 then x else y
       if _ : 0 ≤ value then
@@ -207,32 +225,34 @@ def selectRep (width outBound : Nat) (description : String)
 
 /-- Exact selection between canonical representatives.  The result is again
 a 256-bit representative and can safely remain in the affine state. -/
-def selectCanonical (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep :=
+def selectCanonical [ctx : Context] (choose : ctx.Wℤ)
+    (whenOne whenZero : Rep) : @Circuit ctx Rep :=
   selectRep 256 2 "canonical" choose whenOne whenZero
 
 /-- Exact selection for temporary formula operands.  Six slack bits cover
 the biased differences and the `3*x^2 - 3` tangent numerator. -/
-def selectFormula (choose : LC ℤ) (whenOne whenZero : Rep) : Circuit Rep :=
+def selectFormula [ctx : Context] (choose : ctx.Wℤ)
+    (whenOne whenZero : Rep) : @Circuit ctx Rep :=
   selectRep 262 66 "affine formula" choose whenOne whenZero
 
 /-- Complete affine doubling.  At infinity `(x,y)=(0,0)`: adding three times
 the infinity bit cancels the curve's `a = -3` tangent numerator, while adding
 the bit to `2*y` makes the denominator one.  The ordinary output equations
 then return `(0,0)` directly, with no coordinate selectors. -/
-def doubleSlope (P : Point) : Circuit Rep := do
+def doubleSlope [ctx : Context] (P : Point) : Circuit Rep := do
   let x2 ← Modular.Lazy.mul base P.X P.X
   let numerator := add (sub (scale 3 x2) (ofElem three))
     ⟨3 • P.infinity, 1⟩
   let denominator := add (scale 2 P.Y) ⟨P.infinity, 1⟩
   Modular.Lazy.divide base denominator numerator
 
-def finishDouble (P : Point) (slope : Rep) : Circuit Point := do
+def finishDouble [ctx : Context] (P : Point) (slope : Rep) : Circuit Point := do
   let x3 ← Modular.Lazy.mulSubToElem base slope slope (scale 2 P.X)
   let x3r := ofElem x3
   let y3 ← Modular.Lazy.mulSubToElem base slope (sub P.X x3r) P.Y
   pure ⟨x3r, ofElem y3, P.infinity⟩
 
-def doubleComplete (P : Point) : Circuit Point := do
+def doubleComplete [ctx : Context] (P : Point) : Circuit Point := do
   let slope ← doubleSlope P
   finishDouble P slope
 
@@ -241,49 +261,60 @@ tangent, and opposite-point cases.  In inactive infinity/opposite branches
 the slope relation is changed to the harmless `slope * 1 = 0`; the final two
 canonical coordinates are then selected from the appropriate identity case.
 -/
-structure AddControl where
-  sameX : LC ℤ
-  oppositeY : LC ℤ
-  finite : LC ℤ
-  doubleCase : LC ℤ
-  active : LC ℤ
+structure AddControl [ctx : Context] where
+  sameX : ctx.Wℤ
+  oppositeY : ctx.Wℤ
+  finite : ctx.Wℤ
+  doubleCase : ctx.Wℤ
+  active : ctx.Wℤ
 
-def AddControl.WFRel (lv rv : WF.Valuation)
-    (left right : AddControl) : Prop :=
-  WF.LCEq lv.int rv.int left.sameX right.sameX ∧
-    WF.LCEq lv.int rv.int left.oppositeY right.oppositeY ∧
-    WF.LCEq lv.int rv.int left.finite right.finite ∧
-    WF.LCEq lv.int rv.int left.doubleCase right.doubleCase ∧
-    WF.LCEq lv.int rv.int left.active right.active
+def AddControl.WFRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (left : @AddControl leftCtx) (right : @AddControl rightCtx) : Prop :=
+  WF.LCEq lv.int rv.int (@AddControl.sameX leftCtx left)
+      (@AddControl.sameX rightCtx right) ∧
+    WF.LCEq lv.int rv.int (@AddControl.oppositeY leftCtx left)
+      (@AddControl.oppositeY rightCtx right) ∧
+    WF.LCEq lv.int rv.int (@AddControl.finite leftCtx left)
+      (@AddControl.finite rightCtx right) ∧
+    WF.LCEq lv.int rv.int (@AddControl.doubleCase leftCtx left)
+      (@AddControl.doubleCase rightCtx right) ∧
+    WF.LCEq lv.int rv.int (@AddControl.active leftCtx left)
+      (@AddControl.active rightCtx right)
 
-def classifyAdd (P Q : Point) : Circuit AddControl := do
+def classifyAdd [ctx : Context] (P Q : Point) : Circuit AddControl := do
   let dx := sub Q.X P.X
   let ysum := add P.Y Q.Y
   let sameX ← Modular.Lazy.zeroTest base dx
   let oppositeY ← Modular.Lazy.zeroTest base ysum
-  let finite ← andBit (LC.ofConst 1 - P.infinity)
-    (LC.ofConst 1 - Q.infinity)
-  let doubleKind ← andBit sameX (LC.ofConst 1 - oppositeY)
+  let finite ← andBit (ofScalar 1 - P.infinity)
+    (ofScalar 1 - Q.infinity)
+  let doubleKind ← andBit sameX (ofScalar 1 - oppositeY)
   let doubleCase ← andBit finite doubleKind
-  let genericCase ← andBit finite (LC.ofConst 1 - sameX)
+  let genericCase ← andBit finite (ofScalar 1 - sameX)
   let active := doubleCase + genericCase
   pure ⟨sameX, oppositeY, finite, doubleCase, active⟩
 
-structure SlopeOperands where
+structure SlopeOperands [ctx : Context] where
   numerator : Rep
   denominator : Rep
 
-def SlopeOperands.WFRel (lv rv : WF.Valuation)
-    (left right : SlopeOperands) : Prop :=
-  left.numerator.WFRel lv rv right.numerator ∧
-    left.denominator.WFRel lv rv right.denominator
+def SlopeOperands.WFRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (left : @SlopeOperands leftCtx) (right : @SlopeOperands rightCtx) : Prop :=
+  Modular.Lazy.Rep.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+      (@SlopeOperands.numerator leftCtx left)
+      (@SlopeOperands.numerator rightCtx right) ∧
+    Modular.Lazy.Rep.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+      (@SlopeOperands.denominator leftCtx left)
+      (@SlopeOperands.denominator rightCtx right)
 
-def SlopeOperands.Valid (operands : SlopeOperands)
-    (ρ : WF.Valuation) : Prop :=
+def SlopeOperands.Valid [ctx : Context] (operands : @SlopeOperands ctx)
+    (ρ : @WF.Valuation ctx) : Prop :=
   operands.numerator.Valid ρ ∧ operands.numerator.bound = 66 ∧
     operands.denominator.Valid ρ ∧ operands.denominator.bound = 66
 
-def selectRawSlopeOperands (P Q : Point)
+def selectRawSlopeOperands [ctx : Context] (P Q : Point)
     (control : AddControl) : Circuit SlopeOperands := do
   let dx := sub Q.X P.X
   let dy := sub Q.Y P.Y
@@ -296,7 +327,7 @@ def selectRawSlopeOperands (P Q : Point)
     selectFormula control.doubleCase doubleDenominator dx
   pure ⟨selectedNumerator, selectedDenominator⟩
 
-def activateSlopeOperands (_P _Q : Point) (control : AddControl)
+def activateSlopeOperands [ctx : Context] (_P _Q : Point) (control : AddControl)
     (selected : SlopeOperands) : Circuit SlopeOperands := do
   let numerator ←
     selectFormula control.active selected.numerator (ofElem zero)
@@ -305,12 +336,12 @@ def activateSlopeOperands (_P _Q : Point) (control : AddControl)
 
   pure ⟨numerator, denominator⟩
 
-def selectSlopeOperands (P Q : Point)
+def selectSlopeOperands [ctx : Context] (P Q : Point)
     (control : AddControl) : Circuit SlopeOperands := do
   let selected ← selectRawSlopeOperands P Q control
   activateSlopeOperands P Q control selected
 
-def finishAddCandidate (P Q : Point)
+def finishAddCandidate [ctx : Context] (P Q : Point)
     (operands : SlopeOperands) : Circuit (Rep × Rep) := do
   let slope ← Modular.Lazy.divide base operands.denominator operands.numerator
   let candidateX ← Modular.Lazy.mulSubToElem base slope slope (add P.X Q.X)
@@ -320,11 +351,11 @@ def finishAddCandidate (P Q : Point)
   let candidateYr := ofElem candidateY
   pure (candidateXr, candidateYr)
 
-def addCandidate (P Q : Point) (control : AddControl) : Circuit (Rep × Rep) := do
+def addCandidate [ctx : Context] (P Q : Point) (control : AddControl) : Circuit (Rep × Rep) := do
   let operands ← selectSlopeOperands P Q control
   finishAddCandidate P Q operands
 
-def selectAddOutput (P Q : Point) (control : AddControl)
+def selectAddOutput [ctx : Context] (P Q : Point) (control : AddControl)
     (candidate : Rep × Rep) : Circuit Point := do
   let inactiveX0 ← selectCanonical Q.infinity P.X (ofElem zero)
   let inactiveY0 ← selectCanonical Q.infinity P.Y (ofElem zero)
@@ -338,7 +369,7 @@ def selectAddOutput (P Q : Point) (control : AddControl)
     and3Bit control.sameX control.oppositeY control.finite
   pure ⟨X, Y, bothInfinity + finiteOpposite⟩
 
-def addComplete (P Q : Point) : Circuit Point := do
+def addComplete [ctx : Context] (P Q : Point) : Circuit Point := do
   let control ← classifyAdd P Q
   let candidate ← addCandidate P Q control
   selectAddOutput P Q control candidate

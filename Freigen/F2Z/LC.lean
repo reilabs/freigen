@@ -1,3 +1,4 @@
+import Freigen.F2Z.Context
 import Freigen.Wheels
 import Mathlib.Algebra.Module.Basic
 import Mathlib.Algebra.Module.LinearMap.Defs
@@ -339,6 +340,8 @@ instance : Module F (LC F) where
   add_smul := by intros; apply ext; intro; simp [add_mul]
   zero_smul := by intros; apply ext; intro; simp
 
+instance : ModuleWithOne F (LC F) where
+
 @[simp] theorem eval_nsmul (valuation : Nat → F) (n : Nat) (value : LC F) :
     eval valuation (n • value) = n • eval valuation value := by
   change eval valuation (scale (n : F) value) = n • eval valuation value
@@ -379,6 +382,109 @@ instance (priority := 100) : NatCast (LC F) where
   | cons x xs ih => simp [ih]
 
 end LC
+
+namespace LC
+
+@[simp] theorem ofScalar_eq_ofConst {F : Type u} [Semiring F] (value : F) :
+    (Freigen.F2Z.ofScalar value : LC F) = LC.ofConst value := by
+  apply LC.ext
+  intro witness
+  simp [Freigen.F2Z.ofScalar]
+
+/-- Evaluation as a structure-preserving valuation of the `LC`
+representation. -/
+def valuation {F : Type u} [Semiring F] (witness : Nat → F) :
+    Valuation F (LC F) where
+  toFun :=
+    { toFun := eval witness
+      map_add' := eval_add witness
+      map_smul' := eval_smul witness }
+  one_map := eval_one witness
+
+/-- Recover the witness assignment denoted by an arbitrary valuation of the
+canonical `LC` representation. -/
+def Valuation.toWitness {F : Type u} [Semiring F]
+    (valuation : Valuation F (LC F)) : Nat → F :=
+  fun index => valuation ({index} : LC F)
+
+@[simp] theorem Valuation.toWitness_valuation {F : Type u} [Semiring F]
+    (witness : Nat → F) :
+    LC.Valuation.toWitness (valuation witness) = witness := by
+  funext index
+  rfl
+
+instance {F : Type u} [Semiring F] :
+    Coe (Valuation F (LC F)) (Nat → F) :=
+  ⟨LC.Valuation.toWitness⟩
+
+theorem Valuation.apply_eq_eval {F : Type u} [Semiring F]
+    (valuation : Valuation F (LC F)) (value : LC F) :
+    valuation value = value.eval (LC.Valuation.toWitness valuation) := by
+  induction value using Quotient.inductionOn with
+  | _ raw =>
+      induction raw with
+      | const value =>
+          change valuation (ofConst value) = value
+          have hconst : ofConst value = value • (1 : LC F) := by
+            apply LC.ext
+            intro witness
+            simp
+          rw [hconst, valuation.smul_apply, valuation.one_apply, mul_one]
+      | var index => rfl
+      | add left right hleft hright =>
+          let leftLC : LC F := Quotient.mk _ left
+          let rightLC : LC F := Quotient.mk _ right
+          change valuation (leftLC + rightLC) = _
+          rw [valuation.add_apply, hleft, hright]
+          rfl
+      | scale factor value ih =>
+          let valueLC : LC F := Quotient.mk _ value
+          change valuation (factor • valueLC) = _
+          rw [valuation.smul_apply, ih]
+          rfl
+
+@[simp] theorem Valuation.eval_toWitness_eq_apply {F : Type u} [Semiring F]
+    (valuation : Valuation F (LC F)) (value : LC F) :
+    value.eval (LC.Valuation.toWitness valuation) = valuation value :=
+  (Valuation.apply_eq_eval valuation value).symm
+
+@[simp] theorem Valuation.ofConst_apply {F : Type u} [Semiring F]
+    (valuation : Valuation F (LC F)) (value : F) :
+    valuation (ofConst value) = value := by
+  rw [Valuation.apply_eq_eval, eval_ofConst]
+
+@[simp] theorem eval_ofScalar {F : Type u} [Semiring F]
+    (valuation : Valuation F (LC F)) (value : F) :
+    (Freigen.F2Z.ofScalar value : LC F).eval valuation = value := by
+  rw [← Valuation.apply_eq_eval]
+  exact Freigen.F2Z.Valuation.ofScalar_apply valuation value
+
+@[simp] theorem eval_ofScalar_sub {R : Type u} [Ring R]
+    (valuation : Valuation R (LC R)) (value : R) (x : LC R) :
+    (Freigen.F2Z.ofScalar value - x).eval valuation =
+      value - x.eval valuation := by
+  rw [← Valuation.apply_eq_eval, Freigen.F2Z.Valuation.sub_apply,
+    Freigen.F2Z.Valuation.ofScalar_apply, Valuation.apply_eq_eval]
+
+end LC
+
+/-- The canonical symbolic context used by constraint generation. -/
+@[reducible] def lcContext : Context where
+  Wℤ := LC ℤ
+  WBool := LC Bool
+
+/-- The direct value context used by executing interpreters. -/
+@[reducible] def valueContext : Context where
+  Wℤ := ℤ
+  WBool := Bool
+
+/-- The canonical semantic environment for the direct execution context. -/
+def valueValuation : Context.Valuations valueContext where
+  bool := Context.identityValuation Bool
+  int := Context.identityValuation ℤ
+
+scoped instance LCContext : Context := lcContext
+scoped instance ValueContext : Context := valueContext
 
 /- Keep clients at the `LC` abstraction boundary.  In particular, this lets
 the witness-side unification hints recognize `LC Int` and `LC Bool` instead of

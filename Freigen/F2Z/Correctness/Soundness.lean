@@ -1,7 +1,7 @@
 import Freigen.F2Z.Defs
 import Freigen.F2Z.Semantics
 import Freigen.F2Z.Nondet
-import Freigen.F2Z.Correctness.Completeness
+import Freigen.F2Z.Correctness.WF
 import Std.Tactic.Do
 
 namespace Std.Do
@@ -57,6 +57,8 @@ namespace Freigen.F2Z.Sound
 open Std.Do
 open scoped Std.Do
 
+local instance : Context := lcContext
+
 abbrev Shape : PostShape :=
   .arg WF.Valuation .pure
 
@@ -73,7 +75,7 @@ instance : (e: Eff.Scope) → LawfulMonad (RunnerM e)
 | .hint       => inferInstance
 
 def handler (valuation : WF.Valuation) :
-    Freigen.Eff.Handler Eff RunnerM :=
+    Freigen.Eff.Handler (Eff lcContext) RunnerM :=
   fun {γ} e _ => match γ, e with
     | .constraint, .assertR1C a b c =>
         if a.eval valuation.int * b.eval valuation.int = c.eval valuation.int then
@@ -203,8 +205,8 @@ If the equation is false, the sound semantics aborts that path. -/
 @[spec]
 theorem assertR1C (a b c : LC ℤ) (Q : PostCond Unit .pure) :
     Triple (interp valuation (F2Z.assertR1C a b c))
-      spred(⌜a.eval valuation.int * b.eval valuation.int =
-        c.eval valuation.int⌝ → Q.1 ()) Q := by
+      spred(⌜valuation.int a * valuation.int b =
+        valuation.int c⌝ → Q.1 ()) Q := by
   rw [Triple.iff]
   simp only [SPred.entails_nil, wp, interp, F2Z.assertR1C]
   rw [Free.interp_op]
@@ -213,7 +215,10 @@ theorem assertR1C (a b c : LC ℤ) (Q : PostCond Unit .pure) :
   split
   · rename_i hconstraint
     intro hpre
-    have hpost := hpre hconstraint
+    have hconstraint' : valuation.int a * valuation.int b =
+        valuation.int c := by
+      simpa only [← LC.Valuation.apply_eq_eval] using hconstraint
+    have hpost := hpre hconstraint'
     change (Q.1 ()).down
     exact hpost
   · intro _
@@ -223,20 +228,21 @@ theorem assertR1C (a b c : LC ℤ) (Q : PostCond Unit .pure) :
 theorem f2z {a}:
     ⦃⌜True⌝⦄ interp valuation (f2z a)
     ⦃⇓ r =>
-      ⌜(a.eval valuation.bool).toInt = r.eval valuation.int⌝⦄ := by
+      ⌜(valuation.bool a).toInt = valuation.int r⌝⦄ := by
   rw [Triple.iff]
   simp only [SPred.entails_nil]
   simp only [SPred.down_pure_nil, wp, interp, F2Z.f2z]
   rw [Free.interp_op]
   simp only [PredTrans.apply, handler, Nondet.chooseWhere, SPred.imp_nil, SPred.down_pure_nil,
     SPred.forall_nil]
-  tauto
+  intro _ r h
+  simpa only [← LC.Valuation.apply_eq_eval] using h
 
 /-- Soundness treats a hint as universal nondeterminism: the postcondition
 must hold for every vector the constraint-system semantics may return. -/
 @[spec]
 theorem hint {n : Nat} {argTps : List Eff.WitnessSide}
-    (args : HList Eff.WitnessSide.denoteW argTps)
+    (args : HList (Eff.WitnessSide.denoteW lcContext) argTps)
     (body : HList Eff.WitnessSide.denoteF argTps → Hint (Vector Bool n))
     (Q : PostCond (Vector (LC Bool) n) .pure) :
     Triple (interp valuation (F2Z.hint args body))
@@ -250,8 +256,8 @@ theorem hint {n : Nat} {argTps : List Eff.WitnessSide}
 /-- The common valuation induced by a constraint system and a Boolean witness. -/
 def csValuation (cs : Semantics.CS)
     (wit : Nat → Bool) : WF.Valuation where
-  bool := wit
-  int := cs.intWitness wit
+  bool := LC.valuation wit
+  int := LC.valuation (cs.intWitness wit)
 
 private theorem satisfies_of_r1cs_prefix {cs : Semantics.CS} {wit : Nat → Bool}
     {pre : Array (Semantics.R1C ℤ)} {r1c : Semantics.R1C ℤ}
@@ -288,7 +294,8 @@ private theorem interp_runAt {a : Circuit α} {s sf : Semantics.CSBuilder}
     (hsat : sf.result.satisfies wit)
     (hwp : ((interp (csValuation sf.result wit) a).apply Q).down) :
     (Q.1 (StateT.run (Semantics.CSBuilder.runAt a) s).1).down := by
-  let motive := fun (γ : Eff.Scope) (α : Type) (a : Free Eff γ α) =>
+  let motive := fun (γ : Eff.Scope) (α : Type)
+      (a : Free (Eff lcContext) γ α) =>
     match γ with
     | .constraint => ∀ (s sf : Semantics.CSBuilder) (wit : Nat → Bool)
         (Q : PostCond α .pure),
@@ -326,8 +333,15 @@ private theorem interp_runAt {a : Circuit α} {s sf : Semantics.CSBuilder}
           have hr1c := satisfies_of_r1cs_prefix hs₁sf.1 hsat
           change a.eval (sf.result.intWitness wit) * b.eval (sf.result.intWitness wit) =
             c.eval (sf.result.intWitness wit) at hr1c
+          have hr1c' :
+              (LC.valuation (sf.result.intWitness wit)) a *
+                  (LC.valuation (sf.result.intWitness wit)) b =
+                (LC.valuation (sf.result.intWitness wit)) c := by
+            rw [LC.Valuation.apply_eq_eval, LC.Valuation.apply_eq_eval,
+              LC.Valuation.apply_eq_eval]
+            exact hr1c
           have hwp' : ((interp (csValuation sf.result wit) (k ())).apply Q).down := by
-            simpa [interp, handler, csValuation, hr1c] using hwp
+            simpa [interp, handler, csValuation, hr1c'] using hwp
           exact ihk () s₁ sf wit Q hext hsat hwp'
       | f2z a =>
           simp [Semantics.CSBuilder.runAt, Semantics.CSBuilder.handler,

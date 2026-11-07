@@ -24,6 +24,8 @@ open Modular
 open P256
 open P256.Projective
 
+variable [ctx : Context]
+
 structure PublicKey where
   x : U 256
   y : U 256
@@ -61,8 +63,8 @@ def materializeMultiples (P : Projective) :
   pure #v[AffineSlope.infinity, p1, p2, p3, p4, p5, p6, p7, p8,
     p9, p10, p11, p12, p13, p14, p15]
 
-def indicators (n : Nat) (digit : LC ℤ) : Circuit (U n) := do
-  let bits ← hint h![digit] fun h![(d : Int)] =>
+def indicators (n : Nat) (digit : ctx.Wℤ) : Circuit (U n) := do
+  let bits ← hint (argTps := [.z]) h![digit] fun h![(d : Int)] =>
     pure $ Vector.ofFn (n := n) fun i => d = i.val
   let out ← U.fromWord { bitsLE := bits }
   assertR1C 0 0 ((∑ i : Fin n, out.intBits[i]) - 1)
@@ -70,15 +72,15 @@ def indicators (n : Nat) (digit : LC ℤ) : Circuit (U n) := do
     ((∑ i : Fin n, i.val • out.intBits[i]) - digit)
   pure out
 
-def windowIndicators (digit : LC ℤ) : Circuit (U 16) :=
+def windowIndicators (digit : ctx.Wℤ) : Circuit (U 16) :=
   indicators 16 digit
 
 private abbrev LookupArgTypes : List Eff.WitnessSide :=
   [.z, .z, .z, .z, .z, .z, .z, .z, .z,
     .z, .z, .z, .z, .z, .z, .z, .z]
 
-def lookupArgs (digit : LC ℤ) (values : Vector (LC ℤ) 16) :
-    HList Eff.WitnessSide.denoteW LookupArgTypes :=
+def lookupArgs (digit : ctx.Wℤ) (values : Vector ctx.Wℤ 16) :
+    HList (Eff.WitnessSide.denoteW ctx) LookupArgTypes :=
   h![digit, values[0], values[1], values[2], values[3], values[4],
     values[5], values[6], values[7], values[8], values[9], values[10],
     values[11], values[12], values[13], values[14], values[15]]
@@ -111,32 +113,32 @@ def assertLookupRep (indicators : U 16) (out : U 256)
   WF.foldRange [:16] () fun i h _ =>
     assertR1C indicators.intBits[i] (out.intVal - xs[i].intVal) 0
 
-def lookupRepWord (digit : LC ℤ) (xs : Vector AffineSlope.Rep 16) :
+def lookupRepWord (digit : ctx.Wℤ) (xs : Vector AffineSlope.Rep 16) :
     Circuit (U 256) := do
   let bits ← hint (lookupArgs digit (xs.map (·.intVal)))
     lookupRepHint
   U.fromWord { bitsLE := bits }
 
-def lookupRep (digit : LC ℤ) (indicators : U 16)
+def lookupRep (digit : ctx.Wℤ) (indicators : U 16)
     (xs : Vector AffineSlope.Rep 16) : Circuit AffineSlope.Rep := do
   let out ← lookupRepWord digit xs
   assertLookupRep indicators out xs
   pure ⟨out.intVal, 2⟩
 
-def assertLookupFlag (indicators : U 16) (out : LC ℤ)
-    (flags : Vector (LC ℤ) 16) : Circuit Unit :=
+def assertLookupFlag (indicators : U 16) (out : ctx.Wℤ)
+    (flags : Vector ctx.Wℤ 16) : Circuit Unit :=
   WF.foldRange [:16] () fun i h _ =>
     assertR1C indicators.intBits[i] (out - flags[i]) 0
 
-def lookupFlag (digit : LC ℤ) (indicators : U 16)
-    (flags : Vector (LC ℤ) 16) : Circuit (LC ℤ) := do
+def lookupFlag (digit : ctx.Wℤ) (indicators : U 16)
+    (flags : Vector ctx.Wℤ 16) : Circuit ctx.Wℤ := do
   let bits ← hint (lookupArgs digit flags)
     lookupFlagHint
   let out ← f2z bits[0]
   assertLookupFlag indicators out flags
   pure out
 
-def lookupPoint (digit : LC ℤ)
+def lookupPoint (digit : ctx.Wℤ)
     (table : Vector AffineSlope.Point 16) : Circuit AffineSlope.Point := do
   let indicators ← windowIndicators digit
   let X ← lookupRep digit indicators (table.map (·.X))
@@ -150,12 +152,12 @@ def generatorByteX : Vector Nat 256 :=
 def generatorByteY : Vector Nat 256 :=
   Vector.ofFn fun i => Reference.yNat (i.val • P256.Reference.generator)
 
-def byteIndicators (digit : LC ℤ) : Circuit (U 256) :=
+def byteIndicators (digit : ctx.Wℤ) : Circuit (U 256) :=
   indicators 256 digit
 
 /-- An eight-bit fixed-base lookup is still linear: only the one-hot bits are
 committed, while coordinates are public coefficients. -/
-def lookupGeneratorByte (digit : LC ℤ) :
+def lookupGeneratorByte (digit : ctx.Wℤ) :
     Circuit AffineSlope.Point := do
   let indicators ← byteIndicators digit
   let X : Modular.Lazy.Rep base :=
@@ -180,13 +182,13 @@ def doubleFour (P : AffineSlope.Point) :
   doublePair P
 
 def windowValue (k : Fn) (start width : Nat) (hfit : start + width ≤ 256) :
-    LC ℤ :=
+    ctx.Wℤ :=
   ∑ j : Fin width, 2 ^ j.val • k.val.intBits[start + j.val]'(by omega)
 
-def windowDigit (k : Fn) (i : Nat) (hi : i < 64) : Circuit (LC ℤ) :=
+def windowDigit (k : Fn) (i : Nat) (hi : i < 64) : Circuit ctx.Wℤ :=
   pure (windowValue k (252 - 4 * i) 4 (by omega))
 
-def windowByte (k : Fn) (i : Nat) (hi : i < 32) : Circuit (LC ℤ) :=
+def windowByte (k : Fn) (i : Nat) (hi : i < 32) : Circuit ctx.Wℤ :=
   pure (windowValue k (248 - 8 * i) 8 (by omega))
 
 structure JointTerms where
@@ -352,7 +354,7 @@ public-key coordinates, signature scalars, and two inverse witnesses. -/
 def verifyDigestInputBits : Nat := 7 * 256
 
 def verifyDigestInputWord
-    (inputs : Vector (LC Bool) verifyDigestInputBits)
+    (inputs : Vector ctx.WBool verifyDigestInputBits)
     (slot : Fin 7) : Word 256 :=
   { bitsLE := Vector.ofFn fun i =>
       inputs[slot.val * 256 + i.val]'(by
@@ -368,18 +370,18 @@ def verifyDigestInputValue
       omega)
 
 def verifyDigestInputWords
-    (inputs : Vector (LC Bool) verifyDigestInputBits) :
+    (inputs : Vector ctx.WBool verifyDigestInputBits) :
     Vector (Word 256) 7 :=
   Vector.ofFn fun slot => verifyDigestInputWord inputs slot
 
 def verifyDigestFromBits
-    (inputs : Vector (LC Bool) verifyDigestInputBits) : Circuit Unit := do
+    (inputs : Vector ctx.WBool verifyDigestInputBits) : Circuit Unit := do
   let values ← (verifyDigestInputWords inputs).mapM U.fromWord
   verifyDigest values[0] ⟨values[1], values[2]⟩
     ⟨values[3], values[4]⟩ ⟨values[5], values[6]⟩
 
 /-- Constraint-system representation of the standalone digest verifier. -/
 def verifyDigestCS : Unit × Semantics.CS :=
-  Semantics.CSBuilder.runWithInputs verifyDigestFromBits
+  Semantics.CSBuilder.runWithInputs (@verifyDigestFromBits lcContext)
 
 end Freigen.F2Z.Examples.EcdsaP256

@@ -13,14 +13,20 @@ namespace Freigen.F2Z.Examples.P256.Projective.Lazy
 set_option maxRecDepth 100000
 set_option maxHeartbeats 1000000
 
-@[simp] private theorem curveB_intVal_eval_eq (lv rv : WF.Valuation) :
-    LC.eval lv.int curveB.val.intVal = LC.eval rv.int curveB.val.intVal := by
+@[simp] private theorem curveB_intVal_eval_eq {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    lv.int (@U.intVal leftCtx 256
+      (@Modular.Elem.val 256 leftCtx base (@curveB leftCtx))) =
+      rv.int (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@curveB rightCtx))) := by
   unfold curveB fpConst Modular.ofNat U.intVal
   simp
 
 theorem assertOnCurve_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Fp × Fp) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Fp leftCtx × @Fp leftCtx)
+          (right : @Fp rightCtx × @Fp rightCtx) =>
         Modular.Elem.WFRel lv rv left.1 right.1 ∧
         Modular.Elem.WFRel lv rv left.2 right.2)
       (fun input => assertOnCurve input.1 input.2)
@@ -31,25 +37,42 @@ theorem assertOnCurve_wf_aux :
       Modular.Elem.WFRel]
   case vc1 =>
     rename_i hmul1 hmul2
+    let elemIntL (x : @Fp leftCtx) : leftCtx.Wℤ :=
+      @U.intVal leftCtx 256 (@Modular.Elem.val 256 leftCtx base x)
+    let elemIntR (x : @Fp rightCtx) : rightCtx.Wℤ :=
+      @U.intVal rightCtx 256 (@Modular.Elem.val 256 rightCtx base x)
+    let repIntL (x : @Modular.Lazy.Rep 256 leftCtx base) : leftCtx.Wℤ :=
+      @Modular.Lazy.Rep.intVal 256 leftCtx base x
+    let repIntR (x : @Modular.Lazy.Rep 256 rightCtx base) : rightCtx.Wℤ :=
+      @Modular.Lazy.Rep.intVal 256 rightCtx base x
+    let leftY : @Modular.Lazy.Rep 256 leftCtx base :=
+      @Modular.Lazy.Rep.mk 256 leftCtx base (elemIntL left.2) 2
+    let rightY : @Modular.Lazy.Rep 256 rightCtx base :=
+      @Modular.Lazy.Rep.mk 256 rightCtx base (elemIntR right.2) 2
+    let leftRhs : @Modular.Lazy.Rep 256 leftCtx base :=
+      @Modular.Lazy.Rep.mk 256 leftCtx base
+        (repIntL outL + elemIntL (@curveB leftCtx) +
+          (ofScalar (((3 * 2 : Nat) * base.modulus : Nat) : Int) :
+            leftCtx.Wℤ) -
+          3 • elemIntL left.1)
+        (@Modular.Lazy.Rep.bound 256 leftCtx base outL + 2 + 3 * 2)
+    let rightRhs : @Modular.Lazy.Rep 256 rightCtx base :=
+      @Modular.Lazy.Rep.mk 256 rightCtx base
+        (repIntR outR + elemIntR (@curveB rightCtx) +
+          (ofScalar (((3 * 2 : Nat) * base.modulus : Nat) : Int) :
+            rightCtx.Wℤ) -
+          3 • elemIntR right.1)
+        (@Modular.Lazy.Rep.bound 256 rightCtx base outR + 2 + 3 * 2)
     apply WF.GadgetSpec.direct_rule
-      (left := (
-        { intVal := left.2.val.intVal, bound := 2 },
-        { intVal := left.2.val.intVal, bound := 2 },
-        { intVal := outL.intVal + curveB.val.intVal +
-            LC.ofConst (6 * base.modulus : Int) - 3 • left.1.val.intVal,
-          bound := outL.bound + 8 }))
-      (right := (
-        { intVal := right.2.val.intVal, bound := 2 },
-        { intVal := right.2.val.intVal, bound := 2 },
-        { intVal := outR.intVal + curveB.val.intVal +
-            LC.ofConst (6 * base.modulus : Int) - 3 • right.1.val.intVal,
-          bound := outR.bound + 8 }))
+      (left := (leftY, leftY, leftRhs))
+      (right := (rightY, rightY, rightRhs))
       (Modular.Lazy.assertMulEq_wf base)
     intro lv rv hB
     have h2 := hmul2 lv rv hB
     have h1 := hmul1 lv rv h2.1
-    simp_all [Modular.Lazy.Rep.WFRel, U.WFRel, WF.LCEq,
-      LC.eval_add, LC.eval_sub, LC.eval_nsmul, LC.eval_ofConst]
+    simp_all [leftY, rightY, leftRhs, rightRhs, elemIntL, elemIntR,
+      repIntL, repIntR, Modular.Lazy.Rep.WFRel, U.WFRel, WF.LCEq,
+      Valuation.add_apply, Valuation.sub_apply, Valuation.ofScalar_apply]
     exact curveB_intVal_eval_eq lv rv
   case vc2 =>
     rename_i hrel hB
@@ -63,57 +86,102 @@ namespace Freigen.F2Z.Examples.P256.AffineSlope
 set_option maxRecDepth 100000
 set_option maxHeartbeats 1000000
 
-private theorem fpConst_wfRel (x : Nat) (h : x < baseModulus)
-    (lv rv : WF.Valuation) :
-    Modular.Elem.WFRel lv rv (fpConst x h) (fpConst x h) := by
+private theorem fpConst_wfRel {leftCtx rightCtx : Context}
+    (x : Nat) (h : x < baseModulus)
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    Modular.Elem.WFRel lv rv (@fpConst leftCtx x h)
+      (@fpConst rightCtx x h) := by
   unfold Modular.Elem.WFRel fpConst Modular.ofNat
   exact U.wfRel_bitVec lv rv (BitVec.ofNat 256 x)
 
 @[simp] private theorem fpConst_intVal_lceq (x : Nat)
-    (h : x < baseModulus) (lv rv : WF.Valuation) :
-    WF.LCEq lv.int rv.int (fpConst x h).val.intVal
-      (fpConst x h).val.intVal :=
+    {leftCtx rightCtx : Context} (h : x < baseModulus)
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    WF.LCEq lv.int rv.int
+      (@U.intVal leftCtx 256
+        (@Modular.Elem.val 256 leftCtx base (@fpConst leftCtx x h)))
+      (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@fpConst rightCtx x h))) :=
   (fpConst_wfRel x h lv rv).1
 
-@[simp] private theorem zero_intVal_lceq (lv rv : WF.Valuation) :
-    WF.LCEq lv.int rv.int zero.val.intVal zero.val.intVal :=
+@[simp] private theorem zero_intVal_lceq {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    WF.LCEq lv.int rv.int
+      (@U.intVal leftCtx 256
+        (@Modular.Elem.val 256 leftCtx base (@zero leftCtx)))
+      (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@zero rightCtx))) :=
   fpConst_intVal_lceq 0 (by native_decide) lv rv
 
-@[simp] private theorem one_intVal_lceq (lv rv : WF.Valuation) :
-    WF.LCEq lv.int rv.int one.val.intVal one.val.intVal :=
+@[simp] private theorem one_intVal_lceq {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    WF.LCEq lv.int rv.int
+      (@U.intVal leftCtx 256
+        (@Modular.Elem.val 256 leftCtx base (@one leftCtx)))
+      (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@one rightCtx))) :=
   fpConst_intVal_lceq 1 (by native_decide) lv rv
 
-@[simp] private theorem three_intVal_lceq (lv rv : WF.Valuation) :
-    WF.LCEq lv.int rv.int three.val.intVal three.val.intVal :=
+@[simp] private theorem three_intVal_lceq {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    WF.LCEq lv.int rv.int
+      (@U.intVal leftCtx 256
+        (@Modular.Elem.val 256 leftCtx base (@three leftCtx)))
+      (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@three rightCtx))) :=
   fpConst_intVal_lceq 3 (by native_decide) lv rv
 
-@[simp] private theorem zero_intVal_eval_eq (lv rv : WF.Valuation) :
-    LC.eval lv.int zero.val.intVal = LC.eval rv.int zero.val.intVal :=
+@[simp] private theorem zero_intVal_eval_eq {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    lv.int (@U.intVal leftCtx 256
+      (@Modular.Elem.val 256 leftCtx base (@zero leftCtx))) =
+      rv.int (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@zero rightCtx))) :=
   zero_intVal_lceq lv rv
 
-@[simp] private theorem one_intVal_eval_eq (lv rv : WF.Valuation) :
-    LC.eval lv.int one.val.intVal = LC.eval rv.int one.val.intVal :=
+@[simp] private theorem one_intVal_eval_eq {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    lv.int (@U.intVal leftCtx 256
+      (@Modular.Elem.val 256 leftCtx base (@one leftCtx))) =
+      rv.int (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@one rightCtx))) :=
   one_intVal_lceq lv rv
 
-@[simp] private theorem three_intVal_eval_eq (lv rv : WF.Valuation) :
-    LC.eval lv.int three.val.intVal = LC.eval rv.int three.val.intVal :=
+@[simp] private theorem three_intVal_eval_eq {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    lv.int (@U.intVal leftCtx 256
+      (@Modular.Elem.val 256 leftCtx base (@three leftCtx))) =
+      rv.int (@U.intVal rightCtx 256
+        (@Modular.Elem.val 256 rightCtx base (@three rightCtx))) :=
   three_intVal_lceq lv rv
 
-theorem ofElems_wfRel {lv rv : WF.Valuation} {xL xR yL yR : Fp}
+theorem ofElems_wfRel {leftCtx rightCtx : Context}
+    {lv : @WF.Valuation leftCtx} {rv : @WF.Valuation rightCtx}
+    {xL yL : @Fp leftCtx} {xR yR : @Fp rightCtx}
     (hx : Modular.Elem.WFRel lv rv xL xR)
     (hy : Modular.Elem.WFRel lv rv yL yR) :
-    Point.WFRel lv rv (ofElems xL yL) (ofElems xR yR) := by
+    Point.WFRel lv rv (@ofElems leftCtx xL yL)
+      (@ofElems rightCtx xR yR) := by
   exact ⟨⟨rfl, hx.1⟩, ⟨rfl, hy.1⟩, by simp [WF.LCEq, ofElems]⟩
 
-theorem infinity_wfRel (lv rv : WF.Valuation) :
-    Point.WFRel lv rv infinity infinity := by
-  unfold Point.WFRel infinity
-  exact ⟨⟨rfl, zero_intVal_lceq lv rv⟩, ⟨rfl, zero_intVal_lceq lv rv⟩,
-    by simp [WF.LCEq]⟩
+theorem infinity_wfRel {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx) :
+    Point.WFRel lv rv (@infinity leftCtx) (@infinity rightCtx) := by
+  let zeroL : leftCtx.Wℤ := @U.intVal leftCtx 256
+    (@Modular.Elem.val 256 leftCtx base (@zero leftCtx))
+  let zeroR : rightCtx.Wℤ := @U.intVal rightCtx 256
+    (@Modular.Elem.val 256 rightCtx base (@zero rightCtx))
+  change (2 = 2 ∧ WF.LCEq lv.int rv.int zeroL zeroR) ∧
+    (2 = 2 ∧ WF.LCEq lv.int rv.int zeroL zeroR) ∧
+    WF.LCEq lv.int rv.int (1 : leftCtx.Wℤ) (1 : rightCtx.Wℤ)
+  exact ⟨⟨rfl, zero_intVal_lceq lv rv⟩,
+    ⟨rfl, zero_intVal_lceq lv rv⟩, by simp [WF.LCEq]⟩
 
 theorem andBit_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : LC ℤ × LC ℤ) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : leftCtx.Wℤ × leftCtx.Wℤ)
+          (right : rightCtx.Wℤ × rightCtx.Wℤ) =>
         WF.LCEq lv.int rv.int left.1 right.1 ∧
         WF.LCEq lv.int rv.int left.2 right.2)
       (fun input => andBit input.1 input.2)
@@ -121,14 +189,15 @@ theorem andBit_wf_aux :
   wfgen' using [U.fromWord_wf_rel] unfold [andBit]
   case vc1 =>
     rename_i h
-    change WF.LCEq leftVal.bool rightVal.bool outL[i] outR[i]
     exact Modular.Aux.WF.lceq_of_common_realizes
       (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
   all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
 
 theorem selectRep_wf_aux (width outBound : Nat) (description : String) :
     WF.GadgetSpec
-      (fun lv rv (left right : LC ℤ × Rep × Rep) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : leftCtx.Wℤ × @Rep leftCtx × @Rep leftCtx)
+          (right : rightCtx.Wℤ × @Rep rightCtx × @Rep rightCtx) =>
         WF.LCEq lv.int rv.int left.1 right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.WFRel lv rv right.2.2)
@@ -138,15 +207,24 @@ theorem selectRep_wf_aux (width outBound : Nat) (description : String) :
   wfgen' using [U.fromWord_wf_rel]
     unfold [selectRep, Modular.Lazy.Rep.WFRel]
   case vc1 =>
+    rename_i hrel hB
+    exact ⟨rfl, (hrel leftVal rightVal hB).2.1⟩
+  case vc2 =>
     rename_i h
     change WF.LCEq leftVal.bool rightVal.bool outL[i] outR[i]
     exact Modular.Aux.WF.lceq_of_common_realizes
       (Modular.Aux.WF.common_realizes_of_hint h) i.val i.isLt
+  case vc3 =>
+    simp_all [WF.LCEq, WF.evalArgs]
+    split <;> (split <;>
+      simp only [WF.interpHint_pure, WF.interpHint_fail])
   all_goals simp_all [WF.LCEq, WF.ArgsEq, WF.evalArgs]
 
 theorem selectCanonical_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : LC ℤ × Rep × Rep) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : leftCtx.Wℤ × @Rep leftCtx × @Rep leftCtx)
+          (right : rightCtx.Wℤ × @Rep rightCtx × @Rep rightCtx) =>
         WF.LCEq lv.int rv.int left.1 right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.WFRel lv rv right.2.2)
@@ -163,29 +241,55 @@ theorem doubleSlope_wf_aux :
       Modular.Lazy.ofElem, Modular.Lazy.Rep.WFRel]
   case vc1 =>
     rename_i hrel
+    let repIntL (x : @Modular.Lazy.Rep 256 leftCtx base) : leftCtx.Wℤ :=
+      @Modular.Lazy.Rep.intVal 256 leftCtx base x
+    let repIntR (x : @Modular.Lazy.Rep 256 rightCtx base) : rightCtx.Wℤ :=
+      @Modular.Lazy.Rep.intVal 256 rightCtx base x
+    let repBoundL (x : @Modular.Lazy.Rep 256 leftCtx base) : Nat :=
+      @Modular.Lazy.Rep.bound 256 leftCtx base x
+    let repBoundR (x : @Modular.Lazy.Rep 256 rightCtx base) : Nat :=
+      @Modular.Lazy.Rep.bound 256 rightCtx base x
+    let pointYL : @Modular.Lazy.Rep 256 leftCtx base := @Point.Y leftCtx left
+    let pointYR : @Modular.Lazy.Rep 256 rightCtx base := @Point.Y rightCtx right
+    let infL : leftCtx.Wℤ := @Point.infinity leftCtx left
+    let infR : rightCtx.Wℤ := @Point.infinity rightCtx right
+    let leftDen : @Modular.Lazy.Rep 256 leftCtx base :=
+      @Modular.Lazy.Rep.mk 256 leftCtx base
+        (2 • repIntL pointYL + infL) (2 * repBoundL pointYL + 1)
+    let rightDen : @Modular.Lazy.Rep 256 rightCtx base :=
+      @Modular.Lazy.Rep.mk 256 rightCtx base
+        (2 • repIntR pointYR + infR) (2 * repBoundR pointYR + 1)
+    let leftNum : @Modular.Lazy.Rep 256 leftCtx base :=
+      @Modular.Lazy.Rep.mk 256 leftCtx base
+        (3 • repIntL outL +
+          (ofScalar (2 * base.modulus : Int) : leftCtx.Wℤ) -
+          @U.intVal leftCtx 256
+            (@Modular.Elem.val 256 leftCtx base (@three leftCtx)) + 3 • infL)
+        (3 * repBoundL outL + 2 + 1)
+    let rightNum : @Modular.Lazy.Rep 256 rightCtx base :=
+      @Modular.Lazy.Rep.mk 256 rightCtx base
+        (3 • repIntR outR +
+          (ofScalar (2 * base.modulus : Int) : rightCtx.Wℤ) -
+          @U.intVal rightCtx 256
+            (@Modular.Elem.val 256 rightCtx base (@three rightCtx)) + 3 • infR)
+        (3 * repBoundR outR + 2 + 1)
     apply WF.GadgetSpec.direct_rule
-      (left := (
-        { intVal := 2 • left.Y.intVal + left.infinity,
-          bound := 2 * left.Y.bound + 1 },
-        { intVal := 3 • outL.intVal + LC.ofConst (2 * base.modulus : Int) -
-            three.val.intVal + 3 • left.infinity,
-          bound := 3 * outL.bound + 3 }))
-      (right := (
-        { intVal := 2 • right.Y.intVal + right.infinity,
-          bound := 2 * right.Y.bound + 1 },
-        { intVal := 3 • outR.intVal + LC.ofConst (2 * base.modulus : Int) -
-            three.val.intVal + 3 • right.infinity,
-          bound := 3 * outR.bound + 3 }))
+      (left := (leftDen, leftNum))
+      (right := (rightDen, rightNum))
       (Modular.Lazy.divide_wf base)
     intro lv rv hB
     have hh := hrel lv rv hB
-    simp_all [Modular.Lazy.Rep.WFRel, WF.LCEq,
-      LC.eval_add, LC.eval_sub, LC.eval_nsmul, LC.eval_ofConst]
+    simp_all [leftDen, rightDen, leftNum, rightNum, repIntL, repIntR,
+      repBoundL, repBoundR, pointYL, pointYR, infL, infR,
+      Modular.Lazy.Rep.WFRel, WF.LCEq, Valuation.add_apply,
+      Valuation.sub_apply, Valuation.ofScalar_apply]
     exact three_intVal_eval_eq lv rv
 
 theorem finishDouble_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Rep) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Rep leftCtx)
+          (right : @Point rightCtx × @Rep rightCtx) =>
         left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2)
       (fun input => finishDouble input.1 input.2) Point.WFRel := by
   wfgen' using [Modular.Lazy.mulSubToElem_wf]
@@ -193,8 +297,17 @@ theorem finishDouble_wf_aux :
       Modular.Lazy.sub, Modular.Lazy.scale,
       Modular.Lazy.ofElem, Modular.Lazy.Rep.WFRel]
   all_goals simp_all [Modular.Lazy.Rep.WFRel, Modular.Elem.WFRel, U.WFRel,
-    WF.LCEq, LC.eval_add, LC.eval_sub, LC.eval_nsmul, LC.eval_ofConst]
-  all_goals grind
+    WF.LCEq, Valuation.add_apply, Valuation.sub_apply,
+    Valuation.ofScalar_apply]
+  case vc1 =>
+    rename_i hinput hnext hB
+    have hn := hnext leftVal rightVal hB
+    have hi := hinput leftVal rightVal hn.1
+    exact ⟨hi.2.1, hn.2.1, hi.1.1.2.2⟩
+  case vc2 =>
+    rename_i hinput hB
+    have hi := hinput leftVal rightVal hB
+    exact ⟨hi.1.1.1.1, by rw [hi.1.1.1.2, hi.2.1]⟩
 
 theorem doubleComplete_wf_aux :
     WF.GadgetSpec Point.WFRel doubleComplete Point.WFRel := by
@@ -211,7 +324,9 @@ theorem doubleComplete_wf_aux :
 
 theorem selectFormula_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : LC ℤ × Rep × Rep) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : leftCtx.Wℤ × @Rep leftCtx × @Rep leftCtx)
+          (right : rightCtx.Wℤ × @Rep rightCtx × @Rep rightCtx) =>
         WF.LCEq lv.int rv.int left.1 right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.WFRel lv rv right.2.2)
@@ -222,7 +337,9 @@ theorem selectFormula_wf_aux :
 
 theorem and3Bit_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : LC ℤ × LC ℤ × LC ℤ) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : leftCtx.Wℤ × leftCtx.Wℤ × leftCtx.Wℤ)
+          (right : rightCtx.Wℤ × rightCtx.Wℤ × rightCtx.Wℤ) =>
         WF.LCEq lv.int rv.int left.1 right.1 ∧
         WF.LCEq lv.int rv.int left.2.1 right.2.1 ∧
         WF.LCEq lv.int rv.int left.2.2 right.2.2)
@@ -240,7 +357,9 @@ theorem and3Bit_wf_aux :
 
 theorem classifyAdd_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx)
+          (right : @Point rightCtx × @Point rightCtx) =>
         left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2)
       (fun input => classifyAdd input.1 input.2)
       AddControl.WFRel := by
@@ -249,12 +368,48 @@ theorem classifyAdd_wf_aux :
       sub, add, Modular.Lazy.sub, Modular.Lazy.add,
       Modular.Lazy.Rep.WFRel]
   all_goals simp_all [Modular.Lazy.Rep.WFRel, WF.LCEq,
-    LC.eval_add, LC.eval_sub, LC.eval_ofConst]
-  all_goals grind
+    Valuation.add_apply, Valuation.sub_apply, Valuation.ofScalar_apply]
+  case vc1 =>
+    rename_i hinput h5 h4 h3 h2 h1 hB
+    have h1' := h1 leftVal rightVal hB
+    have h2' := h2 leftVal rightVal h1'.1
+    have h3' := h3 leftVal rightVal h2'.1
+    have h4' := h4 leftVal rightVal h3'.1
+    have h5' := h5 leftVal rightVal h4'.1
+    have hin := hinput leftVal rightVal h5'.1
+    exact ⟨hin.2, h5'.2, h4'.2, h2'.2, by rw [h2'.2, h1'.2]⟩
+  case vc2 =>
+    rename_i hinput h4 h3 h2 h1 hB
+    have h1' := h1 leftVal rightVal hB
+    have h2' := h2 leftVal rightVal h1'.1
+    have h3' := h3 leftVal rightVal h2'.1
+    have h4' := h4 leftVal rightVal h3'.1
+    exact (hinput leftVal rightVal h4'.1).2
+  case vc3 =>
+    rename_i hinput h2 h1 hB
+    have h1' := h1 leftVal rightVal hB
+    have h2' := h2 leftVal rightVal h1'.1
+    exact h2'.2
+  case vc4 =>
+    rename_i hinput h1 hB
+    have h1' := h1 leftVal rightVal hB
+    exact (hinput leftVal rightVal h1'.1).1.2.2.2
+  case vc5 =>
+    rename_i hinput h1 hB
+    have h1' := h1 leftVal rightVal hB
+    exact (hinput leftVal rightVal h1'.1).1.1.2.2
+  case vc6 =>
+    rename_i hinput hB
+    have hin := hinput leftVal rightVal hB
+    constructor
+    · rw [hin.1.1.2.1.1, hin.1.2.2.1.1]
+    · rw [hin.1.1.2.1.2, hin.1.2.2.1.2]
 
 theorem selectRawSlopeOperands_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point × AddControl) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx × @AddControl leftCtx)
+          (right : @Point rightCtx × @Point rightCtx × @AddControl rightCtx) =>
         left.1.WFRel lv rv right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.WFRel lv rv right.2.2)
@@ -265,32 +420,43 @@ theorem selectRawSlopeOperands_wf_aux :
       SlopeOperands.WFRel, sub, scale, ofElem, Modular.Lazy.sub,
       Modular.Lazy.scale, Modular.Lazy.ofElem, Modular.Lazy.Rep.WFRel]
   all_goals simp_all [Modular.Lazy.Rep.WFRel, WF.LCEq,
-    LC.eval_add, LC.eval_sub, LC.eval_nsmul, LC.eval_ofConst]
+    Valuation.add_apply, Valuation.sub_apply, Valuation.ofScalar_apply]
   case vc1 =>
+    rename_i hinput hmiddle hnext hB
+    have hn := hnext leftVal rightVal hB
+    have hm := hmiddle leftVal rightVal hn.1
+    exact ⟨hm.2, hn.2⟩
+  case vc2 =>
     rename_i hinput hnext hB
-    have hin := (hinput leftVal rightVal (hnext leftVal rightVal hB).1).1
+    have hn := hnext leftVal rightVal hB
+    have hin := (hinput leftVal rightVal hn.1).1
     constructor
     · rw [hin.1.1.1, hin.2.1.1.1]
     · rw [hin.1.1.1, hin.1.1.2, hin.2.1.1.2]
-  case vc2 =>
-    rename_i hinput hnext hB
-    exact (hinput leftVal rightVal (hnext leftVal rightVal hB).1).1.1.2.1
   case vc3 =>
+    rename_i hinput hnext hB
+    have hn := hnext leftVal rightVal hB
+    exact (hinput leftVal rightVal hn.1).1.1.2.1
+  case vc4 =>
     rename_i hinput hB
     have hin := (hinput leftVal rightVal hB).1
     constructor
     · rw [hin.2.1.2.1.1, hin.1.2.1.1]
     · rw [hin.2.1.2.1.2, hin.1.2.1.1, hin.1.2.1.2]
-  case vc4 =>
-    rename_i hrel hB
-    have hh := hrel leftVal rightVal hB
+  case vc5 =>
+    rename_i hinput hB
+    have hi := hinput leftVal rightVal hB
     constructor
-    · exact hh.2.1
-    · rw [hh.2.2, three_intVal_eval_eq leftVal rightVal]
+    · exact hi.2.1
+    · rw [hi.2.2, three_intVal_eval_eq leftVal rightVal]
 
 theorem activateSlopeOperands_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point × AddControl × SlopeOperands) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx × @AddControl leftCtx ×
+            @SlopeOperands leftCtx)
+          (right : @Point rightCtx × @Point rightCtx × @AddControl rightCtx ×
+            @SlopeOperands rightCtx) =>
         left.1.WFRel lv rv right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.1.WFRel lv rv right.2.2.1 ∧
@@ -302,13 +468,21 @@ theorem activateSlopeOperands_wf_aux :
     unfold [activateSlopeOperands, Point.WFRel, AddControl.WFRel,
       SlopeOperands.WFRel, ofElem, Modular.Lazy.ofElem,
       Modular.Lazy.Rep.WFRel]
-  all_goals simp_all [Modular.Lazy.Rep.WFRel, WF.LCEq]
-  all_goals try exact zero_intVal_eval_eq leftVal rightVal
-  all_goals try exact one_intVal_eval_eq leftVal rightVal
+  case vc1 =>
+    rename_i hinput hnext hB
+    have hn := hnext leftVal rightVal hB
+    have hi := hinput leftVal rightVal hn.1
+    exact ⟨hi.2, hn.2⟩
+  case vc2 =>
+    exact ⟨rfl, one_intVal_lceq leftVal rightVal⟩
+  case vc3 =>
+    exact ⟨rfl, zero_intVal_lceq leftVal rightVal⟩
 
 theorem selectSlopeOperands_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point × AddControl) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx × @AddControl leftCtx)
+          (right : @Point rightCtx × @Point rightCtx × @AddControl rightCtx) =>
         left.1.WFRel lv rv right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.WFRel lv rv right.2.2)
@@ -328,12 +502,16 @@ theorem selectSlopeOperands_wf_aux :
 
 theorem finishAddCandidate_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point × SlopeOperands) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx × @SlopeOperands leftCtx)
+          (right : @Point rightCtx × @Point rightCtx × @SlopeOperands rightCtx) =>
         left.1.WFRel lv rv right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.WFRel lv rv right.2.2)
       (fun input => finishAddCandidate input.1 input.2.1 input.2.2)
-      (fun lv rv left right =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Rep leftCtx × @Rep leftCtx)
+          (right : @Rep rightCtx × @Rep rightCtx) =>
         left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2) := by
   wfgen' using [Modular.Lazy.divide_wf,
     Modular.Lazy.mulSubToElem_wf]
@@ -341,17 +519,37 @@ theorem finishAddCandidate_wf_aux :
       add, sub, ofElem, Modular.Lazy.add, Modular.Lazy.sub,
       Modular.Lazy.ofElem, Modular.Lazy.Rep.WFRel]
   all_goals simp_all [Modular.Lazy.Rep.WFRel, Modular.Elem.WFRel, U.WFRel,
-    WF.LCEq, LC.eval_add, LC.eval_sub, LC.eval_ofConst]
-  all_goals grind
+    WF.LCEq, Valuation.add_apply, Valuation.sub_apply,
+    Valuation.ofScalar_apply]
+  case vc1 =>
+    rename_i hinput hmiddle hnext hB
+    have hn := hnext leftVal rightVal hB
+    have hm := hmiddle leftVal rightVal hn.1
+    exact ⟨hm.2.1, hn.2.1⟩
+  case vc2 =>
+    rename_i hinput hnext hB
+    have hn := hnext leftVal rightVal hB
+    have hi := hinput leftVal rightVal hn.1
+    exact ⟨hi.1.1.1.1, by rw [hi.1.1.1.2, hn.2.1]⟩
+  case vc3 =>
+    rename_i hinput hB
+    have hi := hinput leftVal rightVal hB
+    constructor
+    · rw [hi.1.1.1.1, hi.1.2.1.1.1]
+    · rw [hi.1.1.1.2, hi.1.2.1.1.2]
 
 theorem addCandidate_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point × AddControl) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx × @AddControl leftCtx)
+          (right : @Point rightCtx × @Point rightCtx × @AddControl rightCtx) =>
         left.1.WFRel lv rv right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.WFRel lv rv right.2.2)
       (fun input => addCandidate input.1 input.2.1 input.2.2)
-      (fun lv rv left right =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Rep leftCtx × @Rep leftCtx)
+          (right : @Rep rightCtx × @Rep rightCtx) =>
         left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2) := by
   wfgen' using [selectSlopeOperands_wf_aux,
     finishAddCandidate_wf_aux] unfold [addCandidate]
@@ -367,8 +565,11 @@ theorem addCandidate_wf_aux :
 
 theorem selectAddOutput_wf_aux :
     WF.GadgetSpec
-      (fun lv rv
-          (left right : Point × Point × AddControl × (Rep × Rep)) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx × @AddControl leftCtx ×
+            (@Rep leftCtx × @Rep leftCtx))
+          (right : @Point rightCtx × @Point rightCtx × @AddControl rightCtx ×
+            (@Rep rightCtx × @Rep rightCtx)) =>
         left.1.WFRel lv rv right.1 ∧
         left.2.1.WFRel lv rv right.2.1 ∧
         left.2.2.1.WFRel lv rv right.2.2.1 ∧
@@ -381,18 +582,21 @@ theorem selectAddOutput_wf_aux :
     and3Bit_wf_aux]
     unfold [selectAddOutput, Point.WFRel, AddControl.WFRel,
       ofElem, Modular.Lazy.ofElem, Modular.Lazy.Rep.WFRel]
-  all_goals simp_all [Modular.Lazy.Rep.WFRel, WF.LCEq, LC.eval_add]
+  all_goals simp_all [Modular.Lazy.Rep.WFRel, WF.LCEq,
+    Valuation.add_apply]
   all_goals try exact zero_intVal_eval_eq leftVal rightVal
   all_goals grind
 
 theorem addComplete_wf_aux :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point) =>
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx)
+          (right : @Point rightCtx × @Point rightCtx) =>
         left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2)
       (fun input => addComplete input.1 input.2)
       Point.WFRel := by
   unfold WF.GadgetSpec
-  intro left right
+  intro leftCtx rightCtx left right
   unfold addComplete
   apply WF.GadgetSpec.bind_rule
     (left := left) (right := right) classifyAdd_wf_aux

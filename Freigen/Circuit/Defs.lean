@@ -103,6 +103,4 @@ def hint {α} (n : Nat) (args : Vector ctx.W n)
 def writeWitness (a : F) : Hint F ctx.W :=
   Free.op (E := Circuit.Eff F ctx) (γ := .hint) (.writeWitness a) nofun
 
--- def runWithHints (c : Circuit F α) : Option α :=
-
 end Freigen.Circuit

@@ -36,6 +36,7 @@ structure Params (n : Nat) where
   lowerHalf : 2 ^ (n - 1) ≤ modulus
 
 variable {n : Nat} (p : Params n)
+variable [ctx : Context]
 
 structure Elem (p : Params n) where
   val : U n
@@ -43,20 +44,23 @@ structure Elem (p : Params n) where
 namespace Elem
 
 def Valid {p : Params n} (x : Elem p) (ρ : WF.Valuation) : Prop :=
-  x.val.Valid ρ ∧ x.val.intVal.eval ρ.int < p.modulus
+  x.val.Valid ρ ∧ ρ.int x.val.intVal < p.modulus
 
 def evalNat {p : Params n} (x : Elem p) (ρ : WF.Valuation) : Nat :=
-  (x.val.intVal.eval ρ.int).toNat
+  (ρ.int x.val.intVal).toNat
 
-def WFRel {p : Params n} (lv rv : WF.Valuation) (l r : Elem p) : Prop :=
-  U.WFRel lv rv l.val r.val
+def WFRel {p : Params n} {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (l : @Elem n leftCtx p) (r : @Elem n rightCtx p) : Prop :=
+  U.WFRel (leftCtx := leftCtx) (rightCtx := rightCtx) lv rv
+    (@Elem.val n leftCtx p l) (@Elem.val n rightCtx p r)
 
 end Elem
 
 /-- Prove `x < bound` by decomposing the nonnegative slack
 `bound - 1 - x`. -/
 def assertLt (bound : Nat) (x : U n) : Circuit Unit := do
-  let _ ← U.fromInt n (LC.ofConst ((bound : Int) - 1) - x.intVal)
+  let _ ← U.fromInt n (ofScalar ((bound : Int) - 1) - x.intVal)
   pure ()
 
 /-- Turn an already bit-decomposed integer into a canonical modular element. -/
@@ -87,7 +91,7 @@ namespace Relaxed
 for products of two `n`-bit representatives when `p` occupies the upper half
 of the `n`-bit range.  The modular relation itself is one R1C. -/
 def mul (x y : Elem p) : Circuit (Elem p) := do
-  let bits ← hint h![x.val.intVal, y.val.intVal]
+  let bits ← hint (argTps := [.z, .z]) h![x.val.intVal, y.val.intVal]
     fun h![(a : Int), (b : Int)] =>
       if ha : 0 ≤ a then
         if hb : 0 ≤ b then
@@ -110,8 +114,8 @@ def mul (x y : Elem p) : Circuit (Elem p) := do
 
 /-- Reduce a nonnegative value known to be below `4*p`.  Addition and the
 biased subtraction below therefore need only a two-bit quotient. -/
-def reduceSmall (x : LC ℤ) : Circuit (Elem p) := do
-  let bits ← hint h![x] fun h![(a : Int)] =>
+def reduceSmall (x : ctx.Wℤ) : Circuit (Elem p) := do
+  let bits ← hint (argTps := [.z]) h![x] fun h![(a : Int)] =>
     if ha : 0 ≤ a then
       let value := a.toNat
       let r := value % p.modulus
@@ -143,32 +147,35 @@ representative is allocated only when a nonlinear product must be reused.
 namespace Lazy
 
 structure Rep (p : Params n) where
-  intVal : LC ℤ
+  intVal : ctx.Wℤ
   /-- Static construction-time bound: `0 ≤ intVal < bound * modulus`. -/
   bound : Nat
 
 /-- Quotient-backend equality: representatives have the same static slack
 bound and evaluate to the same integer under every pair of valuations supplied
 by `WF.GadgetSpec`. -/
-def Rep.WFRel {p : Params n} (lv rv : WF.Valuation)
-    (left right : Rep p) : Prop :=
-  left.bound = right.bound ∧
-    WF.LCEq lv.int rv.int left.intVal right.intVal
+def Rep.WFRel {p : Params n} {leftCtx rightCtx : Context}
+    (lv : @WF.Valuation leftCtx) (rv : @WF.Valuation rightCtx)
+    (left : @Rep n leftCtx p) (right : @Rep n rightCtx p) : Prop :=
+  (@Rep.bound n leftCtx p left) = (@Rep.bound n rightCtx p right) ∧
+    WF.LCEq lv.int rv.int (@Rep.intVal n leftCtx p left)
+      (@Rep.intVal n rightCtx p right)
 
 /-- Semantic invariant justified by the construction-time bound. It is used
 only by completeness proofs to show that the concrete hint programs cannot
 fail and that their quotient words are wide enough. -/
-def Rep.Valid {p : Params n} (x : Rep p) (rho : WF.Valuation) : Prop :=
-  0 ≤ x.intVal.eval rho.int ∧
-    x.intVal.eval rho.int < x.bound * p.modulus
+def Rep.Valid {p : Params n} {ctx : Context} (x : @Rep n ctx p)
+    (rho : @WF.Valuation ctx) : Prop :=
+  0 ≤ rho.int x.intVal ∧
+    rho.int x.intVal < x.bound * p.modulus
 
 /-- Field/ring semantics of a lazy representative.  All construction-time
 slack and quotient choices disappear under this map. -/
 def evalZMod (x : Rep p) (ρ : WF.Valuation) : ZMod p.modulus :=
-  Int.castRingHom (ZMod p.modulus) (x.intVal.eval ρ.int)
+  Int.castRingHom (ZMod p.modulus) (ρ.int x.intVal)
 
 def evalElemZMod (x : Elem p) (ρ : WF.Valuation) : ZMod p.modulus :=
-  Int.castRingHom (ZMod p.modulus) (x.val.intVal.eval ρ.int)
+  Int.castRingHom (ZMod p.modulus) (ρ.int x.val.intVal)
 
 def MulZModSpec (ρ : WF.Valuation) (x y out : Rep p) : Prop :=
   evalZMod p out ρ = evalZMod p x ρ * evalZMod p y ρ
@@ -186,10 +193,10 @@ def AssertMulEqZModSpec (ρ : WF.Valuation)
     (x y target : Rep p) : Prop :=
   evalZMod p x ρ * evalZMod p y ρ = evalZMod p target ρ
 
-def ZeroTestZModSpec (ρ : WF.Valuation) (x : Rep p) (z : LC ℤ) : Prop :=
-  (z.eval ρ.int = 0 ∨ z.eval ρ.int = 1) ∧
-    (z.eval ρ.int = 1 ↔ evalZMod p x ρ = 0) ∧
-    z.eval ρ.int = if evalZMod p x ρ = 0 then 1 else 0
+def ZeroTestZModSpec (ρ : WF.Valuation) (x : Rep p) (z : ctx.Wℤ) : Prop :=
+  (ρ.int z = 0 ∨ ρ.int z = 1) ∧
+    (ρ.int z = 1 ↔ evalZMod p x ρ = 0) ∧
+    ρ.int z = if evalZMod p x ρ = 0 then 1 else 0
 
 def ofElem (x : Elem p) : Rep p :=
   ⟨x.val.intVal, 2⟩
@@ -200,7 +207,7 @@ def add (x y : Rep p) : Rep p :=
 /-- Biased subtraction.  The added multiple of `p` is linear and makes the
 representative nonnegative under the recorded construction-time bounds. -/
 def sub (x y : Rep p) : Rep p :=
-  ⟨x.intVal + LC.ofConst (y.bound * p.modulus : Int) - y.intVal,
+  ⟨x.intVal + ofScalar (y.bound * p.modulus : Int) - y.intVal,
     x.bound + y.bound⟩
 
 def scale (k : Nat) (x : Rep p) : Rep p :=
@@ -215,7 +222,7 @@ def quotientExtraBits : Nat := 9
 quotient.  Addition/subtraction surrounding this operation stays in the
 linear expressions supplied as its operands. -/
 def mul (x y : Rep p) : Circuit (Rep p) := do
-  let bits ← hint h![x.intVal, y.intVal]
+  let bits ← hint (argTps := [.z, .z]) h![x.intVal, y.intVal]
     fun h![(a : Int), (b : Int)] =>
       if ha : 0 ≤ a then
         if hb : 0 ≤ b then
@@ -241,7 +248,8 @@ form of a multiplication: the output word and quotient share the one R1C,
 so no intermediate product residue is committed. -/
 def mulSubToElem (x y target : Rep p) : Circuit (Elem p) := do
   let bias := target.bound * p.modulus
-  let bits ← hint h![x.intVal, y.intVal, target.intVal]
+  let bits ← hint (argTps := [.z, .z, .z])
+    h![x.intVal, y.intVal, target.intVal]
     fun h![(a : Int), (b : Int), (c : Int)] =>
       let shifted := a * b + bias - c
       if hs : 0 ≤ shifted then
@@ -259,7 +267,7 @@ def mulSubToElem (x y target : Rep p) : Circuit (Elem p) := do
       bits[n + i.val]'(by omega) }
   assertR1C x.intVal y.intVal
     (r.intVal + target.intVal + p.modulus • q.intVal -
-      LC.ofConst (bias : Int))
+      ofScalar (bias : Int))
   pure ⟨r⟩
 
 /-- Witness a modular quotient `numerator / denominator`.  The denominator
@@ -267,7 +275,8 @@ must be nonzero modulo `p`; callers arrange a harmless `(1,0)` relation for
 inactive exceptional branches. -/
 def divide (denominator numerator : Rep p) : Circuit (Rep p) := do
   let bias := numerator.bound * p.modulus
-  let bits ← hint h![denominator.intVal, numerator.intVal]
+  let bits ← hint (argTps := [.z, .z])
+    h![denominator.intVal, numerator.intVal]
     fun h![(a : Int), (b : Int)] =>
       if ha : 0 ≤ a then
         if hb : 0 ≤ b then
@@ -293,12 +302,12 @@ def divide (denominator numerator : Rep p) : Circuit (Rep p) := do
     bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
       bits[n + i.val]'(by omega) }
   assertR1C value.intVal denominator.intVal
-    (numerator.intVal + p.modulus • q.intVal - LC.ofConst (bias : Int))
+    (numerator.intVal + p.modulus • q.intVal - ofScalar (bias : Int))
   pure ⟨value.intVal, 2⟩
 
 /-- Materialize a lazy representative at a boundary. -/
 def reduce (x : Rep p) : Circuit (Elem p) := do
-  let bits ← hint h![x.intVal] fun h![(a : Int)] =>
+  let bits ← hint (argTps := [.z]) h![x.intVal] fun h![(a : Int)] =>
     if ha : 0 ≤ a then
       let value := a.toNat
       let r := value % p.modulus
@@ -323,7 +332,8 @@ The bias is a known multiple of `p`, chosen from the target's static bound so
 the quotient produced by honest witgen is nonnegative. -/
 def assertMulEq (x y target : Rep p) : Circuit Unit := do
   let bias := target.bound * p.modulus
-  let bits ← hint h![x.intVal, y.intVal, target.intVal]
+  let bits ← hint (argTps := [.z, .z, .z])
+    h![x.intVal, y.intVal, target.intVal]
     fun h![(a : Int), (b : Int), (c : Int)] =>
       let shifted := a * b + bias - c
       if hs : 0 ≤ shifted then
@@ -335,13 +345,13 @@ def assertMulEq (x y target : Rep p) : Circuit Unit := do
     bitsLE := Vector.ofFn (n := n + quotientExtraBits) fun i =>
       bits[i.val] }
   assertR1C x.intVal y.intVal
-    (target.intVal + p.modulus • q.intVal - LC.ofConst (bias : Int))
+    (target.intVal + p.modulus • q.intVal - ofScalar (bias : Int))
 
 /-- Prove whether a bounded representative is zero modulo `p`.  The inverse
 witness rules out a false zero bit; the small second quotient proves the zero
 branch without canonicalizing `x`. -/
-def zeroTest (x : Rep p) : Circuit (LC ℤ) := do
-  let bits ← hint h![x.intVal] fun h![(a : Int)] =>
+def zeroTest (x : Rep p) : Circuit ctx.Wℤ := do
+  let bits ← hint (argTps := [.z]) h![x.intVal] fun h![(a : Int)] =>
     if ha : 0 ≤ a then
       let value := a.toNat % p.modulus
       let isZero := value = 0
@@ -354,8 +364,9 @@ def zeroTest (x : Rep p) : Circuit (LC ℤ) := do
   let inverse ← U.fromWord {
     bitsLE := Vector.ofFn (n := n) fun i => bits[i.val + 1]'(by omega) }
   let z := zWord.intBits[0]
-  assertMulEq p x (ofElem p ⟨inverse⟩) ⟨LC.ofConst 1 - z, 1⟩
-  let qBits ← hint h![z, x.intVal] fun h![(b : Int), (a : Int)] =>
+  assertMulEq p x (ofElem p ⟨inverse⟩) ⟨ofScalar 1 - z, 1⟩
+  let qBits ← hint (argTps := [.z, .z])
+    h![z, x.intVal] fun h![(b : Int), (a : Int)] =>
     let q := (b * a).toNat / p.modulus
     pure $ Vector.ofFn (n := quotientExtraBits) fun i => q.testBit i
   let q ← U.fromWord {

@@ -16,6 +16,8 @@ namespace Freigen.F2Z.Examples.P256.Reference
 
 open Freigen.F2Z.Examples.P256
 
+local instance : Context := lcContext
+
 /-- The trusted boundary of the P-256 reference model. -/
 axiom baseModulus_prime : Nat.Prime baseModulus
 
@@ -85,13 +87,13 @@ coordinates.  `Represents` separately requires the infinity flag to be a bit,
 so its non-one branch is the finite branch. -/
 def circuitCoordinates (ρ : WF.Valuation)
     (P : AffineSlope.Point) : Coordinates :=
-  if P.infinity.eval ρ.int = 1 then .infinity
+  if ρ.int P.infinity = 1 then .infinity
   else .finite (Modular.Lazy.evalZMod base P.X ρ)
     (Modular.Lazy.evalZMod base P.Y ρ)
 
 def Represents (ρ : WF.Valuation) (P : AffineSlope.Point)
     (p : Point) : Prop :=
-  (P.infinity.eval ρ.int = 0 ∨ P.infinity.eval ρ.int = 1) ∧
+  (ρ.int P.infinity = 0 ∨ ρ.int P.infinity = 1) ∧
     circuitCoordinates ρ P = coordinates p
 
 /-- Scalar multiplication keeps a canonical carrier for the identity.  This

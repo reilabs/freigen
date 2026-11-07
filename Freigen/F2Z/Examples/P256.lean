@@ -14,6 +14,10 @@ namespace Freigen.F2Z.Examples.P256
 set_option maxRecDepth 10000
 set_option maxHeartbeats 1000000
 
+-- These executable semantics intentionally use the concrete LC context.
+-- Circuit definitions and quotient well-formedness remain context-polymorphic.
+local instance : Context := lcContext
+
 open Std.Do
 open scoped Std.Do
 open Modular
@@ -49,11 +53,11 @@ namespace Projective.Lazy
   unfold OnCurveZModSpec
   dsimp
   let X : ZMod base.modulus :=
-    Int.castRingHom (ZMod base.modulus) (x.val.intVal.eval ρ.int)
+    Int.castRingHom (ZMod base.modulus) (ρ.int x.val.intVal)
   let Y : ZMod base.modulus :=
-    Int.castRingHom (ZMod base.modulus) (y.val.intVal.eval ρ.int)
+    Int.castRingHom (ZMod base.modulus) (ρ.int y.val.intVal)
   let X3 : ZMod base.modulus :=
-    Int.castRingHom (ZMod base.modulus) (x3.intVal.eval ρ.int)
+    Int.castRingHom (ZMod base.modulus) (ρ.int x3.intVal)
   change Y * Y = X3 +
       (0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b :
         ZMod base.modulus) - 3 * X at hcurve
@@ -140,8 +144,8 @@ equation, not a separate hand-written curve predicate. -/
 @[spec] theorem assertOnCurve_sound {x y : Fp} :
     ⦃⌜True⌝⦄ Sound.interp ρ (Projective.Lazy.assertOnCurve x y)
     ⦃⇓ _ => ⌜curve.toAffine.Equation
-      (Int.castRingHom Field (x.val.intVal.eval ρ.int))
-      (Int.castRingHom Field (y.val.intVal.eval ρ.int))⌝⦄ := by
+      (Int.castRingHom Field (ρ.int x.val.intVal))
+      (Int.castRingHom Field (ρ.int y.val.intVal))⌝⦄ := by
   apply Triple.iff_conseq.mp Projective.Lazy.assertOnCurve_sound (by simp)
   simp only [PostCond.entails, SPred.entails_nil]
   exact ⟨fun _ h => (equation_iff_short _ _).2 h,
@@ -293,8 +297,11 @@ condition needed by the tangent-slope branch. -/
 every pair of total valuations. -/
 theorem addComplete_wf :
     WF.GadgetSpec
-      (fun lv rv (left right : Point × Point) =>
-        left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2)
+      (fun {leftCtx rightCtx} lv rv
+          (left : @Point leftCtx × @Point leftCtx)
+          (right : @Point rightCtx × @Point rightCtx) =>
+        Point.WFRel lv rv left.1 right.1 ∧
+          Point.WFRel lv rv left.2 right.2)
       (fun input => addComplete input.1 input.2) Point.WFRel :=
   addComplete_wf_aux
 
