@@ -2,7 +2,7 @@ import Freigen.Ast.Macro
 import Freigen.Ast.Examples.Cert
 
 /-!
-Programs lifted by the macro. The four stage 4 programs are regenerated and
+Programs lifted by the macro. The four programs of `Examples/Cert.lean` are regenerated and
 compared with their hand-written ASTs. Every generated AST is pinned in its
 printed form, as are the axioms of the certificates and the errors for
 rejected sources.
@@ -10,7 +10,7 @@ rejected sources.
 
 namespace Freigen.Ast.Examples
 
-/-! ## The stage 4 programs -/
+/-! ## The hand-certified programs -/
 
 lift_program liftedPoly := srcPoly
 lift_program liftedBranch := srcBranch ops [srcPrint]

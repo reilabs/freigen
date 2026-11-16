@@ -7,7 +7,7 @@ with `foo.cert`, its program certificate against `src`.
 
 The source is read as elaborated. The traversal handles the structural forms
 directly: bind, return, `let`, and join points. Everything else is
-dispatched through a table from source head symbol to stage 4 rule. An entry
+dispatched through a table from source head symbol to certificate rule. An entry
 is data: a source pattern, the rule and its tail-position variant, and the
 rule's arguments as functions of the pattern variables. Applying an entry is
 the same for every entry: match the pattern, bind operands that are not
@@ -139,7 +139,7 @@ def absurdLam (n : Name) (bt : Lean.Expr) (C : Lean.Expr → MetaM Lean.Expr) :
 
 /-! ## The rule table -/
 
-/-- A table entry: how a source construct maps to a stage 4 rule. -/
+/-- A table entry: how a source construct maps to a certificate rule. -/
 structure Entry where
   /-- A closed lambda over the pattern variables. Its body is matched against
   the source; its head symbol is the entry's key. -/
