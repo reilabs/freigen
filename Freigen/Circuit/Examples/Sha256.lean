@@ -9,7 +9,7 @@ axiom p_prime : Fact P.Prime
 instance : Fact P.Prime := p_prime
 abbrev F := ZMod P
 
-variable [ctx : Circuit.Context F]
+variable [ctx : Circuit.Context P]
 private abbrev W := ctx.W
 
 def K: Vector UInt32 64 := #v[
@@ -42,19 +42,19 @@ private def fieldSpread (n : Nat) (x : F) : F :=
 private def fieldUnspread (parity n : Nat) (x : F) : F :=
   (unspreadNat parity n x.val : F)
 
-private def assertEq (x y : W) : Circuit F (Cert $ fun ρ => ρ x = ρ y) := do
+private def assertEq (x y : W) : Circuit P (Cert $ fun ρ => ρ x = ρ y) := do
   let cert ← Circuit.assertR1C 1 x y
   pure $ cert.map fun ρ h => by
     simp only [R1CSAssertion, ρ.one_map, one_mul] at h
     exact h
 
-private def spread (n : Nat) (x : W) : Circuit F W := do
+private def spread (n : Nat) (x : W) : Circuit P W := do
   let y ← Circuit.hint 1 #v[x] fun inputs =>
     Circuit.writeWitness (fieldSpread n inputs[0])
   let _ ← Circuit.assertSpread n x y
   pure y
 
-private def unspread (n : Nat) (x : W) : Circuit F (W × W) := do
+private def unspread (n : Nat) (x : W) : Circuit P (W × W) := do
   let ys ← Circuit.hint 1 #v[x] fun inputs => do
     let high ← Circuit.writeWitness (fieldUnspread 1 n inputs[0])
     let low ← Circuit.writeWitness (fieldUnspread 0 n inputs[0])
@@ -72,7 +72,7 @@ private structure Chunks4 where
 
 private def splitAndSpread4
     (a b c d : Nat) (_width : a + b + c + d = 32)
-    (x : W) : Circuit F Chunks4 := do
+    (x : W) : Circuit P Chunks4 := do
   let chunks ← Circuit.hint 1 #v[x] fun inputs => do
     let value := inputs[0].val
     let a0 : F := (value / pow2Nat (b + c + d) % pow2Nat a : F)
@@ -93,7 +93,7 @@ private def splitAndSpread4
   let s3 ← spread d a3
   pure ⟨s0, s1, s2, s3⟩
 
-private def unspread64 (x : W) : Circuit F (W × W) := do
+private def unspread64 (x : W) : Circuit P (W × W) := do
   let limbs ← Circuit.hint 1 #v[x] fun inputs => do
     let value := inputs[0].val
     let mask := pow2Nat 22 - 1
@@ -109,7 +109,7 @@ private def unspread64 (x : W) : Circuit F (W × W) := do
      a2.2 + (pow2 10) • a1.2 + (pow2 21) • a0.2)
 
 private def unsafeWrappingAdd {n : Nat}
-    (xs : Vector W n) : Circuit F W := do
+    (xs : Vector W n) : Circuit P W := do
   let sum := xs.toList.foldl (· + ·) 0
   let result ← Circuit.hint n xs fun inputs =>
     Circuit.writeWitness
@@ -119,7 +119,7 @@ private def unsafeWrappingAdd {n : Nat}
   pure result
 
 private def wrappingAdd {n : Nat}
-    (xs : Vector W n) : Circuit F W := do
+    (xs : Vector W n) : Circuit P W := do
   let result ← unsafeWrappingAdd xs
   let _ ← Circuit.rangeCheck 32 result
   pure result
@@ -133,14 +133,14 @@ private structure Sigma0Word (W : Type) where
 
 namespace Sigma0Word
 
-def new (x : W) : Circuit F (Sigma0Word W) := do
+def new (x : W) : Circuit P (Sigma0Word W) := do
   let chunks ← splitAndSpread4 10 9 11 2 (by decide) x
   pure ⟨x, chunks.s0, chunks.s1, chunks.s2, chunks.s3⟩
 
 def spreadValue (x : Sigma0Word W) : W :=
   x.s3 + (1 <<< 4) • x.s2 + (1 <<< 26) • x.s1 + (pow2 44) • x.s0
 
-def bigSigma (x : Sigma0Word W) : Circuit F W := do
+def bigSigma (x : Sigma0Word W) : Circuit P W := do
   let arr2 :=
     x.s2 + (pow2 22) • x.s1 + (pow2 40) • x.s0 + (pow2 60) • x.s3
   let arr13 :=
@@ -150,13 +150,13 @@ def bigSigma (x : Sigma0Word W) : Circuit F W := do
   let result ← unspread64 (arr2 + arr13 + arr22)
   pure result.2
 
-def maj (a b c : Sigma0Word W) : Circuit F W := do
+def maj (a b c : Sigma0Word W) : Circuit P W := do
   let result ←
     unspread64 (a.spreadValue + b.spreadValue + c.spreadValue)
   pure result.1
 
 def wrappingAdd {n : Nat}
-    (xs : Vector W n) : Circuit F (Sigma0Word W) := do
+    (xs : Vector W n) : Circuit P (Sigma0Word W) := do
   let result ← unsafeWrappingAdd xs
   new result
 
@@ -171,14 +171,14 @@ private structure Sigma1Word (W : Type) where
 
 namespace Sigma1Word
 
-def new (x : W) : Circuit F (Sigma1Word W) := do
+def new (x : W) : Circuit P (Sigma1Word W) := do
   let chunks ← splitAndSpread4 7 14 5 6 (by decide) x
   pure ⟨x, chunks.s0, chunks.s1, chunks.s2, chunks.s3⟩
 
 def spreadValue (x : Sigma1Word W) : W :=
   x.s3 + (pow2 12) • x.s2 + (pow2 22) • x.s1 + (pow2 50) • x.s0
 
-def bigSigma (x : Sigma1Word W) : Circuit F W := do
+def bigSigma (x : Sigma1Word W) : Circuit P W := do
   let err6 :=
     x.s2 + (pow2 10) • x.s1 + (pow2 38) • x.s0 + (pow2 52) • x.s3
   let err11 :=
@@ -188,19 +188,19 @@ def bigSigma (x : Sigma1Word W) : Circuit F W := do
   let result ← unspread64 (err6 + err11 + err25)
   pure result.2
 
-def ch (e f g : Sigma1Word W) : Circuit F W := do
+def ch (e f g : Sigma1Word W) : Circuit P W := do
   let eAndF ← unspread64 (e.spreadValue + f.spreadValue)
   let eAndG ← unspread64 (e.spreadValue + g.spreadValue)
   pure (eAndF.1 + g.packed - eAndG.1)
 
 def wrappingAdd {n : Nat}
-    (xs : Vector W n) : Circuit F (Sigma1Word W) := do
+    (xs : Vector W n) : Circuit P (Sigma1Word W) := do
   let result ← unsafeWrappingAdd xs
   new result
 
 end Sigma1Word
 
-private def smallSigma0 (x : W) : Circuit F W := do
+private def smallSigma0 (x : W) : Circuit P W := do
   let s ← splitAndSpread4 14 11 4 3 (by decide) x
   let rr7 := s.s1 + (pow2 22) • s.s0 + (pow2 50) • s.s3 + (pow2 56) • s.s2
   let rr18 := s.s0 + (pow2 28) • s.s3 + (pow2 34) • s.s2 + (pow2 42) • s.s1
@@ -208,7 +208,7 @@ private def smallSigma0 (x : W) : Circuit F W := do
   let result ← unspread64 (rr7 + rr18 + rs3)
   pure result.2
 
-private def smallSigma1 (x : W) : Circuit F W := do
+private def smallSigma1 (x : W) : Circuit P W := do
   let s ← splitAndSpread4 13 2 7 10 (by decide) x
   let rr17 := s.s1 + (pow2 4) • s.s0 + (pow2 30) • s.s3 + (pow2 50) • s.s2
   let rr19 := s.s0 + (pow2 26) • s.s3 + (pow2 46) • s.s2 + (pow2 60) • s.s1
@@ -218,7 +218,7 @@ private def smallSigma1 (x : W) : Circuit F W := do
 
 def sha256Compression
     (msgBlock : Vector W 16) (state : Vector W 8) :
-    Circuit F (Vector W 8) := do
+    Circuit P (Vector W 8) := do
   for x in msgBlock do
     let _ ← Circuit.rangeCheck 32 x
     pure ()

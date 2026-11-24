@@ -9,21 +9,21 @@ inductive Scope : Type u where
 | constraint
 | hint
 
-inductive ConstraintEff (F : Type) (ctx : Context F) where
+inductive ConstraintEff (P : Nat) (ctx : Context P) where
 | assertR1C (a b c : ctx.W)
 | rangeCheck (n : Nat) (a : ctx.W)
 | assertSpread (n : Nat) (a b : ctx.W)
 | hint (n : Nat) (α : Type) (args : Vector ctx.W n)
 
-inductive HintEff (F : Type) (ctx : Context F) : Type u where
-| writeWitness (a : F)
+inductive HintEff (P : Nat) (ctx : Context P) : Type u where
+| writeWitness (a : ZMod P)
 
-def Eff (F : Type) (ctx : Context F) : Scope → Type _
-| .constraint => ConstraintEff F ctx
-| .hint => HintEff F ctx
+def Eff (P : Nat) (ctx : Context P) : Scope → Type _
+| .constraint => ConstraintEff P ctx
+| .hint => HintEff P ctx
 
-instance {F : Type} [ctx : Context F] :
-    Freigen.Eff.Spec (Γ := Scope) (Eff F ctx) where
+instance {P : Nat} [ctx : Context P] :
+    Freigen.Eff.Spec (Γ := Scope) (Eff P ctx) where
   output := fun
   | .constraint, .assertR1C a b c => Cert (R1CSAssertion a b c)
   | .constraint, .rangeCheck n a => Cert (RangeAssertion n a)
@@ -46,7 +46,7 @@ instance {F : Type} [ctx : Context F] :
   | .constraint, .assertR1C _ _ _ => nofun
   | .constraint, .rangeCheck _ _ => nofun
   | .constraint, .assertSpread _ _ _ => nofun
-  | .constraint, .hint n _ _ => fun _ => Vector F n
+  | .constraint, .hint n _ _ => fun _ => Vector (ZMod P) n
   | .hint, .writeWitness _ => nofun
   blockOutputs := fun
   | .constraint, .assertR1C _ _ _ => nofun
@@ -57,52 +57,60 @@ instance {F : Type} [ctx : Context F] :
 
 end Circuit
 
-def Circuit (F : Type) [ctx : Circuit.Context F] : Type → Type _ :=
-  Free (Circuit.Eff F ctx) .constraint
+def Circuit (P : Nat) [ctx : Circuit.Context P] : Type → Type _ :=
+  Free (Circuit.Eff P ctx) .constraint
 
-instance {F : Type} [ctx : Circuit.Context F] : Monad (Circuit F) :=
-  inferInstanceAs (Monad (Free (Circuit.Eff F ctx) .constraint))
+instance {P : Nat} [ctx : Circuit.Context P] : Monad (Circuit P) :=
+  inferInstanceAs (Monad (Free (Circuit.Eff P ctx) .constraint))
 
-instance {F : Type} [ctx : Circuit.Context F] : LawfulMonad (Circuit F) :=
-  inferInstanceAs (LawfulMonad (Free (Circuit.Eff F ctx) .constraint))
+instance {P : Nat} [ctx : Circuit.Context P] : LawfulMonad (Circuit P) :=
+  inferInstanceAs (LawfulMonad (Free (Circuit.Eff P ctx) .constraint))
 
 namespace Circuit
 
-variable {F : Type} [ctx : Context F]
+variable {P : Nat} [ctx : Context P]
 
-def Hint (F : Type) [ctx : Context F] : Type → Type _ :=
-  Free (Circuit.Eff F ctx) .hint
+def Hint (P : Nat) [ctx : Context P] : Type → Type _ :=
+  Free (Circuit.Eff P ctx) .hint
 
-instance : Monad (Hint F) :=
-  inferInstanceAs (Monad (Free (Circuit.Eff F ctx) .hint))
+instance : Monad (Hint P) :=
+  inferInstanceAs (Monad (Free (Circuit.Eff P ctx) .hint))
 
-instance : LawfulMonad (Hint F) :=
-  inferInstanceAs (LawfulMonad (Free (Circuit.Eff F ctx) .hint))
+instance : LawfulMonad (Hint P) :=
+  inferInstanceAs (LawfulMonad (Free (Circuit.Eff P ctx) .hint))
 
 def assertR1C (a b c : ctx.W) :
-    Circuit F (Cert (R1CSAssertion a b c)) :=
-  Free.op (E := Circuit.Eff F ctx) (γ := .constraint)
+    Circuit P (Cert (R1CSAssertion a b c)) :=
+  Free.op (E := Circuit.Eff P ctx) (γ := .constraint)
     (.assertR1C a b c) nofun
 
-def rangeCheck (n : Nat) (a : ctx.W) : Circuit F (WUInt F n) := do
+def rangeCheck (n : Nat) (a : ctx.W) : Circuit P (WUInt P n) := do
   let cert ←
-    Free.op (E := Circuit.Eff F ctx) (γ := .constraint)
+    Free.op (E := Circuit.Eff P ctx) (γ := .constraint)
       (.rangeCheck n a) nofun
   pure ⟨a, cert⟩
 
 def assertSpread (n : Nat) (a b : ctx.W) :
-    Circuit F (Cert (SpreadAssertion n a b)) :=
-  Free.op (E := Circuit.Eff F ctx) (γ := .constraint)
+    Circuit P (Cert (SpreadAssertion n a b)) :=
+  Free.op (E := Circuit.Eff P ctx) (γ := .constraint)
     (.assertSpread n a b) nofun
 
 def hint {α} (n : Nat) (args : Vector ctx.W n)
-    (h : Vector F n → Hint F α) : Circuit F α :=
-  Free.op (E := Circuit.Eff F ctx) (γ := .constraint) (.hint n α args)
+    (h : Vector (ZMod P) n → Hint P α) : Circuit P α :=
+  Free.op (E := Circuit.Eff P ctx) (γ := .constraint) (.hint n α args)
     (fun _ inputs => h inputs)
 
-def writeWitness (a : F) : Hint F ctx.W :=
-  Free.op (E := Circuit.Eff F ctx) (γ := .hint) (.writeWitness a) nofun
+def writeWitness (a : ZMod P) : Hint P ctx.W :=
+  Free.op (E := Circuit.Eff P ctx) (γ := .hint) (.writeWitness a) nofun
 
--- def runWithHints (c : Circuit F α) : Option α :=
+omit ctx in
+/-- A square root in the field: some `r` with `r * r = x` if there is one, and
+`0` otherwise. A specification, not an algorithm: once the AST has loops it is
+to be computed by exponentiation. -/
+noncomputable def fsqrt (x : ZMod P) : ZMod P :=
+  open Classical in
+  if h : ∃ r : ZMod P, r * r = x then Classical.choose h else 0
+
+-- def runWithHints (c : Circuit P α) : Option α :=
 
 end Freigen.Circuit

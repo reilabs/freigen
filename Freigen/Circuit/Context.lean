@@ -1,6 +1,7 @@
 import Mathlib.Algebra.Module.Basic
 import Mathlib.Algebra.Module.LinearMap.Defs
 import Mathlib.Algebra.BigOperators.Ring.Finset
+import Mathlib.Data.ZMod.Basic
 
 namespace Freigen.Circuit
 
@@ -27,86 +28,89 @@ class CertLogic {World : Type} (Cert : (World → Prop) → Sort u) where
     ((i : ι) → Cert (P i)) →
     Cert Q
 
-class Context (F : Type) where
+/-- A circuit context over the prime field `ZMod P`: wires form a module over
+the field, and certificates witness assertions about every valuation. -/
+class Context (P : Nat) where
   W : Type
-  [fieldF : Field F]
   [addGroupW : AddCommGroup W]
   [oneW: One W]
-  [moduleW : Module F W]
-  Cert : Assertion F W → Sort u
+  [moduleW : Module (ZMod P) W]
+  /-- Certificates are data (`Type`), so that operations can return them, but
+  carry no more information than a proof. -/
+  Cert : Assertion (ZMod P) W → Type
   [certLogic : CertLogic Cert]
+  [certSubsingleton : ∀ A, Subsingleton (Cert A)]
 
 attribute [implicit_reducible]
-  Context.fieldF
   Context.addGroupW
   Context.moduleW
   Context.certLogic
   Context.oneW
 
 attribute [instance]
-  Context.fieldF
   Context.addGroupW
   Context.moduleW
   Context.certLogic
   Context.oneW
+  Context.certSubsingleton
 
-abbrev Cert {F : Type} [ctx : Context F]
-    (P : Assertion F ctx.W) :=
-  ctx.Cert P
+abbrev Cert {P : Nat} [ctx : Context P]
+    (A : Assertion (ZMod P) ctx.W) :=
+  ctx.Cert A
 
-def Cert.map {F : Type} [ctx : Context F]
-    {P Q : Assertion F ctx.W}
-    (f : ∀ ρ, P ρ → Q ρ)
-    (cert : Cert P) :
-    Cert Q :=
+def Cert.map {P : Nat} [ctx : Context P]
+    {A B : Assertion (ZMod P) ctx.W}
+    (f : ∀ ρ, A ρ → B ρ)
+    (cert : Cert A) :
+    Cert B :=
   ctx.certLogic.derive (ι := Unit) (fun _ f' => f _ (f' ()) ) (fun _ => cert)
 
-structure CertW {F : Type} [ctx : Context F]
-    (P : ctx.W → Assertion F ctx.W) where
+structure CertW {P : Nat} [ctx : Context P]
+    (Pred : ctx.W → Assertion (ZMod P) ctx.W) where
   val : ctx.W
-  cert : Cert (P val)
+  cert : Cert (Pred val)
 
-instance {F : Type} [ctx : Context F] {P : ctx.W → Assertion F ctx.W} : CoeOut (CertW (F:=F) P) ctx.W where
+instance {P : Nat} [ctx : Context P] {Q : ctx.W → Assertion (ZMod P) ctx.W} : CoeOut (CertW (P:=P) Q) ctx.W where
   coe c := c.val
 
 namespace Cert
 
-def derive {F : Type} [ctx : Context F]
+def derive {P : Nat} [ctx : Context P]
     {ι : Type}
-    {P : ι → Assertion F ctx.W}
-    {Q : Assertion F ctx.W}
-    (rule : ∀ ρ, (∀ i, P i ρ) → Q ρ)
-    (premises : (i : ι) → Cert (P i)) :
-    Cert Q :=
+    {A : ι → Assertion (ZMod P) ctx.W}
+    {B : Assertion (ZMod P) ctx.W}
+    (rule : ∀ ρ, (∀ i, A i ρ) → B ρ)
+    (premises : (i : ι) → Cert (A i)) :
+    Cert B :=
   CertLogic.derive rule premises
 
 end Cert
 
-def IsInRange {F : Type} [ctx : Context F] (n : Nat) (x : F) : Prop :=
-  ∃ k : Nat, k < 2 ^ n ∧ x = (k : F)
+def IsInRange {P : Nat} (n : Nat) (x : ZMod P) : Prop :=
+  ∃ k : Nat, k < 2 ^ n ∧ x = (k : ZMod P)
 
-def RangeAssertion {F : Type} [ctx : Context F]
-    (n : Nat) (x : ctx.W) : Assertion F ctx.W :=
+def RangeAssertion {P : Nat} [ctx : Context P]
+    (n : Nat) (x : ctx.W) : Assertion (ZMod P) ctx.W :=
   fun ρ => IsInRange n (ρ x)
 
-def R1CSAssertion {F : Type} [ctx : Context F]
-    (a b c : ctx.W) : Assertion F ctx.W :=
+def R1CSAssertion {P : Nat} [ctx : Context P]
+    (a b c : ctx.W) : Assertion (ZMod P) ctx.W :=
   fun ρ => ρ a * ρ b = ρ c
 
-def SpreadAssertion {F : Type} [ctx : Context F]
-    (n : Nat) (a b : ctx.W) : Assertion F ctx.W :=
+def SpreadAssertion {P : Nat} [ctx : Context P]
+    (n : Nat) (a b : ctx.W) : Assertion (ZMod P) ctx.W :=
   fun ρ =>
     ∃ bits : Fin n → Bool,
-      ρ a = (∑ i, if bits i then (2 : F) ^ i.val else 0) ∧
-      ρ b = (∑ i, if bits i then (2 : F) ^ (2 * i.val) else 0)
+      ρ a = (∑ i, if bits i then (2 : ZMod P) ^ i.val else 0) ∧
+      ρ b = (∑ i, if bits i then (2 : ZMod P) ^ (2 * i.val) else 0)
 
-def ValueAssertion {F : Type} [ctx : Context F]
-    (a : F) (x : ctx.W) : Assertion F ctx.W :=
+def ValueAssertion {P : Nat} [ctx : Context P]
+    (a : ZMod P) (x : ctx.W) : Assertion (ZMod P) ctx.W :=
   fun ρ => ρ x = a
 
-abbrev WUInt (F : Type) [ctx : Context F] (n : Nat) :=
-  CertW $ RangeAssertion (F:=F) n
+abbrev WUInt (P : Nat) [ctx : Context P] (n : Nat) :=
+  CertW $ RangeAssertion (P:=P) n
 
-abbrev WU32 (F : Type) [Context F] := WUInt F 32
+abbrev WU32 (P : Nat) [Context P] := WUInt P 32
 
 end Freigen.Circuit

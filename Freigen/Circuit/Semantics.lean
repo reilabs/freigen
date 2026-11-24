@@ -32,7 +32,7 @@ instance (s : Circuit.Scope) : Monad (InterpM s) := inferInstanceAs (Monad Nonde
 
 instance (s : Circuit.Scope) : LawfulMonad (InterpM s) := inferInstanceAs (LawfulMonad NondetM)
 
-def idValuation {F : Type} [Field F] : Valuation F F where
+def idValuation {P : Nat} : Valuation (ZMod P) (ZMod P) where
   toFun := {
     toFun := id
     map_add' := by simp
@@ -40,7 +40,7 @@ def idValuation {F : Type} [Field F] : Valuation F F where
   }
   one_map := by simp
 
-instance {F} [Field F] : CertLogic (fun P => PLift $ P (idValuation (F := F))) where
+instance {P : Nat} : CertLogic (fun A => PLift $ A (idValuation (P := P))) where
   derive := by
     intro _ _ _ hI hA
     apply PLift.up
@@ -49,9 +49,10 @@ instance {F} [Field F] : CertLogic (fun P => PLift $ P (idValuation (F := F))) w
     apply PLift.down
     apply_assumption
 
-local instance ctx {F} [Field F] : Circuit.Context F where
-  W := F
-  Cert := fun P => PLift $ P idValuation
+local instance ctx {P : Nat} : Circuit.Context P where
+  W := ZMod P
+  Cert := fun A => PLift $ A idValuation
+  certSubsingleton := fun _ => ⟨fun ⟨_⟩ ⟨_⟩ => rfl⟩
 
 -- def interp {P: Nat} [Fact (Nat.Prime P)] {α} : Circuit (ZMod P) α → NondetM α := Free.interp (M:=InterpM) @fun
 -- | Scope.constraint, ConstraintEff.assertR1C (a : ZMod P) b c, blocks => fun k =>
