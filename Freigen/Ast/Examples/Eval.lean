@@ -12,7 +12,7 @@ open CompM (tick)
 
 /-- A helper defined once and called twice. -/
 example (x : UInt32) :
-    (doubleTwice (V := Tp.denote)).denote x =
+    (doubleTwice (V := model.V)).denote x =
       tick >>= fun _ => tick >>= fun _ => tick >>= fun _ =>
       tick >>= fun _ => tick >>= fun _ => tick >>= fun _ =>
       tick >>= fun _ => pure (x + x + (x + x)) := by
@@ -23,9 +23,9 @@ example (x : UInt32) :
 
 /-- An effect with a block: the block is an independent evaluation. -/
 example (x : UInt32) :
-    (hintSquare (V := Tp.denote)).denote x =
-      CompM.op (E := EvalEff sig) (γ := Scope.main)
-          (.inr (.inr (Sigma.mk (MainOp.hint : sig.tag Scope.main) x)))
+    (hintSquare (V := model.V)).denote x =
+      CompM.op (E := EvalEff language model) (γ := Scope.main)
+          (.inr (.inr (Sigma.mk (MainOp.hint : language.Op Scope.main) x)))
           (fun _ (y : UInt32) =>
             tick >>= fun _ => tick >>= fun _ => pure (y * y)) >>=
         fun r => tick >>= fun _ => pure r := by
@@ -35,7 +35,7 @@ example (x : UInt32) :
   funext t y
   cases t
   dsimp only
-  -- The block lives in a context only reducible through `sig`, which `rw`
+  -- The block lives in a context only reducible through `language`, which `rw`
   -- does not see through.
   erw [Expr.denote_builtin_eq]
   simp only [Builtin.denote, map_bind]

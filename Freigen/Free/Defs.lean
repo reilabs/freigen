@@ -3,11 +3,11 @@ import Freigen.ExactCodensity
 
 namespace Freigen
 
-variable {Γ : Type u} {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+variable {Γ : Type c} {E : Γ → Type u} [eS : Eff.Spec.{_, u, v} E]
   {γ : Γ} {α β : Type v}
 
 def Free
-    {Γ : Type u} (E : Γ → Type u) [Eff.Spec.{u, v} E]
+    {Γ : Type c} (E : Γ → Type u) [Eff.Spec.{_, u, v} E]
     (γ : Γ) (α : Type v) : Type _ :=
   ExactCodensity (RawFree E γ) α
 
@@ -468,14 +468,14 @@ theorem Free.interp_op
     (fun t input => Free.toRaw (blocks t input))
 
 def Free.extendL
-    {Γ : Type u} {E F : Γ → Type u} [sE: Eff.Spec E] [sF: Eff.Spec F]
+    {Γ : Type c} {E F : Γ → Type u} [sE: Eff.Spec E] [sF: Eff.Spec F]
     (γ : Γ) (α : Type v) : Free E γ α → Free (F ⊕ₑ E) γ α :=
   Free.interp (fun e blocks =>
     op (E := F ⊕ₑ E) (.inr e) blocks
   )
 
 def Free.interpL
-    {Γ : Type u} {E F : Γ → Type u} [sE: Eff.Spec E] [sF: Eff.Spec F]
+    {Γ : Type c} {E F : Γ → Type u} [sE: Eff.Spec E] [sF: Eff.Spec F]
     {γ : Γ} {α : Type v} (handler : Eff.Handler F (Free E)) :
   Free (F ⊕ₑ E) γ α → Free E γ α := interp (fun e i => match e with
     | .inl e => handler e i
@@ -487,7 +487,7 @@ def Free.UnusedL {Γ} {γ : Γ} {F E : Γ → Type u} [sF: Eff.Spec F] [sE: Eff.
 
 @[simp]
 theorem Free.unusedL_extendL
-    {Γ : Type u} {γ : Γ} {F E : Γ → Type u}
+    {Γ : Type c} {γ : Γ} {F E : Γ → Type u}
     [sF : Eff.Spec F] [sE : Eff.Spec E]
     (x : Free E γ α) :
     UnusedL (F := F) (Free.extendL γ α x) :=
@@ -498,7 +498,7 @@ theorem Free.unusedL_op_bind {Γ} {γ : Γ} {F E : Γ → Type u} [sF: Eff.Spec 
     {blocks : (t : Eff.Spec.blockTag (tag := E ⊕ₑ F) γ e) →
         Eff.Spec.blockInputs (tag := E ⊕ₑ F) γ e t →
         Free (E ⊕ₑ F) (Eff.Spec.blockCtx (tag := E ⊕ₑ F) γ e t) (Eff.Spec.blockOutputs (tag := E ⊕ₑ F) γ e t)} :
-    (UnusedL (op e blocks >>= f)) ↔ (e.isRight ∧ (∀ t i, (blocks t i).UnusedL) ∧  ∀ a, UnusedL (f a)) := by
+    (UnusedL (op (E := E ⊕ₑ F) e blocks >>= f)) ↔ (e.isRight ∧ (∀ t i, (blocks t i).UnusedL) ∧  ∀ a, UnusedL (f a)) := by
   apply Iff.intro
   · rintro ⟨x, h⟩
     cases x using Free.casesOn with

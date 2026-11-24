@@ -4,7 +4,7 @@ import Freigen.Eff
 namespace Freigen
 
 def ITree
-    {Γ : Type u} (E : Γ → Type u) [Eff.Spec E]
+    {Γ : Type c} (E : Γ → Type u) [Eff.Spec E]
     (γ : Γ) (α : Type v) : Type _ :=
   (Eff.Step Γ E).M (γ, α)
 
@@ -12,7 +12,7 @@ namespace ITree
 
 open IxPoly
 
-variable {Γ : Type u} {E : Γ → Type u} [eS : Eff.Spec E]
+variable {Γ : Type c} {E : Γ → Type u} [eS : Eff.Spec E]
 
 def corec
     {A : Γ × Type v → Type w}

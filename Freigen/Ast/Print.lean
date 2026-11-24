@@ -10,9 +10,11 @@ The printed form is meant to be parsed back, so it carries every type that
 cannot be inferred bottom-up from variables already in scope: literal types,
 the element type of `arrEmpty`, parameter types, and the context and output
 type of definitions and the entry point. The rest follows from these and the
-signature: builtin results from their arguments, branch and loop results from
+language: builtin results from their arguments, branch and loop results from
 their bodies and initial values, and operation and block types from the
-operation's tag. Blocks are named, so they need no fixed order.
+operation. How base types, primitives and operations print is up to the
+language (`Language.Print`); a primitive's printed form must determine its
+result type, like a builtin's. Blocks are named, so they need no fixed order.
 
 The grammar, in EBNF over tokens: parentheses and atoms, separated by
 whitespace, which is otherwise insignificant.
@@ -29,22 +31,25 @@ body     = ret | "(" "do" let { let } ret ")" ;
 rhs      = "(" "lit" tp val ")"
          | "(" "arrEmpty" tp ")"
          | "(" builtin { var } ")"
+         | prim
          | "(" "fun" param stmts ")"
          | "(" "app" var var ")"
          | "(" "if" var body body ")"
          | "(" "loop" var "(" "fun" param stmts ")" ")"
-         | "(" "op" tag var { block } ")" ;
+         | "(" "op" op var { block } ")" ;
 block    = "(" "block" name "(" var ")" stmts ")" ;
 builtin  = "uAdd" | "uSub" | "uMul" | "uDiv" | "uMod" | "uEq" | "uLt" | "uLe"
          | "not" | "and" | "or" | "bEq" | "pair" | "fst" | "snd"
          | "arrPush" | "arrGet" | "arrSet" | "arrLen" ;
-tp       = "u32" | "bool" | "unit" | "(" "array" tp ")"
+prim     = sexp ;  (* a primitive of the language, applied to its arguments *)
+tp       = base | "u32" | "bool" | "unit" | "(" "array" tp ")"
          | "(" "prod" tp tp ")" | "(" "fn" tp tp ")" ;
 val      = digit { digit } | "true" | "false" | "(" ")"
          | "(" "array" { val } ")" | "(" "pair" val val ")" ;
 var      = ( "v" | "f" ) digit { digit } ;
-ctx      = atom ;  (* a context name of the signature *)
-tag      = atom ;  (* an operation name of the signature *)
+ctx      = atom ;  (* a context name of the language *)
+base     = sexp ;  (* a base type of the language *)
+op       = sexp ;  (* an operation of the language, with any syntactic data *)
 name     = atom ;  (* a block name of the operation *)
 ```
 
@@ -92,17 +97,24 @@ end Sexp
 
 /-! ## Signatures -/
 
-/-- Names of a signature's contexts, operations and blocks, and each
-operation's blocks in printing order. -/
-class EffSig.Print (eff : EffSig) where
-  ctxName : eff.Ctx → String
-  tagName : (γ : eff.Ctx) → eff.tag γ → String
-  blocks : (γ : eff.Ctx) → (e : eff.tag γ) → List (eff.blockTag γ e)
-  blockName : (γ : eff.Ctx) → (e : eff.tag γ) → eff.blockTag γ e → String
+/-- How a language prints: its base types and primitives, the names of its
+contexts, operations and blocks, and each operation's blocks in printing
+order. Operations may carry syntactic data, such as a type. -/
+class Language.Print (L : Language) where
+  baseSexp : L.Base → Sexp
+  /-- A primitive applied to its arguments. -/
+  primSexp : {inp : List L.Tp} → {out : L.Tp} → L.Prim inp out → List Sexp → Sexp
+  ctxName : L.Ctx → String
+  opSexp : (γ : L.Ctx) → L.Op γ → Sexp
+  blocks : (γ : L.Ctx) → (e : L.Op γ) → List (L.Block γ e)
+  blockName : (γ : L.Ctx) → (e : L.Op γ) → L.Block γ e → String
 
 /-! ## Types, values and builtins -/
 
-def Tp.sexp : Tp → Sexp
+variable {L : Language} [Language.Print L]
+
+def Tp.sexp : L.Tp → Sexp
+| .base b => Language.Print.baseSexp b
 | .uInt32 => .atom "u32"
 | .bool => .atom "bool"
 | .unit => .atom "unit"
@@ -110,7 +122,9 @@ def Tp.sexp : Tp → Sexp
 | .prod a b => .list [.atom "prod", a.sexp, b.sexp]
 | .fn a b => .list [.atom "fn", a.sexp, b.sexp]
 
-def Tp.valSexp : (tp : Tp) → tp.denote → Sexp
+/-- Literal values. -/
+def Tp.valSexp : (tp : L.Tp) → tp.Lit → Sexp
+| .base _, v => nomatch v
 | .uInt32, v => .atom (toString v)
 | .bool, v => .atom (toString v)
 | .unit, _ => .list []
@@ -118,22 +132,24 @@ def Tp.valSexp : (tp : Tp) → tp.denote → Sexp
 | .prod a b, (x, y) => .list [.atom "pair", a.valSexp x, b.valSexp y]
 | .fn _ _, r => .atom ("fn#" ++ toString (show Nat from r))
 
-def Builtin.name : Builtin inp out → String
+def Builtin.name : Builtin L inp out → String
 | .uAdd => "uAdd" | .uSub => "uSub" | .uMul => "uMul" | .uDiv => "uDiv"
 | .uMod => "uMod" | .uEq => "uEq" | .uLt => "uLt" | .uLe => "uLe"
 | .not => "not" | .and => "and" | .or => "or" | .bEq => "bEq"
 | .pair => "pair" | .fst => "fst" | .snd => "snd"
 | .arrEmpty => "arrEmpty" | .arrPush => "arrPush" | .arrGet => "arrGet"
 | .arrSet => "arrSet" | .arrLen => "arrLen"
+| .prim _ => "prim"
 
 /-- A builtin applied to its arguments. `arrEmpty` has none to infer its
-element type from, so it carries it. -/
-def Builtin.sexp (b : Builtin inp out) (args : List Sexp) : Sexp :=
+element type from, so it carries it. Primitives print as the language says. -/
+def Builtin.sexp (b : Builtin L inp out) (args : List Sexp) : Sexp :=
   match out, b with
-  | .array a, .arrEmpty => .list [.atom b.name, a.sexp]
+  | .array a, .arrEmpty => .list [.atom b.name, Tp.sexp a]
+  | _, .prim p => Language.Print.primSexp p args
   | _, _ => .list (.atom b.name :: args)
 
-def HList.atoms : HList (fun _ : Tp => String) ts → List Sexp
+def HList.atoms : HList (fun _ : L.Tp => String) ts → List Sexp
 | .nil => []
 | .cons x xs => .atom x :: HList.atoms xs
 
@@ -141,10 +157,8 @@ def HList.atoms : HList (fun _ : Tp => String) ts → List Sexp
 
 /-- Variables are numbered in binding order, so every name is distinct.
 Functions are `f`, other values `v`. -/
-def varName (tp : Tp) (n : Nat) : String :=
+def varName (tp : L.Tp) (n : Nat) : String :=
   (match tp with | .fn _ _ => "f" | _ => "v") ++ toString n
-
-variable {eff : EffSig} [EffSig.Print eff]
 
 /-- A body: one statement as itself, several as `(do …)`. -/
 def Sexp.body : List Sexp → Sexp
@@ -153,14 +167,14 @@ def Sexp.body : List Sexp → Sexp
 
 def Sexp.letS (x : String) (rhs : Sexp) : Sexp := .list [.atom "let", .atom x, rhs]
 
-def Sexp.param (x : String) (tp : Tp) : Sexp := .list [.atom x, tp.sexp]
+def Sexp.param (x : String) (tp : L.Tp) : Sexp := .list [.atom x, tp.sexp]
 
-def Sexp.funS (x : String) (tp : Tp) (body : List Sexp) : Sexp :=
+def Sexp.funS (x : String) (tp : L.Tp) (body : List Sexp) : Sexp :=
   .list (.atom "fun" :: .param x tp :: body)
 
 /-- The statements of an expression, numbering binders from `n` in reading
 order; also returns the next free number. -/
-def Expr.sexps {γ tp} (n : Nat) : Expr eff (fun _ => String) γ tp → List Sexp × Nat
+def Expr.sexps {γ tp} (n : Nat) : Expr L (fun _ => String) γ tp → List Sexp × Nat
 | .ret v => ([.list [.atom "ret", .atom v]], n)
 | .lit t v k =>
     let x := varName t.val n
@@ -193,30 +207,30 @@ def Expr.sexps {γ tp} (n : Nat) : Expr eff (fun _ => String) γ tp → List Sex
     let (ss, n) := (k x).sexps n
     (.letS x (.list [.atom "loop", .atom init, .funS y c bs]) :: ss, n)
 | .op (γ := γ) e inp blocks k =>
-    let x := varName (eff.output γ e).val n
-    let (bs, n) := (EffSig.Print.blocks γ e).attach.foldl (init := ([], n + 1))
+    let x := varName (L.output γ e).val n
+    let (bs, n) := (Language.Print.blocks γ e).attach.foldl (init := ([], n + 1))
       fun (bs, n) ⟨b, _⟩ =>
-        let y := varName (eff.blockInputs γ e b).val n
+        let y := varName (L.blockInputs γ e b).val n
         let (ss, n) := (blocks b y).sexps (n + 1)
-        let name := EffSig.Print.blockName γ e b
+        let name := Language.Print.blockName γ e b
         (bs ++ [.list (.atom "block" :: .atom name :: .list [.atom y] :: ss)], n)
     let (ss, n) := (k x).sexps n
-    (.letS x (.list (.atom "op" :: .atom (EffSig.Print.tagName γ e) :: .atom inp :: bs)) :: ss,
+    (.letS x (.list (.atom "op" :: Language.Print.opSexp γ e :: .atom inp :: bs)) :: ss,
       n)
 
-def Program.sexps {γ i o} (n : Nat) : Program eff γ i o (fun _ => String) → List Sexp
+def Program.sexps {γ i o} (n : Nat) : Program L γ i o (fun _ => String) → List Sexp
 | .define (γ := γ') (inp := i') (out := o') body k =>
     let f := varName (.fn i' o') n
     let x := varName i' (n + 1)
     let (bs, n) := (body f x).sexps (n + 2)
-    let ctx := Sexp.atom (EffSig.Print.ctxName γ')
+    let ctx := Sexp.atom (Language.Print.ctxName γ')
     .list ([.atom "define", .atom f, ctx, .param x i', o'.sexp] ++ bs) :: (k f).sexps n
 | .main body =>
     let x := varName i.val n
-    let ctx := Sexp.atom (EffSig.Print.ctxName γ)
+    let ctx := Sexp.atom (Language.Print.ctxName γ)
     [.list ([.atom "main", ctx, .param x i.val, o.val.sexp] ++ ((body x).sexps (n + 1)).1)]
 
-def Program.toSexp {γ i o} (p : Program eff γ i o (fun _ => String)) : Sexp :=
+def Program.toSexp {γ i o} (p : Program L γ i o (fun _ => String)) : Sexp :=
   .list (.atom "program" :: p.sexps 0)
 
 /-- How many children of each form stay on its first line: the header before
@@ -229,7 +243,7 @@ def astHang : String → Option Nat
 | "define" => some 4
 | _ => none
 
-def Program.pretty {γ i o} (p : Program eff γ i o (fun _ => String)) (width : Nat := 80) :
+def Program.pretty {γ i o} (p : Program L γ i o (fun _ => String)) (width : Nat := 80) :
     String :=
   p.toSexp.pretty astHang width
 

@@ -8,13 +8,13 @@ underlying hash map.
 
 namespace Freigen.Ast
 
-variable {eff : EffSig} {γ : eff.Ctx} {i o : Tp}
+variable {L : Language} {M : L.Model} {γ : L.Ctx} {i o : L.Tp}
 
 namespace Heap
 
 /-- Allocation extends the heap. -/
-theorem le_alloc (s : Heap eff)
-    (f : Tp.denote (.fn i o) → Tp.denote i → Expr eff Tp.denote γ o) :
+theorem le_alloc (s : Heap L M)
+    (f : M.V (.fn i o) → M.V i → Expr L M.V γ o) :
     s ≤ (s.alloc f).1 := by
   refine ⟨Nat.le_succ _, fun id hid => ?_⟩
   simp only [alloc, Std.ExtHashMap.get?_eq_getElem?,
@@ -22,9 +22,9 @@ theorem le_alloc (s : Heap eff)
   grind
 
 /-- The allocated reference did not resolve before. -/
-theorem lookup_alloc_ref (s : Heap eff)
-    (f : Tp.denote (.fn i o) → Tp.denote i → Expr eff Tp.denote γ o)
-    {γ' : eff.Ctx} {i' o' : Tp} :
+theorem lookup_alloc_ref (s : Heap L M)
+    (f : M.V (.fn i o) → M.V i → Expr L M.V γ o)
+    {γ' : L.Ctx} {i' o' : L.Tp} :
     s.lookup (γ := γ') (i := i') (o := o') (s.alloc f).2 = none := by
   have : s.env[s.next]? = none := by
     rw [← Option.not_isSome_iff_eq_none,
@@ -34,14 +34,14 @@ theorem lookup_alloc_ref (s : Heap eff)
 
 /-- A freshly allocated reference resolves to what was allocated. -/
 @[simp]
-theorem lookup_alloc (s : Heap eff)
-    (f : Tp.denote (.fn i o) → Tp.denote i → Expr eff Tp.denote γ o) :
+theorem lookup_alloc (s : Heap L M)
+    (f : M.V (.fn i o) → M.V i → Expr L M.V γ o) :
     (s.alloc f).1.lookup (s.alloc f).2 = some (f (s.alloc f).2) := by
   simp [alloc, lookup]
 
 /-- Lookup is stable under extension. -/
-theorem lookup_mono {s s' : Heap eff} (hs : s ≤ s') {r : FnRef}
-    {g : Tp.denote i → Expr eff Tp.denote γ o}
+theorem lookup_mono {s s' : Heap L M} (hs : s ≤ s') {r : FnRef}
+    {g : M.V i → Expr L M.V γ o}
     (hl : s.lookup r = some g) : s'.lookup r = some g := by
   have hget : s'.env.get? r = s.env.get? r := by
     refine (hs.2 r ?_).symm

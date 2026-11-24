@@ -5,12 +5,12 @@ import Freigen.Eff
 namespace Freigen
 
 def CompM
-    {Γ : Type u} (E : Γ → Type u) [Eff.Spec E]
+    {Γ : Type c} (E : Γ → Type u) [Eff.Spec E]
     (γ : Γ) (α : Type v) : Type _ :=
   ExactCodensity (ITree E γ) α
 
 variable
-  {Γ : Type u} {E : Γ → Type u} [eS : Eff.Spec E]
+  {Γ : Type c} {E : Γ → Type u} [eS : Eff.Spec E]
   {γ : Γ} {α β : Type}
 
 instance {γ : Γ} : Monad (CompM E γ) :=
@@ -110,7 +110,7 @@ private theorem bind_def
       simp only [ExactCodensity.exact]⟩ := by
   rfl
 
-def tick {γ : Γ} [Eff.Has.{u, 0} Eff.Tau E] :
+def tick {γ : Γ} [Eff.Has.{_, u, 0} Eff.Tau E] :
     CompM E γ Unit :=
   ⟨fun f => ITree.tau (f ()), by simp⟩
 
@@ -127,7 +127,7 @@ def op {γ : Γ} (e : E γ)
   ⟨fun f => ITree.op e (fun t i => (blocks t i).run pure) f, by simp⟩
 
 private def liftLCo
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     (i : Γ × Type v) (x : CompM L i.1 i.2) :
     Eff.Step Γ (L ⊕ₑ R) (fun i => CompM L i.1 i.2) i :=
   Eff.Step.casesOn (observe x)
@@ -138,13 +138,13 @@ private def liftLCo
       Eff.Step.op (show (L ⊕ₑ R) _ from Sum.inl e) blocks k)
 
 def liftL
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     {γ : Γ} {α : Type v} (x : CompM L γ α) :
     CompM (L ⊕ₑ R) γ α :=
   corec (i := (γ, α)) (liftLCo (L := L) (R := R)) x
 
 private def liftRCo
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     (i : Γ × Type v) (x : CompM R i.1 i.2) :
     Eff.Step Γ (L ⊕ₑ R) (fun i => CompM R i.1 i.2) i :=
   Eff.Step.casesOn (observe x)
@@ -155,19 +155,19 @@ private def liftRCo
       Eff.Step.op (show (L ⊕ₑ R) _ from Sum.inr e) blocks k)
 
 def liftR
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     {γ : Γ} {α : Type v} (x : CompM R γ α) :
     CompM (L ⊕ₑ R) γ α :=
   corec (i := (γ, α)) (liftRCo (L := L) (R := R)) x
 
 abbrev OpMap
-    {Γ : Type u} (L R : Γ → Type u)
-    [Eff.Spec.{u, v} L] [Eff.Spec.{u, v} R]
+    {Γ : Type c} (L R : Γ → Type u)
+    [Eff.Spec.{_, u, v} L] [Eff.Spec.{_, u, v} R]
     (X : Γ × Type v → Type w) :=
   {i : Γ × Type v} → Eff.Step Γ L X i → Eff.Step Γ R X i
 
 private def interpLCo
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     (mapOp : OpMap L R (fun i => CompM (L ⊕ₑ R) i.1 i.2))
     (i : Γ × Type v) (x : CompM (L ⊕ₑ R) i.1 i.2) :
     Eff.Step Γ R (fun i => CompM (L ⊕ₑ R) i.1 i.2) i :=
@@ -180,14 +180,14 @@ private def interpLCo
       | .inr e => Eff.Step.op e blocks k)
 
 def interpL
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     {γ : Γ} {α : Type v} (x : CompM (L ⊕ₑ R) γ α)
     (mapOp : OpMap L R (fun i => CompM (L ⊕ₑ R) i.1 i.2)) :
     CompM R γ α :=
   corec (i := (γ, α)) (interpLCo mapOp) x
 
 private def interpRCo
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     (mapOp : OpMap R L (fun i => CompM (L ⊕ₑ R) i.1 i.2))
     (i : Γ × Type v) (x : CompM (L ⊕ₑ R) i.1 i.2) :
     Eff.Step Γ L (fun i => CompM (L ⊕ₑ R) i.1 i.2) i :=
@@ -200,7 +200,7 @@ private def interpRCo
       | .inr e => mapOp (Eff.Step.op e blocks k))
 
 def interpR
-    {L R : Γ → Type u} [lS : Eff.Spec.{u, v} L] [rS : Eff.Spec.{u, v} R]
+    {L R : Γ → Type u} [lS : Eff.Spec.{_, u, v} L] [rS : Eff.Spec.{_, u, v} R]
     {γ : Γ} {α : Type v} (x : CompM (L ⊕ₑ R) γ α)
     (mapOp : OpMap R L (fun i => CompM (L ⊕ₑ R) i.1 i.2)) :
     CompM L γ α :=
@@ -255,7 +255,7 @@ These describe `observe` on the monad operations, so that proofs about
 namespace Freigen.CompM
 
 variable
-  {Γ : Type u} {E : Γ → Type u} [eS : Eff.Spec E]
+  {Γ : Type c} {E : Γ → Type u} [eS : Eff.Spec E]
   {γ : Γ}
 
 @[simp]
@@ -374,7 +374,7 @@ theorem op_bind_inj {α : Type v} {e₁ e₂ : E γ}
 
 section Tau
 
-variable [Eff.Has.{u, 0} Eff.Tau E]
+variable [Eff.Has.{_, u, 0} Eff.Tau E]
 
 /-- The operation a silent step is made of. -/
 abbrev tauOp (γ : Γ) : E γ := Eff.Has.mk (α := Eff.Tau) Eff.TauCarrier.mk
@@ -418,7 +418,7 @@ end Tau
 
 section Fail
 
-variable [Eff.Has.{u, 0} Eff.Fail E]
+variable [Eff.Has.{_, u, 0} Eff.Fail E]
 
 /-- The operation failure is made of. -/
 abbrev failOp (γ : Γ) : E γ := Eff.Has.mk (α := Eff.Fail) Eff.FailCarrier.mk

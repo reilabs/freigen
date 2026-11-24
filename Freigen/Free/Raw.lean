@@ -4,17 +4,17 @@ import Freigen.Eff
 namespace Freigen
 
 def RawFree
-    {Γ : Type u} (E : Γ → Type u) [Eff.Spec.{u, v} E]
+    {Γ : Type c} (E : Γ → Type u) [Eff.Spec.{_, u, v} E]
     (γ : Γ) (α : Type v) : Type _ :=
   IxPoly.W (Eff.Step Γ E) (γ, α)
 
 namespace RawFree
 
-variable {Γ : Type u} {E : Γ → Type u} [eS : Eff.Spec.{u, v} E]
+variable {Γ : Type c} {E : Γ → Type u} [eS : Eff.Spec.{_, u, v} E]
   {γ : Γ} {α β : Type v}
 
 abbrev At
-    {Γ : Type u} (E : Γ → Type u) [Eff.Spec.{u, v} E]
+    {Γ : Type c} (E : Γ → Type u) [Eff.Spec.{_, u, v} E]
     (i : Γ × Type v) : Type _ :=
   IxPoly.W (Eff.Step Γ E) i
 
@@ -380,7 +380,7 @@ theorem interp_op
 
 section Elide
 
-variable {F : Γ → Type u} [fS : Eff.Spec.{u, v} F]
+variable {F : Γ → Type u} [fS : Eff.Spec.{_, u, v} F]
 
 /-- The tree never performs an operation of the left effect `F`. -/
 inductive NoLeft :

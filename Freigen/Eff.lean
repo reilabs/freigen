@@ -2,7 +2,7 @@ import Freigen.IxPoly.Basic
 
 namespace Freigen.Eff
 
-class Spec {Γ : Type u} (tag : Γ → Type u) where
+class Spec {Γ : Type c} (tag : Γ → Type u) where
   output : (γ : Γ) → tag γ → Type v
   blockTag : (γ : Γ) → tag γ → Type u
   blockCtx : (γ : Γ) → (t : tag γ) → blockTag γ t → Γ
@@ -10,8 +10,8 @@ class Spec {Γ : Type u} (tag : Γ → Type u) where
   blockOutputs : (γ : Γ) → (t : tag γ) → blockTag γ t → Type v
 
 abbrev Handler
-    {Γ : Type u}
-    (E : Γ → Type u) [s : Spec.{u, v} E]
+    {Γ : Type c}
+    (E : Γ → Type u) [s : Spec.{_, u, v} E]
     (M : Γ → Type v → Type w) :=
   {γ : Γ} →
   (e : E γ) →
@@ -20,37 +20,37 @@ abbrev Handler
     M (s.blockCtx γ e t) (s.blockOutputs γ e t)) →
   M γ (s.output γ e)
 
-inductive NodeTag (Γ : Type u) (T : Γ → Type u) [s : Spec.{u, v} T]
+inductive NodeTag (Γ : Type c) (T : Γ → Type u) [s : Spec.{_, u, v} T]
     (γ : Γ) (R : Type v) : Type (max u v) where
 | ret : R → NodeTag Γ T γ R
 | op (t : T γ) : NodeTag Γ T γ R
 
-abbrev NodeTag.fields {Γ : Type u} {T : Γ → Type u} {γ} [s : Spec T]
+abbrev NodeTag.fields {Γ : Type c} {T : Γ → Type u} {γ} [s : Spec T]
     {R : Type v} : NodeTag Γ T γ R → Type (max u v)
 | ret _ => PEmpty
 | op e => s.output γ e ⊕ ((t : s.blockTag γ e) × s.blockInputs γ e t)
 
-def NodeTag.elem {Γ : Type u} {T : Γ → Type u} {γ} [s : Spec T] {α : Type v} :
+def NodeTag.elem {Γ : Type c} {T : Γ → Type u} {γ} [s : Spec T] {α : Type v} :
     (t : NodeTag Γ T γ α) → (p : t.fields) → Γ × Type v
 | ret _ => nofun
 | op e => fun
   | Sum.inl _ => (γ, α)
   | Sum.inr ⟨o, _⟩ => (s.blockCtx γ e o, s.blockOutputs γ e o)
 
-def NoEff {Γ : Type u} : Γ → Type u := fun _ => PEmpty
+def NoEff {Γ : Type c} : Γ → Type u := fun _ => PEmpty
 
-instance {Γ : Type u} : Spec (@NoEff Γ) where
+instance {Γ : Type c} : Spec (@NoEff Γ) where
   output := nofun
   blockTag := nofun
   blockCtx := nofun
   blockInputs := nofun
   blockOutputs := nofun
 
-def Sum {Γ : Type u} (T₁ T₂ : Γ → Type u) : Γ → Type u := fun γ => T₁ γ ⊕ T₂ γ
+def Sum {Γ : Type c} (T₁ T₂ : Γ → Type u) : Γ → Type u := fun γ => T₁ γ ⊕ T₂ γ
 
 infixr:65 " ⊕ₑ " => Sum
 
-instance sumInst {Γ : Type u} {T₁ T₂ : Γ → Type u}
+instance sumInst {Γ : Type c} {T₁ T₂ : Γ → Type u}
     [Spec T₁] [Spec T₂] : Spec (T₁ ⊕ₑ T₂) where
   output := fun
     | γ, Sum.inl t => Spec.output γ t
@@ -68,7 +68,7 @@ instance sumInst {Γ : Type u} {T₁ T₂ : Γ → Type u}
     | γ, Sum.inl t => Spec.blockOutputs γ t
     | γ, Sum.inr t => Spec.blockOutputs γ t
 
-class inductive Has {Γ : Type u} :
+class inductive Has {Γ : Type c} :
     (a : Γ → Type u) → [Spec a] →
     (b : Γ → Type u) → [Spec b] → Type _ where
 | here {α : Γ → Type u} [s : Spec α] : Has α α
@@ -99,16 +99,16 @@ def Has.out {Γ} {α β : Γ → Type u} {γ : Γ} [Spec α] [Spec β] [r: Has �
   | Has.inr _, Sum.inl _ => none
   | Has.inr _, Sum.inr a => Has.out a
 
-def Step (Γ : Type u) (T : Γ → Type u) [Spec T] :
+def Step (Γ : Type c) (T : Γ → Type u) [Spec T] :
     IxPoly.Endo (Γ × Type v) where
   Tag := fun (γ, α) => NodeTag Γ T γ α
   Field := fun _ n => n.fields
   Elem := fun _ n p => n.elem p
 
 structure TauCarrier : Type v
-def Tau {Γ : Type u} : Γ → Type v := fun _ => TauCarrier
+def Tau {Γ : Type c} : Γ → Type v := fun _ => TauCarrier
 
-instance tauSpec {Γ : Type u} : Spec (Tau (Γ := Γ)) where
+instance tauSpec {Γ : Type c} : Spec (Tau (Γ := Γ)) where
   output := fun _ _ => PUnit
   blockTag := fun _ _ => PEmpty
   blockCtx := nofun
@@ -116,9 +116,9 @@ instance tauSpec {Γ : Type u} : Spec (Tau (Γ := Γ)) where
   blockOutputs := nofun
 
 structure FailCarrier : Type v
-def Fail {Γ : Type u} : Γ → Type v := fun _ => FailCarrier
+def Fail {Γ : Type c} : Γ → Type v := fun _ => FailCarrier
 
-instance failSpec {Γ : Type u} : Spec (Fail (Γ := Γ)) where
+instance failSpec {Γ : Type c} : Spec (Fail (Γ := Γ)) where
   output := fun _ _ => PEmpty
   blockTag := fun _ _ => PEmpty
   blockCtx := nofun
@@ -137,7 +137,7 @@ def op {Γ E α Y} {γ : Γ} [s: Spec E] (e : E γ)
   ⟩
 
 def Has.lowerBlockTag
-    {Γ : Type u} {E F : Γ → Type u} {γ : Γ}
+    {Γ : Type c} {E F : Γ → Type u} {γ : Γ}
     [s : Spec E] [s' : Spec F] [h : Has F E]
     {e : F γ} (t : s.blockTag γ (Has.mk (r := h) e)) :
     s'.blockTag γ e :=
@@ -147,7 +147,7 @@ def Has.lowerBlockTag
   | Has.inr r => lowerBlockTag (h:=r) t
 
 def Has.lowerBlockInput
-    {Γ : Type u} {E F : Γ → Type u} {γ : Γ}
+    {Γ : Type c} {E F : Γ → Type u} {γ : Γ}
     [s : Spec E] [s' : Spec F] [h : Has F E] :
     {e : F γ} →
     (t : s.blockTag γ (Has.mk (r := h) e)) →
@@ -159,7 +159,7 @@ def Has.lowerBlockInput
   | Has.inr r => fun t i => lowerBlockInput (h:=r) t i
 
 def Has.liftBlockOutput
-    {Γ : Type u} {E F : Γ → Type u} {γ : Γ}
+    {Γ : Type c} {E F : Γ → Type u} {γ : Γ}
     {Y : Γ × Type v → Type w}
     [s : Spec E] [s' : Spec F] [h : Has F E] :
     {e : F γ} →
@@ -173,7 +173,7 @@ def Has.liftBlockOutput
   | Has.inr r => fun t x => liftBlockOutput (h:=r) t x
 
 def Has.lowerOutput
-    {Γ : Type u} {E F : Γ → Type u} {γ : Γ}
+    {Γ : Type c} {E F : Γ → Type u} {γ : Γ}
     [s : Spec E] [s' : Spec F] [h : Has F E]
     {e : F γ} (o : s.output γ (Has.mk (r := h) e)) :
     s'.output γ e := match h with
@@ -182,7 +182,7 @@ def Has.lowerOutput
   | Has.inr r => lowerOutput (h:=r) o
 
 def Has.liftOutput
-    {Γ : Type u} {E F : Γ → Type u} {γ : Γ}
+    {Γ : Type c} {E F : Γ → Type u} {γ : Γ}
     [s : Spec E] [s' : Spec F] [h : Has F E]
     {e : F γ} (o : s'.output γ e) :
     s.output γ (Has.mk (r := h) e) := match h with
@@ -191,7 +191,7 @@ def Has.liftOutput
   | Has.inr r => liftOutput (h:=r) o
 
 def Has.op
-    {Γ : Type u} {E F : Γ → Type u} {γ : Γ} {α : Type v}
+    {Γ : Type c} {E F : Γ → Type u} {γ : Γ} {α : Type v}
     {Y : Γ × Type v → Type w}
     [s : Spec E] [s' : Spec F] [h : Has F E]
     (e : F γ)
@@ -206,7 +206,7 @@ def Has.op
      (fun o => k (Has.lowerOutput o))
 
 theorem Has.liftBlockOutput_naturality
-      {Γ : Type u} {E F : Γ → Type u} {γ : Γ}
+      {Γ : Type c} {E F : Γ → Type u} {γ : Γ}
       {Y : Γ × Type v → Type w} {Z : Γ × Type v → Type z}
       [s : Spec E] [s' : Spec F] [h : Has F E]
       (f : (i : Γ × Type v) → Y i → Z i) {e : F γ}
@@ -221,7 +221,7 @@ theorem Has.liftBlockOutput_naturality
     | inr r ih => exact ih t x
 
 def tau
-    {Γ : Type u} {E : Γ → Type u} {γ : Γ} {α : Type v}
+    {Γ : Type c} {E : Γ → Type u} {γ : Γ} {α : Type v}
     {Y : Γ × Type v → Type w}
     [Spec E] [Has Tau E]
     (x : Y (γ, α)) :
@@ -230,14 +230,14 @@ def tau
     (fun _ => x)
 
 def fail
-    {Γ : Type u} {E : Γ → Type u} {γ : Γ} {α : Type v}
+    {Γ : Type c} {E : Γ → Type u} {γ : Γ} {α : Type v}
     {Y : Γ × Type v → Type w}
     [Spec E] [Has Fail E] :
     Step Γ E Y (γ, α) :=
   Has.op (F := Fail) FailCarrier.mk nofun nofun
 
 protected def casesOn
-    {Γ : Type u} {E : Γ → Type u}
+    {Γ : Type c} {E : Γ → Type u}
     {Y : Γ × Type v → Type w} [Spec E]
     {motive : (i : Γ × Type v) → Step Γ E Y i → Sort z}
     {i : Γ × Type v} (x : Step Γ E Y i)
@@ -260,7 +260,7 @@ protected def casesOn
 
 @[simp]
 theorem map_ret
-    {Γ : Type u} {E : Γ → Type u} [Spec E]
+    {Γ : Type c} {E : Γ → Type u} [Spec E]
     {Y : Γ × Type v → Type w} {Z : Γ × Type v → Type z}
     {f : (i : Γ × Type v) → Y i → Z i}
     {γ : Γ} {α : Type v} {x : α} :
@@ -280,7 +280,7 @@ theorem map_ret
 
 @[simp]
 theorem map_op
-    {Γ : Type u} {E : Γ → Type u} [h : Spec E]
+    {Γ : Type c} {E : Γ → Type u} [h : Spec E]
     {Y : Γ × Type v → Type w} {Z : Γ × Type v → Type z}
     {f : (i : Γ × Type v) → Y i → Z i}
     {γ : Γ} {α : Type v}
@@ -298,7 +298,7 @@ theorem map_op
 
 @[simp]
 theorem map_hasOp
-      {Γ : Type u} {E F : Γ → Type u}
+      {Γ : Type c} {E F : Γ → Type u}
       [Spec E] [Spec F] [Has F E]
       {Y : Γ × Type v → Type w} {Z : Γ × Type v → Type z}
       (f : (i : Γ × Type v) → Y i → Z i)
@@ -321,7 +321,7 @@ theorem map_hasOp
 
 @[simp]
 theorem map_tau
-    {Γ : Type u} {E : Γ → Type u}
+    {Γ : Type c} {E : Γ → Type u}
     [Spec E] [Has Tau E]
     {Y : Γ × Type v → Type w} {Z : Γ × Type v → Type z}
     {f : (i : Γ × Type v) → Y i → Z i}

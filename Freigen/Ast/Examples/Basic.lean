@@ -1,7 +1,7 @@
 import Freigen.Ast.Print
 
 /-!
-A small effect signature used by AST tests, and sample programs exercising
+A small language used by AST tests, and sample programs exercising
 every construct. The programs are only type-checked: evaluating through
 `CompM` is far too slow to serve as a test harness, so their behaviour is
 checked by proofs in later stages.
@@ -9,7 +9,7 @@ checked by proofs in later stages.
 
 namespace Freigen.Ast.Examples
 
-/-! ## Test signature -/
+/-! ## Test language -/
 
 inductive Scope
 | main
@@ -27,9 +27,12 @@ abbrev Tag : Scope → Type
 | .main => MainOp
 | .hint => Empty
 
-def sig : EffSig where
+def language : Language where
   Ctx := Scope
-  tag := Tag
+  Base := Empty
+  abi := nofun
+  Prim := fun _ _ => Empty
+  Op := Tag
   input := fun
     | .main, .print => .uInt32
     | .main, .input => .unit
@@ -40,7 +43,7 @@ def sig : EffSig where
     | .main, .input => .uInt32
     | .main, .hint => .uInt32
     | .hint, e => nomatch e
-  blockTag := fun
+  Block := fun
     | .main, .hint => Unit
     | .main, .print => Empty
     | .main, .input => Empty
@@ -61,14 +64,22 @@ def sig : EffSig where
     | .main, .input, b => nomatch b
     | .hint, e, _ => nomatch e
 
-instance : EffSig.Print sig where
+/-- The test language has no base types or primitives, so its model is
+trivial. -/
+def model : language.Model where
+  denote := nofun
+  prim := nofun
+
+instance : Language.Print language where
+  baseSexp := nofun
+  primSexp := nofun
   ctxName
     | .main => "main"
     | .hint => "hint"
-  tagName := fun
-    | .main, .print => "print"
-    | .main, .input => "input"
-    | .main, .hint => "hint"
+  opSexp := fun
+    | .main, .print => .atom "print"
+    | .main, .input => .atom "input"
+    | .main, .hint => .atom "hint"
     | .hint, e => nomatch e
   blocks := fun
     | .main, .hint => [()]
@@ -84,23 +95,23 @@ instance : EffSig.Print sig where
 /-! ## Programs -/
 
 section
-variable {V : Tp → Type} {out : Tp}
+variable {V : language.Tp → Type} {out : language.Tp}
 
-def print (x : V .uInt32) (k : V .unit → Expr sig V Scope.main out) :
-    Expr sig V Scope.main out :=
-  Expr.op (eff := sig) (γ := Scope.main) MainOp.print x (fun b => Empty.elim b) k
+def print (x : V .uInt32) (k : V .unit → Expr language V Scope.main out) :
+    Expr language V Scope.main out :=
+  Expr.op (L := language) (γ := Scope.main) MainOp.print x (fun b => Empty.elim b) k
 
-def input (u : V .unit) (k : V .uInt32 → Expr sig V Scope.main out) :
-    Expr sig V Scope.main out :=
-  Expr.op (eff := sig) (γ := Scope.main) MainOp.input u (fun b => Empty.elim b) k
+def input (u : V .unit) (k : V .uInt32 → Expr language V Scope.main out) :
+    Expr language V Scope.main out :=
+  Expr.op (L := language) (γ := Scope.main) MainOp.input u (fun b => Empty.elim b) k
 
-def hint (x : V .uInt32) (body : V .uInt32 → Expr sig V Scope.hint .uInt32)
-    (k : V .uInt32 → Expr sig V Scope.main out) :
-    Expr sig V Scope.main out :=
-  Expr.op (eff := sig) (γ := Scope.main) MainOp.hint x (fun () => body) k
+def hint (x : V .uInt32) (body : V .uInt32 → Expr language V Scope.hint .uInt32)
+    (k : V .uInt32 → Expr language V Scope.main out) :
+    Expr language V Scope.main out :=
+  Expr.op (L := language) (γ := Scope.main) MainOp.hint x (fun () => body) k
 
 /-- Read two numbers, print and return their sum. -/
-def addInputs : Program sig Scope.main .unit .uInt32 V :=
+def addInputs : Program language Scope.main .unit .uInt32 V :=
   .main fun u =>
     input u fun x =>
     input u fun y =>
@@ -109,7 +120,7 @@ def addInputs : Program sig Scope.main .unit .uInt32 V :=
     .ret s
 
 /-- A helper definition called twice. -/
-def doubleTwice : Program sig Scope.main .uInt32 .uInt32 V :=
+def doubleTwice : Program language Scope.main .uInt32 .uInt32 V :=
   .define (γ := (Scope.main : Scope)) (inp := .uInt32) (out := .uInt32)
     (fun _self x => .builtin .uAdd h![x, x] .ret) fun double =>
   .main fun x =>
@@ -117,12 +128,12 @@ def doubleTwice : Program sig Scope.main .uInt32 .uInt32 V :=
     .app double y .ret
 
 /-- Square the input inside a hint block. -/
-def hintSquare : Program sig Scope.main .uInt32 .uInt32 V :=
+def hintSquare : Program language Scope.main .uInt32 .uInt32 V :=
   .main fun x =>
     hint x (fun y => .builtin .uMul h![y, y] .ret) .ret
 
 /-- `max` of a pair, via branching and projections. -/
-def maxPair : Program sig Scope.main (.prod .uInt32 .uInt32) .uInt32 V :=
+def maxPair : Program language Scope.main (.prod .uInt32 .uInt32) .uInt32 V :=
   .main fun p =>
     .builtin .fst h![p] fun a =>
     .builtin .snd h![p] fun b =>
@@ -130,7 +141,7 @@ def maxPair : Program sig Scope.main (.prod .uInt32 .uInt32) .uInt32 V :=
     .ite c (.ret b) (.ret a) .ret
 
 /-- Sum `1 + … + n` with a loop over `(i, acc)`. -/
-def sumTo : Program sig Scope.main .uInt32 .uInt32 V :=
+def sumTo : Program language Scope.main .uInt32 .uInt32 V :=
   .main fun n =>
     .lit .uInt32 0 fun zero =>
     .builtin .pair h![zero, zero] fun init =>
@@ -148,7 +159,7 @@ def sumTo : Program sig Scope.main .uInt32 .uInt32 V :=
     .builtin .snd h![st] .ret
 
 /-- Build `#[x, x + 1]` and read the element at index `i`. -/
-def arrayGet : Program sig Scope.main (.prod .uInt32 .uInt32) .uInt32 V :=
+def arrayGet : Program language Scope.main (.prod .uInt32 .uInt32) .uInt32 V :=
   .main fun p =>
     .builtin .fst h![p] fun x =>
     .builtin .snd h![p] fun i =>
@@ -160,7 +171,7 @@ def arrayGet : Program sig Scope.main (.prod .uInt32 .uInt32) .uInt32 V :=
     .builtin .arrGet h![a, i] .ret
 
 /-- Locally created closures. -/
-def lamApply : Program sig Scope.main .uInt32 .uInt32 V :=
+def lamApply : Program language Scope.main .uInt32 .uInt32 V :=
   .main fun x =>
     .lam (inp := .uInt32) (out := .uInt32)
       (fun y => .builtin .uMul h![y, x] .ret) fun f =>
@@ -170,15 +181,15 @@ end
 
 /-! ## Builtin semantics -/
 
-#guard Builtin.uAdd.denote h![(0xFFFFFFFF : UInt32), 1] == some 0
-#guard Builtin.uDiv.denote h![(7 : UInt32), 0] == some 0
-#guard Builtin.uMod.denote h![(7 : UInt32), 0] == some 7
-#guard Builtin.uLt.denote h![(3 : UInt32), 9] == some true
-#guard (Builtin.pair (a := .uInt32) (b := .bool)).denote h![3, true] == some (3, true)
-#guard (Builtin.arrGet (a := .uInt32)).denote h![#[7, 8], 1] == some 8
-#guard (Builtin.arrGet (a := .uInt32)).denote h![#[7, 8], 2] == none
-#guard (Builtin.arrSet (a := .uInt32)).denote h![#[7, 8], 0, 5] == some #[5, 8]
-#guard (Builtin.arrSet (a := .uInt32)).denote h![#[7, 8], 2, 5] == none
-#guard (Builtin.arrLen (a := .bool)).denote h![#[true, false]] == some 2
+#guard (Builtin.uAdd (L := language)).denote model h![(0xFFFFFFFF : UInt32), 1] == some 0
+#guard (Builtin.uDiv (L := language)).denote model h![(7 : UInt32), 0] == some 0
+#guard (Builtin.uMod (L := language)).denote model h![(7 : UInt32), 0] == some 7
+#guard (Builtin.uLt (L := language)).denote model h![(3 : UInt32), 9] == some true
+#guard ((Builtin.pair (L := language) (a := .uInt32) (b := .bool))).denote model h![3, true] == some (3, true)
+#guard ((Builtin.arrGet (L := language) (a := .uInt32))).denote model h![#[7, 8], 1] == some 8
+#guard ((Builtin.arrGet (L := language) (a := .uInt32))).denote model h![#[7, 8], 2] == none
+#guard ((Builtin.arrSet (L := language) (a := .uInt32))).denote model h![#[7, 8], 0, 5] == some #[5, 8]
+#guard ((Builtin.arrSet (L := language) (a := .uInt32))).denote model h![#[7, 8], 2, 5] == none
+#guard ((Builtin.arrLen (L := language) (a := .bool))).denote model h![#[true, false]] == some 2
 
 end Freigen.Ast.Examples

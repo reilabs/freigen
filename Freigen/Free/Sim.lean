@@ -28,8 +28,8 @@ result erasure `f`).
 
 namespace Freigen
 
-variable {Γ : Type u} {E : Γ → Type u} [sE : Eff.Spec.{u, v} E]
-  {Γ' : Type u'} {F : Γ' → Type u'} [sF : Eff.Spec.{u', v} F]
+variable {Γ : Type c} {E : Γ → Type u} [sE : Eff.Spec.{_, u, v} E]
+  {Γ' : Type c'} {F : Γ' → Type u'} [sF : Eff.Spec.{_, u', v} F]
 
 /-- Operations of `E` paired with operations of `F`, with erasures. Each pair
 `o : Op γ γ'` has a source `src o` and a target `tgt o`; each block `t` of
@@ -37,8 +37,8 @@ variable {Γ : Type u} {E : Γ → Type u} [sE : Eff.Spec.{u, v} E]
 erase the inputs and results of block `t` to those of its match, and `res o`
 erases the outputs of `tgt o` to those of `src o`. All erasures are
 injective. -/
-structure Free.SimSpec (E : Γ → Type u) [sE : Eff.Spec.{u, v} E] (F : Γ' → Type u')
-    [sF : Eff.Spec.{u', v} F] where
+structure Free.SimSpec (E : Γ → Type u) [sE : Eff.Spec.{_, u, v} E] (F : Γ' → Type u')
+    [sF : Eff.Spec.{_, u', v} F] where
   Op : Γ → Γ' → Type w
   src : Op γ γ' → E γ
   tgt : Op γ γ' → F γ'
@@ -55,7 +55,7 @@ structure Free.SimSpec (E : Γ → Type u) [sE : Eff.Spec.{u, v} E] (F : Γ' →
 /-- `x` simulates `y` up to erasure: operations paired by `spec`; for every
 block input and output of `y`, `x`'s block and continuation at its erasure
 simulate `y`'s; and `x`'s result is `f` of `y`'s. -/
-inductive Free.Sim (spec : Free.SimSpec.{u, v, u', w} E F) :
+inductive Free.Sim (spec : Free.SimSpec.{_, u, v, _, u', w} E F) :
     {γ : Γ} → {γ' : Γ'} → {α β : Type v} → (β → α) → Free E γ α → Free F γ' β → Prop
 | pure {γ : Γ} {γ' : Γ'} {α β : Type v} {f : β → α} (b : β) :
     Free.Sim spec f (Pure.pure (f b) : Free E γ α) (Pure.pure b : Free F γ' β)
@@ -106,7 +106,7 @@ def Free.SimSpec.IdOp.op : {γ γ' : Γ} → IdOp E γ γ' → E γ
 
 /-- The identity spec: each operation paired with itself, each block matched
 to itself, and identities as erasures. -/
-def Free.SimSpec.id : Free.SimSpec.{u, v, u, u} E E where
+def Free.SimSpec.id : Free.SimSpec.{_, u, v, _, u, u} E E where
   Op := IdOp E
   src := IdOp.op
   tgt | .mk e => e

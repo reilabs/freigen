@@ -17,7 +17,7 @@ lift_program liftedBranch := srcBranch ops [srcPrint]
 lift_program liftedHintSquare := srcHintSquare ops [srcHint]
 lift_program liftedDoubleTwice := srcDoubleTwice using [srcDouble]
 
-example : ProgramCert (idHandler sig) liftedPoly.ast srcPoly := liftedPoly.cert
+example : ProgramCert (Lift.id language model) (fun _ => .self _) liftedPoly.ast srcPoly := liftedPoly.cert
 
 example : @liftedPoly.ast = @poly := rfl
 example : @liftedBranch.ast = @branch := rfl
@@ -68,7 +68,7 @@ info: (program
 /-! ## More programs -/
 
 def srcInput : Src .main UInt32 :=
-  Free.op (E := sig.denote) (γ := Scope.main) ⟨MainOp.input, ()⟩ nofun
+  Free.op (E := language.denote model) (γ := Scope.main) ⟨MainOp.input, ()⟩ nofun
 
 /-- Maximum of a pair: projections, a comparison, and a branch. -/
 def srcMax (p : UInt32 × UInt32) : Src .main UInt32 :=
@@ -263,6 +263,75 @@ info: (program
 -/
 #guard_msgs in #eval IO.println liftedArr.ast.pretty
 
+/-- Indexing behind a bounds check: the check's outcome proves the access in
+bounds. -/
+def srcGet (p : Array UInt32 × UInt32) : Src .main UInt32 :=
+  if h : p.2 < p.1.size.toUInt32 then pure (p.1[p.2.toNat]'(toNat_lt_size h)) else pure 0
+
+lift_program liftedGet := srcGet
+
+/--
+info: (program
+  (main main (v0 (prod (array u32) u32)) u32
+    (let v1 (snd v0))
+    (let v2 (fst v0))
+    (let v3 (arrLen v2))
+    (let v4 (uLt v1 v3))
+    (let v5
+      (if v4
+        (do (let v6 (fst v0)) (let v7 (arrGet v6 v1)) (ret v7))
+        (do (let v8 (lit u32 0)) (ret v8))))
+    (ret v5)))
+-/
+#guard_msgs in #eval IO.println liftedGet.ast.pretty
+
+/-- Updating behind a bounds check. -/
+def srcSet (p : Array UInt32 × UInt32) : Src .main (Array UInt32) :=
+  if h : p.2 < p.1.size.toUInt32 then pure (p.1.set p.2.toNat 7 (toNat_lt_size h)) else pure p.1
+
+lift_program liftedSet := srcSet
+
+/--
+info: (program
+  (main main (v0 (prod (array u32) u32)) (array u32)
+    (let v1 (snd v0))
+    (let v2 (fst v0))
+    (let v3 (arrLen v2))
+    (let v4 (uLt v1 v3))
+    (let v5
+      (if v4
+        (do
+          (let v6 (fst v0))
+          (let v7 (lit u32 7))
+          (let v8 (arrSet v6 v1 v7))
+          (ret v8))
+        (do (let v9 (fst v0)) (ret v9))))
+    (ret v5)))
+-/
+#guard_msgs in #eval IO.println liftedSet.ast.pretty
+
+/-- Bounds known from how the array was built: the proof is about the computed
+array, which the certificates see through its `let`. -/
+def srcLast (x : UInt32) : Src .main UInt32 :=
+  let xs := ((#[] : Array UInt32).push x).push (x + 1)
+  pure (xs[(1 : UInt32).toNat]'(by simp [xs]))
+
+lift_program liftedLast := srcLast
+
+/--
+info: (program
+  (main main (v0 u32) u32
+    (let v1 (arrEmpty u32))
+    (let v2 (arrPush v1 v0))
+    (let v3 (lit u32 1))
+    (let v4 (uAdd v0 v3))
+    (let v5 (arrPush v2 v4))
+    (let v6 (lit u32 1))
+    (let v7 (arrGet v5 v6))
+    (ret v7)))
+-/
+#guard_msgs in #eval IO.println liftedLast.ast.pretty
+
 /-! ## Axioms -/
 
 /-- info: 'Freigen.Ast.Examples.liftedPoly.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
@@ -273,6 +342,15 @@ info: (program
 
 /-- info: 'Freigen.Ast.Examples.liftedChain.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedChain.cert
+
+/-- info: 'Freigen.Ast.Examples.liftedGet.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms liftedGet.cert
+
+/-- info: 'Freigen.Ast.Examples.liftedSet.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms liftedSet.cert
+
+/-- info: 'Freigen.Ast.Examples.liftedLast.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms liftedLast.cert
 
 /-! ## Rejected sources -/
 

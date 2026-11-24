@@ -1,11 +1,11 @@
 import Freigen.CompM.Implements
 
 /-!
-The full erasure pipeline for a two-step program, proved from the
-compositional laws only.
+Correctness of a two-step program against its source, proved from the rules
+of `Corr`.
 
-The second step fails on even inputs, but the first step only ever returns
-odd numbers, so the composition never fails.
+The second step fails on even inputs, but the first step's source only ever
+returns odd numbers, so the composition never fails.
 -/
 
 namespace Freigen.CompM.Examples.Implements
@@ -22,9 +22,6 @@ instance : Eff.Spec Op where
 
 abbrev Stack := Eff.Fail ⊕ₑ Eff.Tau ⊕ₑ Op
 
-/-- The identity handler. -/
-def handler : Eff.Handler Op (Free Op) := fun e blocks => Free.op e blocks
-
 def read : CompM Stack () Nat := CompM.op (E := Stack) (.inr (.inr .read)) nofun
 
 def readFree : Free Op () Nat := Free.op Op.read nofun
@@ -38,32 +35,22 @@ def step₁ : CompM Stack () Nat := do
 def step₂ (m : Nat) : CompM Stack () Nat :=
   if m % 2 = 1 then CompM.tick >>= fun _ => pure (m / 2) else CompM.fail
 
-theorem step₁_implements :
-    Implements handler step₁ (readFree >>= fun n => pure (2 * n + 1)) :=
-  .op Op.read nofun fun n => .pure (2 * n + 1)
+theorem step₁_corr :
+    Corr .id id step₁ (readFree >>= fun n => pure (2 * n + 1)) :=
+  .op (spec := .id) (.mk Op.read) nofun fun _ => .pure _
 
-theorem step₂_implements (m : Nat) (h : step₁.MayReturn m) :
-    Implements handler (step₂ m) (pure (m / 2)) := by
-  simp only [step₁, read, mayReturn_op_bind_iff, mayReturn_pure_iff] at h
-  rcases h with ⟨n, rfl⟩
+theorem program_corr :
+    Corr .id id (step₁ >>= step₂) readFree := by
+  have hs : readFree = Free.op Op.read nofun >>= fun n => pure ((2 * n + 1) / 2) := by
+    rw [readFree, ← bind_pure (Free.op Op.read nofun)]
+    congr 1
+    funext (n : Nat)
+    show (pure n : Free Op () Nat) = pure ((2 * n + 1) / 2)
+    rw [show (2 * n + 1) / 2 = n by omega]
+  rw [hs, step₁, read, bind_assoc]
+  refine .op (spec := .id) (.mk Op.read) nofun fun n => ?_
+  simp only [pure_bind]
   rw [step₂, if_pos (by omega)]
   exact .tick (.pure _)
-
-theorem program_implements :
-    Implements handler (step₁ >>= step₂) readFree := by
-  have h := step₁_implements.bind step₂_implements
-  have hs : (readFree >>= fun n => pure (2 * n + 1)) >>= (fun m => pure (m / 2)) =
-      readFree := by
-    rw [bind_assoc, ← bind_pure readFree]
-    congr 1
-    funext n
-    simp only [pure_bind]
-    congr 1
-    omega
-  rwa [hs] at h
-
-/-- The pipeline, as stated in the AST certificates. -/
-example : ∃ wf nofail, erase handler (step₁ >>= step₂) wf nofail = readFree :=
-  implements_iff.mp program_implements
 
 end Freigen.CompM.Examples.Implements

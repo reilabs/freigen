@@ -6,7 +6,7 @@ import Freigen.Wheels
 
 namespace Freigen.F2Z.Eff
 
-inductive Scope : Type u
+inductive Scope : Type
 | constraint : Scope
 | hint : Scope
 

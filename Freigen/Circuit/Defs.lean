@@ -5,9 +5,10 @@ import Freigen.Free.Basic
 
 namespace Freigen.Circuit
 
-inductive Scope : Type u where
+inductive Scope : Type where
 | constraint
 | hint
+deriving DecidableEq
 
 inductive ConstraintEff (P : Nat) (ctx : Context P) where
 | assertR1C (a b c : ctx.W)
