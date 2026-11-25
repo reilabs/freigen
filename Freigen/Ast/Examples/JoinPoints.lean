@@ -3,8 +3,9 @@ import Freigen.Ast.JoinPoints.Wf
 import Freigen.Ast.Examples.Macro
 
 /-!
-Join-point elimination on lifted programs. The translations are pinned in
-their printed form; a closure that is not a join point is kept.
+Join-point elimination on lifted programs. Each program is pinned in its
+printed form before and after the pass; a closure that is not a join point
+is kept.
 -/
 
 namespace Freigen.Ast.Examples
@@ -24,6 +25,29 @@ theorem language_primFnFree : language.PrimFnFree := nofun
 
 /-! ## Translations -/
 
+-- A branch followed by code: `f1` is the join point.
+-- Before.
+/--
+info: (program
+  (main main (v0 bool) u32
+    (let f1 (fun (v2 unit) (let v3 (lit u32 3)) (ret v3)))
+    (let v4
+      (if v0
+        (do
+          (let v5 (lit u32 1))
+          (let v6 (op print v5))
+          (let v7 (app f1 v6))
+          (ret v7))
+        (do
+          (let v8 (lit u32 2))
+          (let v9 (op print v8))
+          (let v10 (app f1 v9))
+          (ret v10))))
+    (ret v4)))
+-/
+#guard_msgs in #eval IO.println liftedBranch.ast.pretty
+
+-- After.
 /--
 info: (program
   (main main (v0 bool) u32
@@ -37,6 +61,36 @@ info: (program
 #guard_msgs in #eval IO.println (Program.joinPoints liftedBranch.ast).pretty
 
 -- Sequential branches, the second inside the first's join point.
+-- Before.
+/--
+info: (program
+  (main main (v0 u32) u32
+    (let f1
+      (fun (v2 unit)
+        (let v3 (op hint v0 (block body (v4) (let v5 (uMul v4 v4)) (ret v5))))
+        (let f6 (fun (v7 unit) (ret v3)))
+        (let v8 (lit u32 100))
+        (let v9 (uLt v3 v8))
+        (let v10
+          (if v9
+            (do (let v11 (op print v3)) (let v12 (app f6 v11)) (ret v12))
+            (do (let v13 (lit unit ())) (let v14 (app f6 v13)) (ret v14))))
+        (ret v10)))
+    (let v15 (lit u32 0))
+    (let v16 (uEq v0 v15))
+    (let v17
+      (if v16
+        (do
+          (let v18 (lit u32 0))
+          (let v19 (op print v18))
+          (let v20 (app f1 v19))
+          (ret v20))
+        (do (let v21 (op print v0)) (let v22 (app f1 v21)) (ret v22))))
+    (ret v17)))
+-/
+#guard_msgs in #eval IO.println liftedLog.ast.pretty
+
+-- After.
 /--
 info: (program
   (main main (v0 u32) u32
@@ -67,6 +121,47 @@ def srcNested (x : UInt32) : Src .main UInt32 := do
 
 lift_program liftedNested := srcNested ops [srcPrint]
 
+-- Before.
+/--
+info: (program
+  (main main (v0 u32) u32
+    (let f1 (fun (v2 unit) (ret v0)))
+    (let v3 (lit u32 0))
+    (let v4 (uEq v0 v3))
+    (let v5
+      (if v4
+        (do
+          (let f6
+            (fun (v7 unit)
+              (let v8 (lit u32 3))
+              (let v9 (op print v8))
+              (let v10 (app f1 v9))
+              (ret v10)))
+          (let v11 (lit u32 1))
+          (let v12 (uEq v0 v11))
+          (let v13
+            (if v12
+              (do
+                (let v14 (lit u32 1))
+                (let v15 (op print v14))
+                (let v16 (app f6 v15))
+                (ret v16))
+              (do
+                (let v17 (lit u32 2))
+                (let v18 (op print v17))
+                (let v19 (app f6 v18))
+                (ret v19))))
+          (ret v13))
+        (do
+          (let v20 (lit u32 4))
+          (let v21 (op print v20))
+          (let v22 (app f1 v21))
+          (ret v22))))
+    (ret v5)))
+-/
+#guard_msgs in #eval IO.println liftedNested.ast.pretty
+
+-- After.
 /--
 info: (program
   (main main (v0 u32) u32
@@ -112,6 +207,21 @@ def earlyReturn : Program language Scope.main .bool .uInt32 V :=
 
 end
 
+-- Before.
+/--
+info: (program
+  (main main (v0 bool) u32
+    (let f1 (fun (v2 unit) (let v3 (lit u32 3)) (ret v3)))
+    (let v4 (lit unit ()))
+    (let v5
+      (if v0
+        (do (let v6 (app f1 v4)) (ret v6))
+        (do (let v7 (app f1 v4)) (let v8 (uAdd v7 v7)) (ret v8))))
+    (ret v5)))
+-/
+#guard_msgs in #eval IO.println twoCalls.pretty
+
+-- After.
 /--
 info: (program
   (main main (v0 bool) u32
@@ -125,6 +235,21 @@ info: (program
 -/
 #guard_msgs in #eval IO.println (Program.joinPoints twoCalls).pretty
 
+-- Before.
+/--
+info: (program
+  (main main (v0 bool) u32
+    (let f1 (fun (v2 unit) (let v3 (lit u32 3)) (ret v3)))
+    (let v4 (lit unit ()))
+    (let v5
+      (if v0
+        (do (let v6 (app f1 v4)) (ret v6))
+        (do (let v7 (lit u32 4)) (ret v7))))
+    (ret v5)))
+-/
+#guard_msgs in #eval IO.println earlyReturn.pretty
+
+-- After.
 /--
 info: (program
   (main main (v0 bool) u32

@@ -10,10 +10,6 @@ must be made before work starts, where there is one.
 `lift_program … via lift` lifts simple circuits
 (`Circuit/Examples/Sqrt.lean`). Still missing or rough:
 
-- **Unit in circuit branches.** A branch without `else`, or one returning
-  `()`, fails with "unsupported value `PUnit.unit`": the unit literal entry
-  does not match the circuit monad's unit. Branches returning wires work
-  (`srcSelect`).
 - **Field literals.** There is no primitive for `(2 : ZMod P)`. `0` and `1`
   are not definitionally casts of naturals when `P` is a variable, so they
   need their own primitives or a rule with a proof.
@@ -30,7 +26,7 @@ must be made before work starts, where there is one.
   operation by an AST operation, erasing results, block inputs and block
   results at fixed representations. What a certificate means for running a circuit needs
   a theorem: interpreters of the AST and the DSL whose operations commute
-  with the erasure (a hint returns its block's result, an assertion its
+  with the erasure (a hint returns fresh wires carrying its block's results, an assertion its
   certificate) give results that agree up to erasure. It needs the DSL's
   semantics as an interpreter first.
 - **Binder names in errors.** Errors name a certificate by the rule's binder
@@ -64,14 +60,24 @@ that calls itself cannot be certified.
 
 ## 2. Loops
 
-The AST has `loop` and an unfolding equation (`Expr.denote_loop`), but no
-certificate rule and no macro support.
+`for h : i in lo...<hi` with a `UInt32` counter and step 1 lifts to
+`Expr.forRange` (`Ast/Loop.lean`), with `break` in a branch that has an
+`else`. Still missing:
 
-- **Decision:** certify loops against source functions defined by
-  well-founded recursion with an explicit measure, or emit them only from
-  recognized iteration patterns (bounded folds, `for` over ranges). This
-  depends on how F2Z sources iterate, so make it together with item 7.
-- Then add the rule and its macro table entry.
+- **Several mutable variables.** The do-elaborator threads them through the
+  loop as one `MProd` state, which has no AST type. Needs a representation
+  of `MProd` as nested `prod` (with item 3's several-argument join points,
+  which the same sources produce).
+- **`break` or `continue` without `else`**, which leave the rest of the body
+  in a join point over the state and the branch's result (item 3).
+- **`Nat` ranges** (`[a:b]`), which all current F2Z sources use. Their
+  counter has no injective `u32` representation, so they need a bound
+  `hi < 2^32` as a side condition.
+- **Other ranges**: closed and open bounds, steps other than 1, and
+  iteration over arrays and vectors.
+- **General `Expr.loop`**, certified against source functions defined by
+  well-founded recursion with an explicit measure. Decide together with
+  item 7 whether F2Z sources need it.
 
 ## 3. Source fragment gaps
 

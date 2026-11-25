@@ -180,6 +180,7 @@ def _root_.Freigen.Ast.Tp.FnFree {B : Type} : Ast.Tp B → Prop
   | .bool => True
   | .unit => True
   | .array t => t.FnFree
+  | .vec _ t => t.FnFree
   | .prod a b => a.FnFree ∧ b.FnFree
   | .fn _ _ => False
 
@@ -187,7 +188,7 @@ theorem _root_.Freigen.Ast.IsAbiTp.fnFree {B : Type} {abi : B → Bool} {t : Ast
     (h : IsAbiTp abi t) : t.FnFree := by
   induction h with
   | base _ | uInt32 | bool | unit => trivial
-  | array _ ih => exact ih
+  | array _ ih | vec _ ih => exact ih
   | prod _ _ iha ihb => exact ⟨iha, ihb⟩
 
 /-- Primitives neither take nor return references. The models of such
@@ -206,6 +207,7 @@ def VRel (ρ : Refs) : (t : L.Tp) → M.V t → M.V t → Prop
   | .unit, _, _ => True
   | .array t, xs, ys =>
     xs.size = ys.size ∧ ∀ i (h₁ : i < xs.size) (h₂ : i < ys.size), VRel ρ t xs[i] ys[i]
+  | .vec n t, xs, ys => ∀ i (h : i < n), VRel ρ t xs[i] ys[i]
   | .prod a b, x, y => VRel ρ a x.1 y.1 ∧ VRel ρ b x.2 y.2
   | .fn _ _, f, g => ρ f g
 
@@ -213,6 +215,7 @@ theorem VRel.mono {ρ ρ' : Refs} (hρ : ∀ a b, ρ a b → ρ' a b) :
     ∀ {t : L.Tp} {x y : M.V t}, VRel ρ t x y → VRel ρ' t x y
   | .base _, _, _, h | .uInt32, _, _, h | .bool, _, _, h | .unit, _, _, h => h
   | .array _, _, _, ⟨hs, h⟩ => ⟨hs, fun i h₁ h₂ => VRel.mono hρ (h i h₁ h₂)⟩
+  | .vec _ _, _, _, h => fun i hi => VRel.mono hρ (h i hi)
   | .prod _ _, _, _, ⟨ha, hb⟩ => ⟨VRel.mono hρ ha, VRel.mono hρ hb⟩
   | .fn _ _, _, _, h => hρ _ _ h
 
@@ -226,6 +229,10 @@ theorem VRel.iff_eq {ρ : Refs} : ∀ {t : L.Tp}, t.FnFree → ∀ {x y : M.V t}
       (VRel.iff_eq (t := t) h).mp (hx i h₁ h₂), ?_⟩
     rintro rfl
     exact ⟨rfl, fun i h₁ _ => (VRel.iff_eq (t := t) h).mpr rfl⟩
+  | .vec _ t, h, xs, ys => by
+    refine ⟨fun hx => Vector.ext fun i hi => (VRel.iff_eq (t := t) h).mp (hx i hi), ?_⟩
+    rintro rfl
+    exact fun i _ => (VRel.iff_eq (t := t) h).mpr rfl
   | .prod _ _, ⟨ha, hb⟩, x, y => by
     rw [show VRel ρ (.prod _ _) x y = (VRel ρ _ x.1 y.1 ∧ VRel ρ _ x.2 y.2) from rfl,
       VRel.iff_eq ha, VRel.iff_eq hb]
@@ -250,6 +257,16 @@ theorem VArgs.iff_eq {ρ : Refs} : ∀ {ts : List L.Tp}, (∀ t ∈ ts, t.FnFree
     rw [show VArgs ρ (.cons x xs) (.cons y ys) = (VRel ρ _ x y ∧ VArgs ρ xs ys) from rfl,
       VRel.iff_eq (h _ List.mem_cons_self), VArgs.iff_eq fun t ht => h t (List.mem_cons_of_mem _ ht)]
     exact ⟨fun ⟨h₁, h₂⟩ => h₁ ▸ h₂ ▸ rfl, fun h => by cases h; exact ⟨rfl, rfl⟩⟩
+
+/-- Related arguments of one type have related elements. -/
+theorem VArgs.elems {ρ : Refs} {t : L.Tp} : ∀ (n : Nat) {xs ys : HList M.V (List.replicate n t)},
+    VArgs ρ xs ys → ∀ i (h₁ : i < (HList.elems n xs).length) (h₂ : i < (HList.elems n ys).length),
+    VRel ρ t (HList.elems n xs)[i] (HList.elems n ys)[i]
+  | 0, .nil, .nil, _, _, h₁, _ => absurd h₁ (by simp [HList.elems])
+  | _ + 1, .cons x _, .cons y _, h, 0, _, _ => (h : VRel ρ t x y ∧ _).1
+  | n + 1, .cons x _, .cons y _, h, i + 1, h₁, h₂ =>
+    VArgs.elems n (h : VRel ρ t x y ∧ _).2 i (by rw [HList.length_elems] at h₁ ⊢; omega)
+      (by rw [HList.length_elems] at h₂ ⊢; omega)
 
 /-- Builtins map related arguments to related results, and fail together. -/
 theorem Builtin.denote_rel (hprim : L.PrimFnFree) {ρ : Refs} {inp : List L.Tp} {out : L.Tp}
@@ -320,6 +337,14 @@ theorem Builtin.denote_rel (hprim : L.PrimFnFree) {ρ : Refs} {inp : List L.Tp} 
         exact hxs k (by simpa using h₁) (by simpa using h₂)
     · rw [dif_neg hi, dif_neg (hs ▸ hi)]
       exact .none
+  | vecLit n =>
+    refine .some fun i hi => ?_
+    simpa using VArgs.elems n ha i (by simpa [HList.length_elems] using hi)
+      (by simpa [HList.length_elems] using hi)
+  | vecGet _ i hi =>
+    rcases a₁ with _ | ⟨v₁, _ | _⟩
+    rcases a₂ with _ | ⟨v₂, _ | _⟩
+    exact .some (ha.1 i hi)
   | arrLen =>
     rcases a₁ with _ | ⟨xs, _ | _⟩
     rcases a₂ with _ | ⟨ys, _ | _⟩

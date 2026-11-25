@@ -1,4 +1,4 @@
-import Freigen.Ast.Cert
+import Freigen.Ast.Loop
 
 /-!
 The lifting macro: `lift_program foo := src using [helpers…] ops [wrappers…]`
@@ -193,6 +193,7 @@ partial def reflectTp (l : Lang) (ty : Lean.Expr) : MetaM Lean.Expr := do
   | some ``Prod, #[a, b] =>
     return mkApp2 (l.tpC ``Tp.prod) (← reflectTp l a) (← reflectTp l b)
   | some ``Array, #[a] => return mkApp (l.tpC ``Tp.array) (← reflectTp l a)
+  | some ``Vector, #[a, n] => return mkApp2 (l.tpC ``Tp.vec) n (← reflectTp l a)
   | _, _ => throwError "lift: unsupported type{indentExpr ty}"
 
 partial def reflectAbi (l : Lang) (ty : Lean.Expr) : MetaM Lean.Expr := do
@@ -209,6 +210,7 @@ partial def reflectAbi (l : Lang) (ty : Lean.Expr) : MetaM Lean.Expr := do
   | some ``Prod, #[a, b] =>
     return mkApp2 (l.abiC ``AbiTp.prod) (← reflectAbi l a) (← reflectAbi l b)
   | some ``Array, #[a] => return mkApp (l.abiC ``AbiTp.array) (← reflectAbi l a)
+  | some ``Vector, #[a, n] => return mkApp2 (l.abiC ``AbiTp.vec) n (← reflectAbi l a)
   | _, _ => throwError "lift: not an ABI type{indentExpr ty}"
 
 def isObjType (l : Lang) (ty : Lean.Expr) : MetaM Bool := do
@@ -231,6 +233,7 @@ partial def abiOfTp (l : Lang) (t : Lean.Expr) : MetaM Lean.Expr := do
   | some ``Tp.prod =>
     return mkApp2 (l.abiC ``AbiTp.prod) (← abiOfTp l as[as.size - 2]!) (← abiOfTp l as.back!)
   | some ``Tp.array => return mkApp (l.abiC ``AbiTp.array) (← abiOfTp l as.back!)
+  | some ``Tp.vec => return mkApp2 (l.abiC ``AbiTp.vec) as[as.size - 2]! (← abiOfTp l as.back!)
   | _ => throwError "lift: not an ABI type{indentExpr t}"
 
 /-- A projection applied to a variable, as the projection function's
@@ -442,29 +445,48 @@ def argFn (l : Lang) (xs : Array Lean.Expr)
     (f : Array Lean.Expr → Array Lean.Expr → MetaM Lean.Expr) : MetaM Lean.Expr :=
   withArgVars l xs fun ys subst => do mkLambdaFVars ys (← f ys subst)
 
-/-- A builtin: a source pattern, and the builtin as a function of the object
-types of the pattern's type variables. Its operands are the pattern's other
-variables, in order. -/
+/-- The elements of a list of known length (`List.replicate 2 a`), by
+reducing it a cell at a time. -/
+partial def listElems? (e : Lean.Expr) : MetaM (Option (List Lean.Expr)) := do
+  let e ← whnf e
+  if e.isAppOfArity ``List.nil 1 then return some []
+  if e.isAppOfArity ``List.cons 3 then
+    return (← listElems? e.appArg!).map (e.appFn!.appArg! :: ·)
+  return none
+
+/-- A builtin: a source pattern, and the builtin as a function of the
+pattern's static variables: its type variables (as object types), natural
+numbers (lengths, indices), and proofs about these alone. Its operands are
+the pattern's other variables that are not proofs, in order. -/
 def builtinEntry (l : Lang) (pat b : Lean.Expr) : MetaM Entry := do
   lambdaTelescope pat fun xs body => do
-    let isTyVar ← xs.mapM fun x => return (← inferType x).isType
+    let mut isStatic : Array Bool := #[]
     -- Proofs (bounds) are not operands.
     let isProof ← xs.mapM fun x => do isProp (← inferType x)
+    for x in xs, p in isProof do
+      let ty ← inferType x
+      let static ← if ty.isType || ty.isConstOf ``Nat then pure true
+        else if p then
+          -- A proof about static variables only (`i < n`).
+          pure <| (xs.zip isStatic).all fun (y, st) => st || !ty.containsFVar y.fvarId!
+        else pure false
+      isStatic := isStatic.push static
+    let static := isStatic
     let builtin (ys : Array Lean.Expr) : Lean.Expr :=
-      (mkAppN b ((ys.zip isTyVar).filterMap fun (y, t) => if t then some y else none)).headBeta
+      (mkAppN b ((ys.zip static).filterMap fun (y, t) => if t then some y else none)).headBeta
     let bArg ← argFn l xs fun ys _ => return builtin ys
     let argsArg ← argFn l xs fun ys _ => do
       let bb := builtin ys
       let .app (.app _ inp) _ ← whnf (← inferType bb) |
         throwError "lift: not a builtin{indentExpr bb}"
-      let some tps := inp.listLit? | throwError "lift: builtin inputs{indentExpr inp}"
-      let vs := ((ys.zip isTyVar).zip isProof).filterMap fun ((y, t), p) =>
+      let some tps ← listElems? inp | throwError "lift: builtin inputs{indentExpr inp}"
+      let vs := ((ys.zip static).zip isProof).filterMap fun ((y, t), p) =>
         if t || p then none else some y
       let tpT := l.tp
       let V := mkApp2 (mkConst ``Language.Model.V) l.L l.model
       let mut h ← mkAppOptM ``HList.nil #[tpT, V]
       let mut rest ← mkAppOptM ``List.nil #[tpT]
-      for (tp, v) in (tps.2.zip vs.toList).reverse do
+      for (tp, v) in (tps.zip vs.toList).reverse do
         h ← mkAppOptM ``HList.cons #[tpT, V, tp, rest, v, h]
         rest ← mkAppOptM ``List.cons #[tpT, tp, rest]
       return h
@@ -496,6 +518,7 @@ def staticEntries (l : Lang) : Term.TermElabM (Array Entry) := do
     ← lit (← `(true)) (← `(fun (L : Language) => (AbiTp.bool : L.AbiTp))),
     ← lit (← `(false)) (← `(fun (L : Language) => (AbiTp.bool : L.AbiTp))),
     ← lit (← `(())) (← `(fun (L : Language) => (AbiTp.unit : L.AbiTp))),
+    ← lit (← `(PUnit.unit.{1})) (← `(fun (L : Language) => (AbiTp.unit : L.AbiTp))),
     ← bi (← `(fun (a b : UInt32) => a + b)) (← `(fun (L : Language) => @Builtin.uAdd L)),
     ← bi (← `(fun (a b : UInt32) => a - b)) (← `(fun (L : Language) => @Builtin.uSub L)),
     ← bi (← `(fun (a b : UInt32) => a * b)) (← `(fun (L : Language) => @Builtin.uMul L)),
@@ -521,7 +544,35 @@ def staticEntries (l : Lang) : Term.TermElabM (Array Entry) := do
       (← `(fun (L : Language) (a : L.Tp) => @Builtin.arrGet L a)),
     ← bi (← `(fun {α : Type} (xs : Array α) (i : UInt32) (x : α) (h : i.toNat < xs.size) =>
         xs.set i.toNat x h))
-      (← `(fun (L : Language) (a : L.Tp) => @Builtin.arrSet L a))]
+      (← `(fun (L : Language) (a : L.Tp) => @Builtin.arrSet L a)),
+    ← bi (← `(fun {α : Type} {n : Nat} (v : Vector α n) (i : Nat) (h : i < n) => v[i]'h))
+      (← `(fun (L : Language) (a : L.Tp) (n i : Nat) (h : i < n) => @Builtin.vecGet L a n i h))]
+
+/-- The elements of a vector literal `#v[x₁, …, xₖ]`, if `v` is one. -/
+def vecLitElems? (v : Lean.Expr) : Option (Array Lean.Expr) := do
+  guard (v.isAppOfArity ``Vector.mk 4)
+  let arr := v.getArg! 2
+  guard (arr.isAppOfArity ``List.toArray 2)
+  let (_, xs) ← arr.appArg!.listLit?
+  return xs.toArray
+
+/-- Vector literals of length `k`: `fun {α} (x₁ … xₖ : α) => #v[x₁, …, xₖ]`, by
+`vecLit k`. -/
+def vecLitEntry (l : Lang) (k : Nat) : MetaM Entry := do
+  let b ← withLocalDeclD `L (mkConst ``Language) fun L =>
+    withLocalDeclD `a (mkApp (mkConst ``Language.Tp) L) fun a =>
+      mkLambdaFVars #[L, a] (mkApp3 (mkConst ``Builtin.vecLit) L a (mkNatLit k))
+  let pat ← withLocalDecl `α .implicit (mkSort Level.one) fun α => do
+    let rec go (i : Nat) (xs : Array Lean.Expr) : MetaM Lean.Expr := do
+      if i < k then
+        withLocalDeclD (.mkSimple s!"x{i}") α fun x => go (i + 1) (xs.push x)
+      else
+        let arr ← mkAppM ``List.toArray #[← mkListLit α xs.toList]
+        let size ← mkEqRefl (← mkAppM ``Array.size #[arr])
+        let v := mkApp4 (mkConst ``Vector.mk [Level.zero]) α (mkNatLit k) arr size
+        mkLambdaFVars (#[α] ++ xs) v
+    go 0 #[]
+  builtinEntry l pat (b.beta #[l.L])
 
 /-- Raw operations of the language, for the identity lift. -/
 def opEntry (l : Lang) : MetaM Entry := do
@@ -890,6 +941,8 @@ partial def trComp (s γ o R : Lean.Expr) : M Lean.Expr := do
   let as := s.getAppArgs
   if f.isConstOf ``Pure.pure && as.size == 4 then
     let v := as[3]!
+    if v.isAppOfArity ``ForInStep.yield 2 || v.isAppOfArity ``ForInStep.done 2 then
+      return ← trStep v (fun v' => mkAppN f (as.set! 3 v')) γ o R
     let obj ← isObj (← inferType v)
     if obj && !(← isAtom v) then return ← bindValue v (mkAppN f <| as.set! 3 ·) γ o R
     let r ← RuleInst.new ``ExprCert.ret
@@ -912,6 +965,26 @@ partial def trComp (s γ o R : Lean.Expr) : M Lean.Expr := do
     let as := as.set! 5 (dropDeadLets as[5]!)
     return ← trHead x (some as[5]!) (mkAppN f <| as.set! 4 ·) γ o R
   trHead s none id γ o R
+
+/-- A loop body's last step, `pure (.yield a)` or `pure (.done a)`: the next
+state, and whether to continue. `rebuild` puts a replacement for the step
+back into the source. -/
+partial def trStep (v : Lean.Expr) (rebuild : Lean.Expr → Lean.Expr) (γ o R : Lean.Expr) :
+    M Lean.Expr := do
+  let a := v.appArg!
+  let withA (y : Lean.Expr) := rebuild (mkApp v.appFn! y)
+  if (← isObj (← inferType a)) && !(← isAtom a) then return ← bindValue a withA γ o R
+  let r ← RuleInst.new
+    (if v.isAppOf ``ForInStep.yield then ``ExprCert.yield else ``ExprCert.done)
+  setBase r γ o R
+  r.set `a a
+  concludeIn r γ o R
+  match ← represent (← instantiateMVars (← inferType (← r.arg `hR))) with
+  | .ok p => r.set `hR p
+  | .error t =>
+    return ← bindValue t (fun y => withA (a.replace fun e => if e == t then some y else none)) γ o R
+  discharge r
+  r.finish
 
 /-- Certify the computation `x`, followed by `cont` if present. `rebuild`
 puts a replacement for `x` back into the whole source. -/
@@ -942,7 +1015,9 @@ it. -/
 partial def bindValue (v : Lean.Expr) (rebuild : Lean.Expr → Lean.Expr) (γ o R : Lean.Expr) :
     M Lean.Expr := do
   let v := v.consumeMData
-  let entries := (← entriesFor v.getAppFn).filter (·.isValue)
+  let mut entries := (← entriesFor v.getAppFn).filter (·.isValue)
+  if let some xs := vecLitElems? v then
+    entries := entries.push (← vecLitEntry (← read).lang xs.size)
   for e in entries do
     if let some p ← applyEntry e v rebuild none γ o R then return p
   noMatch entries v
@@ -968,8 +1043,15 @@ partial def applyEntry (e : Entry) (x : Lean.Expr) (rebuild : Lean.Expr → Lean
     | _, _ => pure (e.rule, e.args)
   let r ← RuleInst.new rule
   setBase r γ o R
-  let argVals ← vals.mapM fun v => do
-    if (← inferType v).isType then reflectTp (← read).lang v else pure v
+  -- Type variables become object types, but only where an argument uses them
+  -- (a tail branch's result type is never reflected, so it may be any type).
+  let used ← vals.mapIdxM fun i _ => args.anyM fun (_, f) =>
+    lambdaTelescope f fun xs _ => do
+      if h : i < xs.size then
+        return (← instantiateMVars (f.beta xs)).containsFVar xs[i].fvarId!
+      return false
+  let argVals ← vals.mapIdxM fun i v => do
+    if (← inferType v).isType && used[i]! then reflectTp (← read).lang v else pure v
   for (n, f) in args do
     r.set n (f.beta argVals)
     r.synthInstances
@@ -1379,7 +1461,10 @@ def liftWith (name entry : Name) (helpers wrappers : Array Name) (l : Lang)
   for e in entries do
     let n ← e.head
     table := table.insert n ((table.getD n #[]).push e)
-  for (n, e) in keyed do
+  -- Counted loops, for every language.
+  let loops ← [``ExprCert.forIn', ``ExprCert.forIn'_tail, ``ExprCert.forIn,
+    ``ExprCert.forIn_tail].toArray.mapM fun r => (ruleEntry r : MetaM _)
+  for (n, e) in keyed ++ loops do
     table := table.insert n ((table.getD n #[]).push e)
   let sim ← mkAppOptM ``Lift.simSpec #[none, none, l.lift]
   let ctx : Ctx :=

@@ -285,6 +285,30 @@ info: (program
 -/
 #guard_msgs in #eval IO.println liftedGet.ast.pretty
 
+/-- Vectors: a fixed-length input, read at static indices, and literals of any
+length, the empty one included. -/
+def srcVec (v : Vector UInt32 3) : Src .main (Vector UInt32 5 × Vector UInt32 0) :=
+  pure (#v[v[2], v[1], v[0], v[0] + v[1], 7], #v[])
+
+lift_program liftedVec := srcVec
+
+/--
+info: (program
+  (main main (v0 (vec 3 u32)) (prod (vec 5 u32) (vec 0 u32))
+    (let v1 (vecGet 2 v0))
+    (let v2 (vecGet 1 v0))
+    (let v3 (vecGet 0 v0))
+    (let v4 (vecGet 0 v0))
+    (let v5 (vecGet 1 v0))
+    (let v6 (uAdd v4 v5))
+    (let v7 (lit u32 7))
+    (let v8 (vecLit v1 v2 v3 v6 v7))
+    (let v9 (vecLit u32))
+    (let v10 (pair v8 v9))
+    (ret v10)))
+-/
+#guard_msgs in #eval IO.println liftedVec.ast.pretty
+
 /-- Updating behind a bounds check. -/
 def srcSet (p : Array UInt32 × UInt32) : Src .main (Array UInt32) :=
   if h : p.2 < p.1.size.toUInt32 then pure (p.1.set p.2.toNat 7 (toNat_lt_size h)) else pure p.1
