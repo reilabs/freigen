@@ -1,5 +1,7 @@
 import Freigen.F2Z.Examples.P256.Lemmas
 import Freigen.F2Z.Examples.P256.WF
+import Freigen.F2Z.Examples.P256.CollapsedLemmas
+import Freigen.F2Z.Examples.P256.CollapsedWF
 
 /-!
 # Correctness boundary for the P-256 circuit gadgets
@@ -210,14 +212,17 @@ reference predicate. -/
     intros
     exact hvalid
   case vc7 =>
-    intro hslope _ _
+    intro hslope _ _ _
     exact hslope
   case vc8 =>
-    intro _ hslopeBound _
+    intro _ hslopeBound _ _
     exact hslopeBound
+  case vc9 =>
+    intro _ _ hslopeCanonical _
+    exact hslopeCanonical
   case vc5.success.success slope out =>
     intro houtValid houtSpec
-    exact ⟨houtValid, Aux.double_specs_mathlib hP slope.2.2 houtSpec⟩
+    exact ⟨houtValid, Aux.double_specs_mathlib hP slope.2.2.2 houtSpec⟩
 
 /-- Quotient well-formedness of the real doubling circuit under every pair
 of total valuations. -/
@@ -297,6 +302,76 @@ theorem addComplete_wf :
         left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2)
       (fun input => addComplete input.1 input.2) Point.WFRel :=
   addComplete_wf_aux
+
+/-! Open-once complete addition.  These theorems share the existing
+Mathlib semantic join point while replacing wide bit-decomposed selector
+trees by gated integer constraints. -/
+
+theorem addCompleteCollapsed_sound_mathlib {P Q : Point}
+    {p q : Reference.Point}
+    (hP : Reference.Represents ρ P p)
+    (hQ : Reference.Represents ρ Q q) :
+    ⦃⌜True⌝⦄ Sound.interp ρ (addCompleteCollapsed P Q)
+    ⦃⇓ out => ⌜Reference.Represents ρ out (p + q)⌝⦄ := by
+  mvcgen [addCompleteCollapsed]
+  rename_i control hcontrol candidate hcandidate out
+  intro hout
+  have hout' := hout.toSelectAddOutputSpec hP.1 hQ.1 hcontrol
+  have hraw := Aux.add_specs_raw hP hQ hcontrol hcandidate hout'
+  unfold Reference.Represents
+  exact ⟨hraw.1,
+    hraw.2.trans (Reference.slopeAddCoordinates_eq_mathlib p q)⟩
+
+@[spec] theorem addCompleteCollapsed_sound_normalized {P Q : Point}
+    {p q : Reference.Point}
+    (hP : Reference.NormalizedRep ρ P p)
+    (hQ : Reference.NormalizedRep ρ Q q) :
+    ⦃⌜True⌝⦄ Sound.interp ρ (addCompleteCollapsed P Q)
+    ⦃⇓ out => ⌜Reference.NormalizedRep ρ out (p + q)⌝⦄ := by
+  mvcgen [addCompleteCollapsed]
+  rename_i control hcontrol candidate hcandidate out
+  intro hout
+  have hout' := hout.toSelectAddOutputSpec hP.1.1 hQ.1.1 hcontrol
+  exact Aux.add_specs_normalized hP hQ hcontrol hcandidate hout'
+    (Reference.slopeAddCoordinates_eq_mathlib p q)
+
+@[spec] theorem addCompleteCollapsed_complete_mathlib {P Q : Point}
+    {q p : Reference.Point}
+    (hPvalid : P.Valid ρ) (hQvalid : Q.Valid ρ)
+    (hP : Reference.NormalizedRep ρ P p)
+    (hQ : Reference.NormalizedRep ρ Q q)
+    (hnoTwoTorsion : p = 0 ∨ p + p ≠ 0) :
+    ⦃⌜True⌝⦄ Complete.interp ρ (addCompleteCollapsed P Q)
+    ⦃⇓ out => ⌜out.Valid ρ ∧
+      Reference.NormalizedRep ρ out (p + q)⌝⦄ := by
+  mvcgen [addCompleteCollapsed]
+  all_goals first
+    | exact hPvalid
+    | exact hQvalid
+    | exact hP.1
+    | exact hnoTwoTorsion
+    | assumption
+    | skip
+  case vc10 => aesop
+  case vc11 => aesop
+  case vc12 => aesop
+  case vc13 => aesop
+  case vc14 => aesop
+  case vc15 => aesop
+  case vc16 => aesop
+  case vc9.success.success.success =>
+    rename_i control hcontrol candidate hcandidate out
+    intros houtValid houtSpec
+    exact ⟨houtValid,
+      Aux.add_specs_normalized hP hQ hcontrol hcandidate.2.2.2.2.2.2
+        houtSpec (Reference.slopeAddCoordinates_eq_mathlib p q)⟩
+
+theorem addCompleteCollapsed_wf :
+    WF.GadgetSpec
+      (fun lv rv (left right : Point × Point) =>
+        left.1.WFRel lv rv right.1 ∧ left.2.WFRel lv rv right.2)
+      (fun input => addCompleteCollapsed input.1 input.2) Point.WFRel :=
+  addCompleteCollapsed_wf_aux
 
 
 end AffineSlope

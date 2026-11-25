@@ -1,9 +1,10 @@
 import Freigen.F2Z.Examples.EcdsaP256.Reference
+import Freigen.F2Z.Examples.P256.CanonicalXImpl
 
 /-!
 # ECDSA-P256 verification implementation
 
-`verifyDigest` implements SEC 1 ECDSA verification for a 256-bit SHA-256
+`verifyDigestLegacy` implements SEC 1 ECDSA verification for a 256-bit SHA-256
 digest supplied as a circuit input.
 
 Inverse values are proof-carrying witnesses checked by modular multiplication
@@ -41,23 +42,33 @@ structure Aux where
 /-- Packed input to the standalone prehashed verifier. -/
 abbrev VerifyInput := U 256 × PublicKey × Signature × Aux
 
+/-- Proof index for extending a consecutive-multiple table by one.  The index
+is erased from the generated circuit. -/
+def addMultiple (_k : Nat) (P Q : AffineSlope.Point) : Circuit AffineSlope.Point :=
+  AffineSlope.addCompleteCollapsed P Q
+
+/-- Proof index for doubling an entry in a consecutive-multiple table.  The
+index is erased from the generated circuit. -/
+def doubleMultiple (_k : Nat) (P : AffineSlope.Point) : Circuit AffineSlope.Point :=
+  AffineSlope.doubleComplete P
+
 def materializeMultiples (P : Projective) :
     Circuit (Vector AffineSlope.Point 16) := do
   let p1 := AffineSlope.ofElems P.X P.Y
-  let p2 ← AffineSlope.addComplete p1 p1
-  let p3 ← AffineSlope.addComplete p2 p1
-  let p4 ← AffineSlope.addComplete p3 p1
-  let p5 ← AffineSlope.addComplete p4 p1
-  let p6 ← AffineSlope.addComplete p5 p1
-  let p7 ← AffineSlope.addComplete p6 p1
-  let p8 ← AffineSlope.addComplete p7 p1
-  let p9 ← AffineSlope.addComplete p8 p1
-  let p10 ← AffineSlope.addComplete p9 p1
-  let p11 ← AffineSlope.addComplete p10 p1
-  let p12 ← AffineSlope.addComplete p11 p1
-  let p13 ← AffineSlope.addComplete p12 p1
-  let p14 ← AffineSlope.addComplete p13 p1
-  let p15 ← AffineSlope.addComplete p14 p1
+  let p2 ← doubleMultiple 1 p1
+  let p3 ← addMultiple 2 p2 p1
+  let p4 ← doubleMultiple 2 p2
+  let p5 ← addMultiple 4 p4 p1
+  let p6 ← doubleMultiple 3 p3
+  let p7 ← addMultiple 6 p6 p1
+  let p8 ← doubleMultiple 4 p4
+  let p9 ← addMultiple 8 p8 p1
+  let p10 ← doubleMultiple 5 p5
+  let p11 ← addMultiple 10 p10 p1
+  let p12 ← doubleMultiple 6 p6
+  let p13 ← addMultiple 12 p12 p1
+  let p14 ← doubleMultiple 7 p7
+  let p15 ← addMultiple 14 p14 p1
   pure #v[AffineSlope.infinity, p1, p2, p3, p4, p5, p6, p7, p8,
     p9, p10, p11, p12, p13, p14, p15]
 
@@ -215,18 +226,31 @@ def accumulateJoint (acc : AffineSlope.Point) (terms : JointTerms) :
   let acc ← AffineSlope.addComplete acc terms.qlo
   AffineSlope.addComplete acc terms.g
 
+/-- The first joint window starts from infinity.  Its first four doublings and
+the following addition reduce definitionally to `qhi`, so start there. -/
+def accumulateInitialJoint (terms : JointTerms) : Circuit AffineSlope.Point := do
+  let acc ← doubleFour terms.qhi
+  let acc ← AffineSlope.addComplete acc terms.qlo
+  AffineSlope.addComplete acc terms.g
+
 def jointByteStep (u1 u2 : Fn)
     (qTable : Vector AffineSlope.Point 16) (i : Nat) (hi : i < 32)
     (acc : AffineSlope.Point) : Circuit AffineSlope.Point := do
   let terms ← selectJointTerms u1 u2 qTable i hi
   accumulateJoint acc terms
 
+def initialJointByteStep (u1 u2 : Fn)
+    (qTable : Vector AffineSlope.Point 16) : Circuit AffineSlope.Point := do
+  let terms ← selectJointTerms u1 u2 qTable 0 (by omega)
+  accumulateInitialJoint terms
+
 /-- Eight-bit fixed-G/four-bit variable-Q joint multiplication for
 `u1*G + u2*Q`. Each step consumes one G byte and two Q nibbles. -/
 def jointScalarMul (u1 u2 : Fn) (q : Projective) :
     Circuit AffineSlope.Point := do
   let qTable ← materializeMultiples q
-  WF.foldRange [:32] AffineSlope.infinity fun i hi acc =>
+  let initial ← initialJointByteStep u1 u2 qTable
+  WF.foldRange [1:32] initial fun i hi acc =>
     jointByteStep u1 u2 qTable i hi.2.1 acc
 
 structure CanonicalInput where
@@ -318,22 +342,49 @@ def prepareVerification (digest : U 256) (input : CanonicalInput) :
 
   pure ⟨scalars.1, scalars.2, ⟨input.qx, input.qy, one⟩, input.r⟩
 
-def computeVerificationSum (input : PreparedVerification) :
+def computeVerificationSumLegacy (input : PreparedVerification) :
     Circuit AffineSlope.Point :=
   jointScalarMul input.u1 input.u2 input.q
 
-def checkVerificationX (r : Fn) (sum : AffineSlope.Point) : Circuit Unit := do
+def checkVerificationXAndInfinity (r : Fn) (X : AffineSlope.Rep)
+    (infinity : LC ℤ) : Circuit Unit := do
   -- ECDSA rejects the identity.  Affine slope arithmetic has already
   -- materialized the final x-coordinate. Canonicalize it in the base field
   -- before changing moduli: reducing an arbitrary `x + k*p` modulo `n` would
   -- be unsound because the P-256 base prime and group order differ.
-  assertR1C 0 0 sum.infinity
-  let xCanonical ← Modular.Lazy.reduce base sum.X
+  assertR1C 0 0 infinity
+  let xCanonical ← Modular.Lazy.reduce base X
   let xModN ← Modular.Relaxed.reduceSmall scalar xCanonical.val.intVal
   assertEq scalar xModN r
 
-def finishVerification (input : PreparedVerification) : Circuit Unit := do
-  let sum ← computeVerificationSum input
+def checkVerificationX (r : Fn) (sum : AffineSlope.Point) : Circuit Unit :=
+  checkVerificationXAndInfinity r sum.X sum.infinity
+
+/-- One-bit quotient for `canonicalX = r + q*n`; `canonicalX < p < 2*n`. -/
+def terminalScalarQuotientHint :
+    HList Eff.WitnessSide.denoteF [.z, .z] → Hint (Vector Bool 1)
+  | h![(x : Int), (r : Int)] =>
+      if _ : 0 ≤ x then
+        if _ : 0 ≤ r then
+          let quotient := (x.toNat - r.toNat) / scalar.modulus
+          pure $ Vector.ofFn fun i => quotient.testBit i
+        else fail s!"negative signature r {r}"
+      else fail s!"negative canonical terminal X {x}"
+
+/-- Reject the identity and compare an already base-canonical X coordinate
+directly with canonical signature `r` modulo the P-256 scalar order. -/
+def checkVerificationCanonicalX (r : Fn)
+    (sum : AffineSlope.CanonicalXPoint) : Circuit Unit := do
+  assertR1C 0 0 sum.infinity
+  let quotientBits ←
+    hint h![sum.X.val.intVal, r.val.intVal] terminalScalarQuotientHint
+  let quotient ← U.fromWord { bitsLE := quotientBits }
+  assertR1C (LC.ofConst 1 - sum.infinity)
+    (sum.X.val.intVal -
+      (r.val.intVal + scalar.modulus • quotient.intVal)) 0
+
+def finishVerificationLegacy (input : PreparedVerification) : Circuit Unit := do
+  let sum ← computeVerificationSumLegacy input
   checkVerificationX input.r sum
 
 /-- Verify an ECDSA-P256 signature over an already computed SHA-256 digest.
@@ -341,11 +392,11 @@ def finishVerification (input : PreparedVerification) : Circuit Unit := do
 All external integers are first made canonical. Therefore the circuit rejects
 non-canonical encodings instead of silently reducing signature or key fields.
 -/
-def verifyDigest (digest : U 256) (key : PublicKey)
+def verifyDigestLegacy (digest : U 256) (key : PublicKey)
     (sig : Signature) (aux : Aux) : Circuit Unit := do
   let input ← canonicalizeInput key sig aux
   let prepared ← prepareVerification digest input
-  finishVerification prepared
+  finishVerificationLegacy prepared
 
 /-- Number of Boolean inputs to the standalone digest verifier: the digest,
 public-key coordinates, signature scalars, and two inverse witnesses. -/
@@ -372,14 +423,14 @@ def verifyDigestInputWords
     Vector (Word 256) 7 :=
   Vector.ofFn fun slot => verifyDigestInputWord inputs slot
 
-def verifyDigestFromBits
+def verifyDigestFromBitsLegacy
     (inputs : Vector (LC Bool) verifyDigestInputBits) : Circuit Unit := do
   let values ← (verifyDigestInputWords inputs).mapM U.fromWord
-  verifyDigest values[0] ⟨values[1], values[2]⟩
+  verifyDigestLegacy values[0] ⟨values[1], values[2]⟩
     ⟨values[3], values[4]⟩ ⟨values[5], values[6]⟩
 
 /-- Constraint-system representation of the standalone digest verifier. -/
-def verifyDigestCS : Unit × Semantics.CS :=
-  Semantics.CSBuilder.runWithInputs verifyDigestFromBits
+def verifyDigestCSLegacy : Unit × Semantics.CS :=
+  Semantics.CSBuilder.runWithInputs verifyDigestFromBitsLegacy
 
 end Freigen.F2Z.Examples.EcdsaP256
