@@ -1,4 +1,4 @@
-import Freigen.Ast.Cert
+import Freigen.Ast.Loop
 
 /-!
 The lifting macro: `lift_program foo := src using [helpers…] ops [wrappers…]`
@@ -496,6 +496,7 @@ def staticEntries (l : Lang) : Term.TermElabM (Array Entry) := do
     ← lit (← `(true)) (← `(fun (L : Language) => (AbiTp.bool : L.AbiTp))),
     ← lit (← `(false)) (← `(fun (L : Language) => (AbiTp.bool : L.AbiTp))),
     ← lit (← `(())) (← `(fun (L : Language) => (AbiTp.unit : L.AbiTp))),
+    ← lit (← `(PUnit.unit.{1})) (← `(fun (L : Language) => (AbiTp.unit : L.AbiTp))),
     ← bi (← `(fun (a b : UInt32) => a + b)) (← `(fun (L : Language) => @Builtin.uAdd L)),
     ← bi (← `(fun (a b : UInt32) => a - b)) (← `(fun (L : Language) => @Builtin.uSub L)),
     ← bi (← `(fun (a b : UInt32) => a * b)) (← `(fun (L : Language) => @Builtin.uMul L)),
@@ -890,6 +891,8 @@ partial def trComp (s γ o R : Lean.Expr) : M Lean.Expr := do
   let as := s.getAppArgs
   if f.isConstOf ``Pure.pure && as.size == 4 then
     let v := as[3]!
+    if v.isAppOfArity ``ForInStep.yield 2 || v.isAppOfArity ``ForInStep.done 2 then
+      return ← trStep v (fun v' => mkAppN f (as.set! 3 v')) γ o R
     let obj ← isObj (← inferType v)
     if obj && !(← isAtom v) then return ← bindValue v (mkAppN f <| as.set! 3 ·) γ o R
     let r ← RuleInst.new ``ExprCert.ret
@@ -912,6 +915,26 @@ partial def trComp (s γ o R : Lean.Expr) : M Lean.Expr := do
     let as := as.set! 5 (dropDeadLets as[5]!)
     return ← trHead x (some as[5]!) (mkAppN f <| as.set! 4 ·) γ o R
   trHead s none id γ o R
+
+/-- A loop body's last step, `pure (.yield a)` or `pure (.done a)`: the next
+state, and whether to continue. `rebuild` puts a replacement for the step
+back into the source. -/
+partial def trStep (v : Lean.Expr) (rebuild : Lean.Expr → Lean.Expr) (γ o R : Lean.Expr) :
+    M Lean.Expr := do
+  let a := v.appArg!
+  let withA (y : Lean.Expr) := rebuild (mkApp v.appFn! y)
+  if (← isObj (← inferType a)) && !(← isAtom a) then return ← bindValue a withA γ o R
+  let r ← RuleInst.new
+    (if v.isAppOf ``ForInStep.yield then ``ExprCert.yield else ``ExprCert.done)
+  setBase r γ o R
+  r.set `a a
+  concludeIn r γ o R
+  match ← represent (← instantiateMVars (← inferType (← r.arg `hR))) with
+  | .ok p => r.set `hR p
+  | .error t =>
+    return ← bindValue t (fun y => withA (a.replace fun e => if e == t then some y else none)) γ o R
+  discharge r
+  r.finish
 
 /-- Certify the computation `x`, followed by `cont` if present. `rebuild`
 puts a replacement for `x` back into the whole source. -/
@@ -968,8 +991,15 @@ partial def applyEntry (e : Entry) (x : Lean.Expr) (rebuild : Lean.Expr → Lean
     | _, _ => pure (e.rule, e.args)
   let r ← RuleInst.new rule
   setBase r γ o R
-  let argVals ← vals.mapM fun v => do
-    if (← inferType v).isType then reflectTp (← read).lang v else pure v
+  -- Type variables become object types, but only where an argument uses them
+  -- (a tail branch's result type is never reflected, so it may be any type).
+  let used ← vals.mapIdxM fun i _ => args.anyM fun (_, f) =>
+    lambdaTelescope f fun xs _ => do
+      if h : i < xs.size then
+        return (← instantiateMVars (f.beta xs)).containsFVar xs[i].fvarId!
+      return false
+  let argVals ← vals.mapIdxM fun i v => do
+    if (← inferType v).isType && used[i]! then reflectTp (← read).lang v else pure v
   for (n, f) in args do
     r.set n (f.beta argVals)
     r.synthInstances
@@ -1379,7 +1409,10 @@ def liftWith (name entry : Name) (helpers wrappers : Array Name) (l : Lang)
   for e in entries do
     let n ← e.head
     table := table.insert n ((table.getD n #[]).push e)
-  for (n, e) in keyed do
+  -- Counted loops, for every language.
+  let loops ← [``ExprCert.forIn', ``ExprCert.forIn'_tail, ``ExprCert.forIn,
+    ``ExprCert.forIn_tail].toArray.mapM fun r => (ruleEntry r : MetaM _)
+  for (n, e) in keyed ++ loops do
     table := table.insert n ((table.getD n #[]).push e)
   let sim ← mkAppOptM ``Lift.simSpec #[none, none, l.lift]
   let ctx : Ctx :=
