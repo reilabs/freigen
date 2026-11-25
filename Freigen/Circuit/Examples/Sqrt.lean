@@ -24,44 +24,44 @@ abbrev wireAbi : Lift.AbiTp := .base .wire
 
 def sqrtAst {V : language.Tp → Type} : Program language Scope.constraint wireAbi wireAbi V :=
   .main fun x =>
-    .builtin (.prim (.wires 1)) h![x] fun xs =>
+    .builtin (.vecLit 1) h![x] fun xs =>
     .op (L := language) (γ := Scope.constraint) (ConstraintOp.hint 1 1) xs
       (fun _ ins =>
-        .builtin (.prim (.fieldsGet 1 0 (by decide))) h![ins] fun v =>
+        .builtin (.vecGet 1 0 (by decide)) h![ins] fun v =>
         .builtin (.prim .fSqrt) h![v] fun s =>
-        .builtin (.prim (.fields 1)) h![s] fun v => .ret v)
+        .builtin (.vecLit 1) h![s] fun v => .ret v)
       fun rs =>
-    .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r =>
+    .builtin (.vecGet 1 0 (by decide)) h![rs] fun r =>
     assertR1CAst r r x fun _ =>
-    .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r' => .ret r'
+    .builtin (.vecGet 1 0 (by decide)) h![rs] fun r' => .ret r'
 
 theorem sqrtCert : ProgramCert (lift P) (fun _ => Rep.self (P := P) wireAbi) sqrtAst (srcSqrt (P := P)) := by
   refine .of_progCert <| .main (fun x => ?_)
   refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
-    (R := Eq) (b := .prim (.wires 1)) (args := h![x]) (r := #v[x]) rfl ?_
+    (R := Eq) (b := .vecLit 1) (args := h![x]) (r := #v[x]) rfl ?_
   refine Rules.hint (n := 1) (m := 1) (args := #v[x])
     (body := fun ins =>
-      .builtin (.prim (.fieldsGet 1 0 (by decide))) h![ins] fun v =>
+      .builtin (.vecGet 1 0 (by decide)) h![ins] fun v =>
       .builtin (.prim .fSqrt) h![v] fun s =>
-      .builtin (.prim (.fields 1)) h![s] fun v => .ret v)
+      .builtin (.vecLit 1) h![s] fun v => .ret v)
     (src := fun (ins : Vector (ZMod P) 1) => pure #v[fsqrt ins[0]])
     (k := fun rs =>
-      .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r =>
+      .builtin (.vecGet 1 0 (by decide)) h![rs] fun r =>
       assertR1CAst r r x fun _ =>
-      .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r' => .ret r')
+      .builtin (.vecGet 1 0 (by decide)) h![rs] fun r' => .ret r')
     (tk := fun rs => Circuit.assertR1C rs[0] rs[0] x >>= fun _ => pure rs[0])
     (fun (ins : Vector (ZMod P) 1) => ?_) fun (rs : Vector ctx.W 1) => ?_
-  · refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base (.fields 1))
-      (R := Eq) (b := .prim (.fieldsGet 1 0 (by decide))) (args := h![ins]) (r := ins[0]) rfl ?_
-    refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base (.fields 1))
+  · refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
+      (R := Eq) (b := .vecGet (a := Tp.field) 1 0 (by decide)) (r := ins[0]) rfl ?_
+    refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
       (R := Eq) (b := .prim .fSqrt) (r := fsqrt ins[0]) rfl ?_
-    exact ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base (.fields 1))
-      (R := Eq) (b := .prim (.fields 1)) (r := #v[fsqrt ins[0]]) rfl (.ret rfl)
+    exact ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
+      (R := Eq) (b := .vecLit 1) (r := #v[fsqrt ins[0]]) rfl (.ret rfl)
   · refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
-      (R := Eq) (b := .prim (.wiresGet 1 0 (by decide))) (args := h![rs]) (r := rs[0]) rfl ?_
+      (R := Eq) (b := .vecGet (a := Tp.wire) 1 0 (by decide)) (r := rs[0]) rfl ?_
     refine Rules.assertR1C fun _ _ => ?_
     exact ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
-      (R := Eq) (b := .prim (.wiresGet 1 0 (by decide))) (r := rs[0]) rfl (.ret rfl)
+      (R := Eq) (b := .vecGet (a := Tp.wire) 1 0 (by decide)) (r := rs[0]) rfl (.ret rfl)
 
 /-- info: 'Freigen.Circuit.Examples.Sqrt.sqrtCert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sqrtCert
@@ -69,19 +69,19 @@ theorem sqrtCert : ProgramCert (lift P) (fun _ => Rep.self (P := P) wireAbi) sqr
 /--
 info: (program
   (main constraint (v0 wire) wire
-    (let v1 (wires v0))
+    (let v1 (vecLit v0))
     (let v2
       (op (hint 1 1) v1
         (block body (v3)
-          (let v4 (fieldsGet 0 v3))
+          (let v4 (vecGet 0 v3))
           (let v5 (fSqrt v4))
-          (let v6 (fields v5))
+          (let v6 (vecLit v5))
           (ret v6))))
-    (let v7 (wiresGet 0 v2))
+    (let v7 (vecGet 0 v2))
     (let v8 (pair v7 v0))
     (let v9 (pair v7 v8))
     (let v10 (op assertR1C v9))
-    (let v11 (wiresGet 0 v2))
+    (let v11 (vecGet 0 v2))
     (ret v11)))
 -/
 #guard_msgs in #eval IO.println (sqrtAst (V := fun _ => String)).pretty
@@ -126,20 +126,20 @@ info: Freigen.Circuit.Examples.Sqrt.liftedMore.cert (P : ℕ) [ctx : Context P] 
 /--
 info: (program
   (main constraint (v0 wire) wire
-    (let v1 (wires v0))
+    (let v1 (vecLit v0))
     (let v2
       (op (hint 1 2) v1
         (block body (v3)
-          (let v4 (fieldsGet 0 v3))
+          (let v4 (vecGet 0 v3))
           (let v5 (fMul v4 v4))
-          (let v6 (fieldsGet 0 v3))
+          (let v6 (vecGet 0 v3))
           (let v7 (fAdd v5 v6))
-          (let v8 (fieldsGet 0 v3))
+          (let v8 (vecGet 0 v3))
           (let v9 (fNeg v8))
-          (let v10 (fields v7 v9))
+          (let v10 (vecLit v7 v9))
           (ret v10))))
-    (let v11 (wiresGet 0 v2))
-    (let v12 (wiresGet 1 v2))
+    (let v11 (vecGet 0 v2))
+    (let v12 (vecGet 1 v2))
     (let v13 (wSub v11 v12))
     (let v14 (wAdd v13 v0))
     (let v15 (op (rangeCheck 8) v14))
@@ -147,6 +147,47 @@ info: (program
     (ret v16)))
 -/
 #guard_msgs in #eval IO.println (liftedMore.ast (V := fun _ => String)).pretty
+
+/-- A hint returning six witnesses: vector literals have no length limit. -/
+def srcSix (x : ctx.W) : Circuit P ctx.W := do
+  let ys ← Circuit.hint #v[x, x + x] fun ins =>
+    pure #v[ins[0], ins[1], ins[0] * ins[1], -ins[0], ins[1] - ins[0], ins[0] + ins[1]]
+  pure (ys[0] + ys[5])
+
+lift_program liftedSix := srcSix via lift
+
+/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedSix.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms liftedSix.cert
+
+/--
+info: (program
+  (main constraint (v0 wire) wire
+    (let v1 (wAdd v0 v0))
+    (let v2 (vecLit v0 v1))
+    (let v3
+      (op (hint 2 6) v2
+        (block body (v4)
+          (let v5 (vecGet 0 v4))
+          (let v6 (vecGet 1 v4))
+          (let v7 (vecGet 0 v4))
+          (let v8 (vecGet 1 v4))
+          (let v9 (fMul v7 v8))
+          (let v10 (vecGet 0 v4))
+          (let v11 (fNeg v10))
+          (let v12 (vecGet 1 v4))
+          (let v13 (vecGet 0 v4))
+          (let v14 (fSub v12 v13))
+          (let v15 (vecGet 0 v4))
+          (let v16 (vecGet 1 v4))
+          (let v17 (fAdd v15 v16))
+          (let v18 (vecLit v5 v6 v9 v11 v14 v17))
+          (ret v18))))
+    (let v19 (vecGet 0 v3))
+    (let v20 (vecGet 5 v3))
+    (let v21 (wAdd v19 v20))
+    (ret v21)))
+-/
+#guard_msgs in #eval IO.println (liftedSix.ast (V := fun _ => String)).pretty
 
 /-! ## Computing with certificates
 
@@ -176,15 +217,15 @@ example (P : Nat) [Context P] :
 /--
 info: (program
   (main constraint (v0 wire) wire
-    (let v1 (wires v0))
+    (let v1 (vecLit v0))
     (let v2
       (op (hint 1 1) v1
         (block body (v3)
-          (let v4 (fieldsGet 0 v3))
+          (let v4 (vecGet 0 v3))
           (let v5 (fMul v4 v4))
-          (let v6 (fields v5))
+          (let v6 (vecLit v5))
           (ret v6))))
-    (let v7 (wiresGet 0 v2))
+    (let v7 (vecGet 0 v2))
     (let v8 (pair v7 v7))
     (let v9 (pair v7 v8))
     (let v10 (op assertR1C v9))

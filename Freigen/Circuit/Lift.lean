@@ -7,15 +7,15 @@ The `Circuit` DSL as an AST language. Its effects are lifted like its types:
 the language shares the DSL's contexts (`Circuit.Scope`), and every type an
 operation mentions is a `Tp`.
 
-Wires and field elements are base types; so are fixed-size vectors of each:
-a hint takes wires and passes their values to its block, which returns field
-elements, and the hint as many fresh wires. The model interprets them over
+Wires and field elements are base types. A hint takes a vector of wires and
+passes their values to its block, which returns a vector of field elements,
+and the hint as many fresh wires. The model interprets them over
 `ZMod P` and a circuit context, so one AST serves every prime and context.
 
 The lift (`lift`) fixes how source values are represented (`Rep`, indexed by
 the AST type and the source type, and erased injectively): object types by
-themselves, `Cert`s by `()` (they are subsingletons, like proofs), `CertW`s
-by their wire, and field elements with a property by the element. It
+themselves, `Cert`s by `()` (they are subsingletons, like proofs), and
+`CertW`s by their wire. It
 represents each DSL operation by an AST operation (`OpRep`), every value
 crossing between them at a `Rep`: operations that return a `Cert` in the DSL
 return `unit` in the AST.
@@ -30,10 +30,6 @@ open Ast
 inductive Base
 | field
 | wire
-/-- Field elements, `n` of them: what a hint's block receives and returns. -/
-| fields (n : Nat)
-/-- Wires, `n` of them: a hint's arguments and results. -/
-| wires (n : Nat)
 deriving DecidableEq
 
 abbrev Tp := Ast.Tp Base
@@ -42,8 +38,7 @@ abbrev AbiTp := Ast.AbiTp Base fun _ => true
 abbrev Tp.field : Tp := .base .field
 abbrev Tp.wire : Tp := .base .wire
 
-/-- Circuit primitives: field arithmetic, linear combinations of wires, and
-building and reading vectors. -/
+/-- Circuit primitives: field arithmetic, and linear combinations of wires. -/
 inductive Prim : List Tp → Tp → Type
 | fAdd : Prim [.field, .field] .field
 | fSub : Prim [.field, .field] .field
@@ -54,10 +49,6 @@ inductive Prim : List Tp → Tp → Type
 | wSub : Prim [.wire, .wire] .wire
 | wNeg : Prim [.wire] .wire
 | wScale : Prim [.field, .wire] .wire
-| wires (n : Nat) : Prim (List.replicate n .wire) (.base (.wires n))
-| fields (n : Nat) : Prim (List.replicate n .field) (.base (.fields n))
-| fieldsGet (n i : Nat) (h : i < n) : Prim [.base (.fields n)] .field
-| wiresGet (n i : Nat) (h : i < n) : Prim [.base (.wires n)] .wire
 
 inductive ConstraintOp
 | assertR1C
@@ -83,12 +74,12 @@ def language : Language where
     | .constraint, .assertR1C => .prod (.base .wire) (.prod (.base .wire) (.base .wire))
     | .constraint, .rangeCheck _ => .base .wire
     | .constraint, .assertSpread _ => .prod (.base .wire) (.base .wire)
-    | .constraint, .hint n _ => .base (.wires n)
+    | .constraint, .hint n _ => .vec n (.base .wire)
   output := fun
     | .constraint, .assertR1C => .unit
     | .constraint, .rangeCheck _ => .unit
     | .constraint, .assertSpread _ => .unit
-    | .constraint, .hint _ m => .base (.wires m)
+    | .constraint, .hint _ m => .vec m (.base .wire)
   Block := fun
     | .constraint, .hint _ _ => Unit
     | .constraint, .assertR1C => Empty
@@ -100,12 +91,12 @@ def language : Language where
     | .constraint, .rangeCheck _, b => nomatch b
     | .constraint, .assertSpread _, b => nomatch b
   blockInputs := fun
-    | .constraint, .hint n _, _ => .base (.fields n)
+    | .constraint, .hint n _, _ => .vec n (.base .field)
     | .constraint, .assertR1C, b => nomatch b
     | .constraint, .rangeCheck _, b => nomatch b
     | .constraint, .assertSpread _, b => nomatch b
   blockOutputs := fun
-    | .constraint, .hint _ m, _ => .base (.fields m)
+    | .constraint, .hint _ m, _ => .vec m (.base .field)
     | .constraint, .assertR1C, b => nomatch b
     | .constraint, .rangeCheck _, b => nomatch b
     | .constraint, .assertSpread _, b => nomatch b
@@ -115,18 +106,6 @@ def language : Language where
 def Base.sexp : Base → Sexp
 | .field => .atom "field"
 | .wire => .atom "wire"
-| .fields n => .list [.atom "fields", .atom (toString n)]
-| .wires n => .list [.atom "wires", .atom (toString n)]
-
-/-- Types, as `Tp.sexp` prints them; needed before the instance exists. -/
-def tpSexp : Tp → Sexp
-| .base b => b.sexp
-| .uInt32 => .atom "u32"
-| .bool => .atom "bool"
-| .unit => .atom "unit"
-| .array tp => .list [.atom "array", tpSexp tp]
-| .prod a b => .list [.atom "prod", tpSexp a, tpSexp b]
-| .fn a b => .list [.atom "fn", tpSexp a, tpSexp b]
 
 instance : Language.Print language where
   baseSexp := Base.sexp
@@ -140,10 +119,6 @@ instance : Language.Print language where
     | .wSub => .list (.atom "wSub" :: args)
     | .wNeg => .list (.atom "wNeg" :: args)
     | .wScale => .list (.atom "wScale" :: args)
-    | .wires _ => .list (.atom "wires" :: args)
-    | .fields _ => .list (.atom "fields" :: args)
-    | .fieldsGet _ i _ => .list (.atom "fieldsGet" :: .atom (toString i) :: args)
-    | .wiresGet _ i _ => .list (.atom "wiresGet" :: .atom (toString i) :: args)
   ctxName
     | .constraint => "constraint"
     | .hint => "hint"
@@ -172,18 +147,6 @@ variable (P : Nat) [ctx : Context P]
 abbrev Base.denote : Base → Type
 | .field => ZMod P
 | .wire => ctx.W
-| .fields n => Vector (ZMod P) n
-| .wires n => Vector ctx.W n
-
-/-- The elements of a homogeneous list of values. -/
-def HList.elems {V : Tp → Type} {t : Tp} : (n : Nat) → HList V (List.replicate n t) → List (V t)
-| 0, .nil => []
-| n + 1, .cons x xs => x :: HList.elems n xs
-
-theorem HList.length_elems {V : Tp → Type} {t : Tp} :
-    (n : Nat) → (xs : HList V (List.replicate n t)) → (HList.elems n xs).length = n
-| 0, .nil => rfl
-| n + 1, .cons _ xs => congrArg (· + 1) (HList.length_elems n xs)
 
 /-- The model over `ZMod P` and a circuit context. -/
 noncomputable def model : language.Model where
@@ -198,10 +161,6 @@ noncomputable def model : language.Model where
     | .wSub, h![a, b] => some (a - b)
     | .wNeg, h![a] => some (-a)
     | .wScale, h![c, w] => some (c • w)
-    | .wires n, xs => some ⟨(HList.elems n xs).toArray, by simp [HList.length_elems]⟩
-    | .fields n, xs => some ⟨(HList.elems n xs).toArray, by simp [HList.length_elems]⟩
-    | .fieldsGet _ i h, h![v] => some v[i]
-    | .wiresGet _ i h, h![v] => some v[i]
 
 /-- How source types are represented, indexed by their AST type and the
 source type. -/
@@ -275,7 +234,7 @@ noncomputable abbrev simSpec : Free.SimSpec (language.denote (model P)) (Circuit
 
 end Model
 
-attribute [lift_base lift] Base.field Base.wire Base.fields Base.wires
+attribute [lift_base lift] Base.field Base.wire
 
 /-! ## Templates -/
 
@@ -322,10 +281,10 @@ variable {P : Nat} [ctx : Context P] {h : Heap language (model P)} {o : language
 returning the same field elements; the continuation at every result. -/
 @[lift_rule lift] theorem hint {n m : Nat}
     {args : Vector ctx.W n} {β : Type} {R : (model P).V o → β → Prop}
-    {body : (model P).V (.base (.fields n)) → Expr language (model P).V .hint (.base (.fields m))}
-    {src : (model P).V (.base (.fields n)) → Hint P (Vector (ZMod P) m)}
+    {body : (model P).V (.vec n (.base .field)) → Expr language (model P).V .hint (.vec m (.base .field))}
+    {src : (model P).V (.vec n (.base .field)) → Hint P (Vector (ZMod P) m)}
     (hb : ∀ xs, ExprCert (simSpec P) h (body xs) Eq (src xs))
-    {k : (model P).V (.base (.wires m)) → Expr language (model P).V .constraint o}
+    {k : (model P).V (.vec m (.base .wire)) → Expr language (model P).V .constraint o}
     {tk : Vector ctx.W m → Free (Circuit.Eff P ctx) .constraint β}
     (hk : ∀ ws, ExprCert (simSpec P) h (k ws) R (tk ws)) :
     ExprCert (simSpec P) h
@@ -406,7 +365,7 @@ section Prims
 variable {γ : Scope} {α : Type} {R : (model P).V o → α → Prop}
 
 /-- Primitives: the continuation is certified at the result, so the source's
-facts about it carry over. Vector literals get one rule per size.
+facts about it carry over.
 
 As in every rule, the AST's binders (here the continuation's) are typed as
 values of object types, `(model P).V t`: the AST is read off the conclusion,
@@ -472,76 +431,6 @@ and must not mention the model's parameters. -/
     {tk : (model P).V (.base .wire) → Free (Circuit.Eff P ctx) γ α}
     (hk : ExprCert (simSpec P) h (k (c • w)) R (tk (c • w))) :
     ExprCert (simSpec P) h (.builtin (.prim .wScale) h![c, w] k) R (tk (c • w)) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem fieldsGet {n i : Nat} {hi : i < n} {v : Vector (ZMod P) n}
-    {k : (model P).V (.base .field) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base .field) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k (v[i]'hi)) R (tk (v[i]'hi))) :
-    ExprCert (simSpec P) h (.builtin (.prim (.fieldsGet n i hi)) h![v] k) R (tk (v[i]'hi)) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem wiresGet {n i : Nat} {hi : i < n} {v : Vector ctx.W n}
-    {k : (model P).V (.base .wire) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base .wire) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k (v[i]'hi)) R (tk (v[i]'hi))) :
-    ExprCert (simSpec P) h (.builtin (.prim (.wiresGet n i hi)) h![v] k) R (tk (v[i]'hi)) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem wires1 {a : ctx.W}
-    {k : (model P).V (.base (.wires 1)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.wires 1)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a]) R (tk #v[a])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.wires 1)) h![a] k) R (tk #v[a]) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem wires2 {a b : ctx.W}
-    {k : (model P).V (.base (.wires 2)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.wires 2)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a, b]) R (tk #v[a, b])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.wires 2)) h![a, b] k) R (tk #v[a, b]) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem wires3 {a b c : ctx.W}
-    {k : (model P).V (.base (.wires 3)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.wires 3)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a, b, c]) R (tk #v[a, b, c])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.wires 3)) h![a, b, c] k) R (tk #v[a, b, c]) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem wires4 {a b c d : ctx.W}
-    {k : (model P).V (.base (.wires 4)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.wires 4)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a, b, c, d]) R (tk #v[a, b, c, d])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.wires 4)) h![a, b, c, d] k) R (tk #v[a, b, c, d]) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem fields1 {a : ZMod P}
-    {k : (model P).V (.base (.fields 1)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.fields 1)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a]) R (tk #v[a])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.fields 1)) h![a] k) R (tk #v[a]) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem fields2 {a b : ZMod P}
-    {k : (model P).V (.base (.fields 2)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.fields 2)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a, b]) R (tk #v[a, b])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.fields 2)) h![a, b] k) R (tk #v[a, b]) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem fields3 {a b c : ZMod P}
-    {k : (model P).V (.base (.fields 3)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.fields 3)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a, b, c]) R (tk #v[a, b, c])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.fields 3)) h![a, b, c] k) R (tk #v[a, b, c]) :=
-  ExprCert.builtin rfl hk
-
-@[lift_rule lift] theorem fields4 {a b c d : ZMod P}
-    {k : (model P).V (.base (.fields 4)) → Expr language (model P).V γ o}
-    {tk : (model P).V (.base (.fields 4)) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k #v[a, b, c, d]) R (tk #v[a, b, c, d])) :
-    ExprCert (simSpec P) h (.builtin (.prim (.fields 4)) h![a, b, c, d] k) R (tk #v[a, b, c, d]) :=
   ExprCert.builtin rfl hk
 
 end Prims
