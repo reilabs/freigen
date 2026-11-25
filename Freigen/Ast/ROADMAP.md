@@ -30,7 +30,7 @@ must be made before work starts, where there is one.
   operation by an AST operation, erasing results, block inputs and block
   results at fixed representations. What a certificate means for running a circuit needs
   a theorem: interpreters of the AST and the DSL whose operations commute
-  with the erasure (a hint returns its block's result, an assertion its
+  with the erasure (a hint returns fresh wires carrying its block's results, an assertion its
   certificate) give results that agree up to erasure. It needs the DSL's
   semantics as an interpreter first.
 - **Binder names in errors.** Errors name a certificate by the rule's binder
@@ -180,8 +180,3 @@ Still needed:
   lengths modulo 2^32, and when evaluation fails (out-of-bounds access).
 - A parser and a round-trip test, since the printer promises the format
   can be parsed back.
-
-## 9. Housekeeping
-
-- Land the `speedup-binds` branch (cached `result` in `ExactCodensity`).
-  Only the `CompM` observation laws should need to be proved again.

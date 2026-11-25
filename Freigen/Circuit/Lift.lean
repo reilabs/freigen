@@ -5,11 +5,11 @@ import Freigen.Ast.Print
 /-!
 The `Circuit` DSL as an AST language. Its effects are lifted like its types:
 the language shares the DSL's contexts (`Circuit.Scope`), and every type an
-operation mentions is a `Tp`. In particular the
-result type of a hint, a `Type` in the DSL, is a `Tp` in the AST operation.
+operation mentions is a `Tp`.
 
-Wires and field elements are base types; so are fixed-size vectors of each,
-which hints take and pass to their blocks. The model interprets them over
+Wires and field elements are base types; so are fixed-size vectors of each:
+a hint takes wires and passes their values to its block, which returns field
+elements, and the hint as many fresh wires. The model interprets them over
 `ZMod P` and a circuit context, so one AST serves every prime and context.
 
 The lift (`lift`) fixes how source values are represented (`Rep`, indexed by
@@ -18,8 +18,7 @@ themselves, `Cert`s by `()` (they are subsingletons, like proofs), `CertW`s
 by their wire, and field elements with a property by the element. It
 represents each DSL operation by an AST operation (`OpRep`), every value
 crossing between them at a `Rep`: operations that return a `Cert` in the DSL
-return `unit` in the AST, and a hint may return any represented type, its
-block's results and its own by the same representation.
+return `unit` in the AST.
 -/
 
 namespace Freigen.Circuit.Lift
@@ -31,9 +30,9 @@ open Ast
 inductive Base
 | field
 | wire
-/-- Field elements, `n` of them: what a hint's block receives. -/
+/-- Field elements, `n` of them: what a hint's block receives and returns. -/
 | fields (n : Nat)
-/-- Wires, `n` of them: a hint's arguments. -/
+/-- Wires, `n` of them: a hint's arguments and results. -/
 | wires (n : Nat)
 deriving DecidableEq
 
@@ -56,17 +55,19 @@ inductive Prim : List Tp → Tp → Type
 | wNeg : Prim [.wire] .wire
 | wScale : Prim [.field, .wire] .wire
 | wires (n : Nat) : Prim (List.replicate n .wire) (.base (.wires n))
+| fields (n : Nat) : Prim (List.replicate n .field) (.base (.fields n))
 | fieldsGet (n i : Nat) (h : i < n) : Prim [.base (.fields n)] .field
+| wiresGet (n i : Nat) (h : i < n) : Prim [.base (.wires n)] .wire
 
 inductive ConstraintOp
 | assertR1C
 | rangeCheck (n : Nat)
 | assertSpread (n : Nat)
-/-- A hint over `n` wires, returning a value of type `α`. -/
-| hint (n : Nat) (α : AbiTp)
+/-- A hint over `n` wires, returning `m` fresh ones. -/
+| hint (n m : Nat)
 
+/-- Hint blocks have no operations (yet). -/
 inductive HintOp
-| writeWitness
 
 abbrev Tag : Scope → Type
 | .constraint => ConstraintOp
@@ -83,37 +84,31 @@ def language : Language where
     | .constraint, .rangeCheck _ => .base .wire
     | .constraint, .assertSpread _ => .prod (.base .wire) (.base .wire)
     | .constraint, .hint n _ => .base (.wires n)
-    | .hint, .writeWitness => .base .field
   output := fun
     | .constraint, .assertR1C => .unit
     | .constraint, .rangeCheck _ => .unit
     | .constraint, .assertSpread _ => .unit
-    | .constraint, .hint _ α => α
-    | .hint, .writeWitness => .base .wire
+    | .constraint, .hint _ m => .base (.wires m)
   Block := fun
     | .constraint, .hint _ _ => Unit
     | .constraint, .assertR1C => Empty
     | .constraint, .rangeCheck _ => Empty
     | .constraint, .assertSpread _ => Empty
-    | .hint, .writeWitness => Empty
   blockCtx := fun
     | .constraint, .hint _ _, _ => .hint
     | .constraint, .assertR1C, b => nomatch b
     | .constraint, .rangeCheck _, b => nomatch b
     | .constraint, .assertSpread _, b => nomatch b
-    | .hint, .writeWitness, b => nomatch b
   blockInputs := fun
     | .constraint, .hint n _, _ => .base (.fields n)
     | .constraint, .assertR1C, b => nomatch b
     | .constraint, .rangeCheck _, b => nomatch b
     | .constraint, .assertSpread _, b => nomatch b
-    | .hint, .writeWitness, b => nomatch b
   blockOutputs := fun
-    | .constraint, .hint _ α, _ => α
+    | .constraint, .hint _ m, _ => .base (.fields m)
     | .constraint, .assertR1C, b => nomatch b
     | .constraint, .rangeCheck _, b => nomatch b
     | .constraint, .assertSpread _, b => nomatch b
-    | .hint, .writeWitness, b => nomatch b
 
 /-! ## Printing -/
 
@@ -146,7 +141,9 @@ instance : Language.Print language where
     | .wNeg => .list (.atom "wNeg" :: args)
     | .wScale => .list (.atom "wScale" :: args)
     | .wires _ => .list (.atom "wires" :: args)
+    | .fields _ => .list (.atom "fields" :: args)
     | .fieldsGet _ i _ => .list (.atom "fieldsGet" :: .atom (toString i) :: args)
+    | .wiresGet _ i _ => .list (.atom "wiresGet" :: .atom (toString i) :: args)
   ctxName
     | .constraint => "constraint"
     | .hint => "hint"
@@ -154,20 +151,17 @@ instance : Language.Print language where
     | .constraint, .assertR1C => .atom "assertR1C"
     | .constraint, .rangeCheck n => .list [.atom "rangeCheck", .atom (toString n)]
     | .constraint, .assertSpread n => .list [.atom "assertSpread", .atom (toString n)]
-    | .constraint, .hint n α => .list [.atom "hint", .atom (toString n), tpSexp α.val]
-    | .hint, .writeWitness => .atom "writeWitness"
+    | .constraint, .hint n m => .list [.atom "hint", .atom (toString n), .atom (toString m)]
   blocks := fun
     | .constraint, .hint _ _ => [()]
     | .constraint, .assertR1C => []
     | .constraint, .rangeCheck _ => []
     | .constraint, .assertSpread _ => []
-    | .hint, .writeWitness => []
   blockName := fun
     | .constraint, .hint _ _, _ => "body"
     | .constraint, .assertR1C, b => nomatch b
     | .constraint, .rangeCheck _, b => nomatch b
     | .constraint, .assertSpread _, b => nomatch b
-    | .hint, .writeWitness, b => nomatch b
 
 /-! ## Model -/
 
@@ -205,7 +199,9 @@ noncomputable def model : language.Model where
     | .wNeg, h![a] => some (-a)
     | .wScale, h![c, w] => some (c • w)
     | .wires n, xs => some ⟨(HList.elems n xs).toArray, by simp [HList.length_elems]⟩
+    | .fields n, xs => some ⟨(HList.elems n xs).toArray, by simp [HList.length_elems]⟩
     | .fieldsGet _ i h, h![v] => some v[i]
+    | .wiresGet _ i h, h![v] => some v[i]
 
 /-- How source types are represented, indexed by their AST type and the
 source type. -/
@@ -216,14 +212,12 @@ inductive Rep : AbiTp → Type → Type
 | cert (A : Assertion (ZMod P) ctx.W) : Rep .unit (Cert A)
 /-- A wire with a certificate about it, by the wire. -/
 | certW (Q : ctx.W → Assertion (ZMod P) ctx.W) : Rep (.base .wire) (CertW Q)
-/-- A field element with a property, by the element. -/
-| fieldSub (p : ZMod P → Prop) : Rep (.base .field) (Subtype p)
 
 /-- The erasure of represented values. By `casesOn`, which reduces on a
 constructor whatever its indices. -/
 def Rep.erase {t : AbiTp} {α : Type} (r : Rep P t α) : α → (model P).V t.val :=
   Rep.casesOn (motive := fun t α _ => α → (model P).V t.val) r
-    (fun _ v => v) (fun _ _ => ()) (fun _ w => w.val) (fun _ v => v.val)
+    (fun _ v => v) (fun _ _ => ()) (fun _ w => w.val)
 
 theorem Rep.erase_injective :
     ∀ {t : AbiTp} {α : Type} (r : Rep P t α), Function.Injective (Rep.erase P r)
@@ -233,10 +227,8 @@ theorem Rep.erase_injective :
     cases h
     cases Subsingleton.elim c₁ c₂
     rfl
-| _, _, .fieldSub _ => Subtype.val_injective
 
-/-- How DSL operations are represented: each by its AST operation, a hint
-with the representation of the type it returns. -/
+/-- How DSL operations are represented: each by its AST operation. -/
 inductive OpRep : (γ : Scope) → Circuit.Eff P ctx γ → Type 1
 | assertR1C (a b c : ctx.W) :
     OpRep .constraint (Circuit.ConstraintEff.assertR1C a b c : Circuit.Eff P ctx .constraint)
@@ -244,14 +236,12 @@ inductive OpRep : (γ : Scope) → Circuit.Eff P ctx γ → Type 1
     OpRep .constraint (Circuit.ConstraintEff.rangeCheck n a : Circuit.Eff P ctx .constraint)
 | assertSpread (n : Nat) (a b : ctx.W) :
     OpRep .constraint (Circuit.ConstraintEff.assertSpread n a b : Circuit.Eff P ctx .constraint)
-| hint (n : Nat) {t : AbiTp} {α : Type} (s : Rep P t α) (args : Vector ctx.W n) :
-    OpRep .constraint (Circuit.ConstraintEff.hint n α args : Circuit.Eff P ctx .constraint)
-| writeWitness (a : ZMod P) :
-    OpRep .hint (Circuit.HintEff.writeWitness a : Circuit.Eff P ctx .hint)
+| hint (n m : Nat) (args : Vector ctx.W n) :
+    OpRep .constraint (Circuit.ConstraintEff.hint n m args : Circuit.Eff P ctx .constraint)
 
 /-- The `Circuit` lift, for every prime and circuit context. Arguments are
-objects; certificates are represented by `()`, and a hint's block results and
-its own result by its representation. -/
+objects, and so are a hint's inputs and results; certificates are represented
+by `()`. -/
 noncomputable def lift : Lift language (model P) where
   SrcOp := Circuit.Eff P ctx
   -- Found at `Scope`, which `language.Ctx` is by unfolding.
@@ -264,23 +254,20 @@ noncomputable def lift : Lift language (model P) where
   | .assertR1C .. => .assertR1C
   | .rangeCheck n _ => .rangeCheck n
   | .assertSpread n .. => .assertSpread n
-  | .hint n (t := t) _ _ => .hint n t
-  | .writeWitness _ => .writeWitness
+  | .hint n m _ => .hint n m
   input
   | .assertR1C a b c => (a, (b, c))
   | .rangeCheck _ a => a
   | .assertSpread _ a b => (a, b)
   | .hint _ _ args => args
-  | .writeWitness a => a
   block | .hint .., _ => ()
   blockInput | .hint .., _ => .self _
-  blockOutput | .hint _ s _, _ => s
+  blockOutput | .hint .., _ => .self _
   output
   | .assertR1C a b c => .cert (R1CSAssertion a b c)
   | .rangeCheck n a => .cert (RangeAssertion n a)
   | .assertSpread n a b => .cert (SpreadAssertion n a b)
-  | .hint _ s _ => s
-  | .writeWitness _ => .self _
+  | .hint .. => .self _
 
 /-- The simulation spec AST programs are compared to DSL programs by. -/
 noncomputable abbrev simSpec : Free.SimSpec (language.denote (model P)) (Circuit.Eff P ctx) :=
@@ -332,45 +319,21 @@ variable {P : Nat} [ctx : Context P] {h : Heap language (model P)} {o : language
     (fun t => nomatch t) fun r => hk _ r
 
 /-- A hint: the block is certified for every input, against a source block
-returning a type represented by `s`; the continuation at every erased
-result. The AST's result type is the representation's. -/
-@[lift_rule lift] theorem hint {n : Nat} {t : AbiTp} {α : Type} {s : (lift P).Rep t α}
+returning the same field elements; the continuation at every result. -/
+@[lift_rule lift] theorem hint {n m : Nat}
     {args : Vector ctx.W n} {β : Type} {R : (model P).V o → β → Prop}
-    {body : (model P).V (.base (.fields n)) → Expr language (model P).V .hint t.val}
-    {src : (model P).V (.base (.fields n)) → Hint P α}
-    (hb : ∀ xs, ExprCert (simSpec P) h (body xs) (fun v a => v = (lift P).erase s a) (src xs))
-    {k : (model P).V t.val → Expr language (model P).V .constraint o}
-    {tk : α → Free (Circuit.Eff P ctx) .constraint β}
-    (hk : ∀ v a, v = (lift P).erase s a → ExprCert (simSpec P) h (k v) R (tk a)) :
+    {body : (model P).V (.base (.fields n)) → Expr language (model P).V .hint (.base (.fields m))}
+    {src : (model P).V (.base (.fields n)) → Hint P (Vector (ZMod P) m)}
+    (hb : ∀ xs, ExprCert (simSpec P) h (body xs) Eq (src xs))
+    {k : (model P).V (.base (.wires m)) → Expr language (model P).V .constraint o}
+    {tk : Vector ctx.W m → Free (Circuit.Eff P ctx) .constraint β}
+    (hk : ∀ ws, ExprCert (simSpec P) h (k ws) R (tk ws)) :
     ExprCert (simSpec P) h
-      (.op (L := language) (γ := Scope.constraint) (ConstraintOp.hint n t) args
+      (.op (L := language) (γ := Scope.constraint) (ConstraintOp.hint n m) args
         (fun _ => body) k) R
-      (Circuit.hint n args src >>= tk) :=
-  ExprCert.op (spec := simSpec P) (.mk _ (.hint n s args)) (blocks := fun _ => body)
-    (fun _ y => hb y)
-    fun a => hk _ a rfl
-
-@[lift_rule lift] theorem writeWitness {a : ZMod P} {β : Type}
-    {R : (model P).V o → β → Prop}
-    {k : (model P).V (.base .wire) → Expr language (model P).V .hint o}
-    {tk : (model P).V (.base .wire) → Free (Circuit.Eff P ctx) .hint β}
-    (hk : ∀ w, ExprCert (simSpec P) h (k w) R (tk w)) :
-    ExprCert (simSpec P) h
-      (.op (L := language) (γ := Scope.hint) HintOp.writeWitness a (fun b => Empty.elim b) k) R
-      (Circuit.writeWitness a >>= tk) :=
-  ExprCert.op (spec := simSpec P) (.mk _ (.writeWitness a)) (blocks := fun b => Empty.elim b)
-    (fun t => nomatch t) hk
-
-@[lift_rule lift] theorem writeWitness_tail {a : ZMod P} :
-    ExprCert (simSpec P) h
-      (.op (L := language) (γ := Scope.hint) HintOp.writeWitness a (fun b => Empty.elim b)
-        fun v => .ret v) Eq
-      (Circuit.writeWitness a) := by
-  have := writeWitness (h := h) (a := a) (o := (language.output Scope.hint HintOp.writeWitness).val)
-    (R := Eq) (tk := pure) fun _ => .ret rfl
-  convert this using 1
-  · rfl
-  · exact (bind_pure (Circuit.writeWitness a)).symm
+      (Circuit.hint args src >>= tk) :=
+  ExprCert.op (spec := simSpec P) (.mk _ (.hint n m args)) (blocks := fun _ => body)
+    (fun _ y => hb y) hk
 
 /-- `rangeCheck`: the continuation receives the checked wire, its `Cert`
 erased. -/
@@ -518,6 +481,13 @@ and must not mention the model's parameters. -/
     ExprCert (simSpec P) h (.builtin (.prim (.fieldsGet n i hi)) h![v] k) R (tk (v[i]'hi)) :=
   ExprCert.builtin rfl hk
 
+@[lift_rule lift] theorem wiresGet {n i : Nat} {hi : i < n} {v : Vector ctx.W n}
+    {k : (model P).V (.base .wire) → Expr language (model P).V γ o}
+    {tk : (model P).V (.base .wire) → Free (Circuit.Eff P ctx) γ α}
+    (hk : ExprCert (simSpec P) h (k (v[i]'hi)) R (tk (v[i]'hi))) :
+    ExprCert (simSpec P) h (.builtin (.prim (.wiresGet n i hi)) h![v] k) R (tk (v[i]'hi)) :=
+  ExprCert.builtin rfl hk
+
 @[lift_rule lift] theorem wires1 {a : ctx.W}
     {k : (model P).V (.base (.wires 1)) → Expr language (model P).V γ o}
     {tk : (model P).V (.base (.wires 1)) → Free (Circuit.Eff P ctx) γ α}
@@ -544,6 +514,34 @@ and must not mention the model's parameters. -/
     {tk : (model P).V (.base (.wires 4)) → Free (Circuit.Eff P ctx) γ α}
     (hk : ExprCert (simSpec P) h (k #v[a, b, c, d]) R (tk #v[a, b, c, d])) :
     ExprCert (simSpec P) h (.builtin (.prim (.wires 4)) h![a, b, c, d] k) R (tk #v[a, b, c, d]) :=
+  ExprCert.builtin rfl hk
+
+@[lift_rule lift] theorem fields1 {a : ZMod P}
+    {k : (model P).V (.base (.fields 1)) → Expr language (model P).V γ o}
+    {tk : (model P).V (.base (.fields 1)) → Free (Circuit.Eff P ctx) γ α}
+    (hk : ExprCert (simSpec P) h (k #v[a]) R (tk #v[a])) :
+    ExprCert (simSpec P) h (.builtin (.prim (.fields 1)) h![a] k) R (tk #v[a]) :=
+  ExprCert.builtin rfl hk
+
+@[lift_rule lift] theorem fields2 {a b : ZMod P}
+    {k : (model P).V (.base (.fields 2)) → Expr language (model P).V γ o}
+    {tk : (model P).V (.base (.fields 2)) → Free (Circuit.Eff P ctx) γ α}
+    (hk : ExprCert (simSpec P) h (k #v[a, b]) R (tk #v[a, b])) :
+    ExprCert (simSpec P) h (.builtin (.prim (.fields 2)) h![a, b] k) R (tk #v[a, b]) :=
+  ExprCert.builtin rfl hk
+
+@[lift_rule lift] theorem fields3 {a b c : ZMod P}
+    {k : (model P).V (.base (.fields 3)) → Expr language (model P).V γ o}
+    {tk : (model P).V (.base (.fields 3)) → Free (Circuit.Eff P ctx) γ α}
+    (hk : ExprCert (simSpec P) h (k #v[a, b, c]) R (tk #v[a, b, c])) :
+    ExprCert (simSpec P) h (.builtin (.prim (.fields 3)) h![a, b, c] k) R (tk #v[a, b, c]) :=
+  ExprCert.builtin rfl hk
+
+@[lift_rule lift] theorem fields4 {a b c d : ZMod P}
+    {k : (model P).V (.base (.fields 4)) → Expr language (model P).V γ o}
+    {tk : (model P).V (.base (.fields 4)) → Free (Circuit.Eff P ctx) γ α}
+    (hk : ExprCert (simSpec P) h (k #v[a, b, c, d]) R (tk #v[a, b, c, d])) :
+    ExprCert (simSpec P) h (.builtin (.prim (.fields 4)) h![a, b, c, d] k) R (tk #v[a, b, c, d]) :=
   ExprCert.builtin rfl hk
 
 end Prims

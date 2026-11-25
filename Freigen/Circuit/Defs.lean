@@ -14,10 +14,11 @@ inductive ConstraintEff (P : Nat) (ctx : Context P) where
 | assertR1C (a b c : ctx.W)
 | rangeCheck (n : Nat) (a : ctx.W)
 | assertSpread (n : Nat) (a b : ctx.W)
-| hint (n : Nat) (α : Type) (args : Vector ctx.W n)
+/-- A hint over `n` wires, producing `m` witnesses. -/
+| hint (n m : Nat) (args : Vector ctx.W n)
 
-inductive HintEff (P : Nat) (ctx : Context P) : Type u where
-| writeWitness (a : ZMod P)
+/-- Hint blocks have no effects (yet): their only output is their result. -/
+inductive HintEff (P : Nat) (ctx : Context P) : Type u
 
 def Eff (P : Nat) (ctx : Context P) : Scope → Type _
 | .constraint => ConstraintEff P ctx
@@ -29,32 +30,27 @@ instance {P : Nat} [ctx : Context P] :
   | .constraint, .assertR1C a b c => Cert (R1CSAssertion a b c)
   | .constraint, .rangeCheck n a => Cert (RangeAssertion n a)
   | .constraint, .assertSpread n a b => Cert (SpreadAssertion n a b)
-  | .constraint, .hint _ α _ => α
-  | .hint, .writeWitness _ => ctx.W
+  | .constraint, .hint _ m _ => Vector ctx.W m
   blockTag := fun
   | .constraint, .assertR1C _ _ _ => PEmpty
   | .constraint, .rangeCheck _ _ => PEmpty
   | .constraint, .assertSpread _ _ _ => PEmpty
   | .constraint, .hint _ _ _ => PUnit
-  | .hint, .writeWitness _ => PEmpty
   blockCtx := fun
   | .constraint, .assertR1C _ _ _ => nofun
   | .constraint, .rangeCheck _ _ => nofun
   | .constraint, .assertSpread _ _ _ => nofun
   | .constraint, .hint _ _ _ => fun _ => .hint
-  | .hint, .writeWitness _ => nofun
   blockInputs := fun
   | .constraint, .assertR1C _ _ _ => nofun
   | .constraint, .rangeCheck _ _ => nofun
   | .constraint, .assertSpread _ _ _ => nofun
   | .constraint, .hint n _ _ => fun _ => Vector (ZMod P) n
-  | .hint, .writeWitness _ => nofun
   blockOutputs := fun
   | .constraint, .assertR1C _ _ _ => nofun
   | .constraint, .rangeCheck _ _ => nofun
   | .constraint, .assertSpread _ _ _ => nofun
-  | .constraint, .hint _ α _ => fun _ => α
-  | .hint, .writeWitness _ => nofun
+  | .constraint, .hint _ m _ => fun _ => Vector (ZMod P) m
 
 end Circuit
 
@@ -96,13 +92,14 @@ def assertSpread (n : Nat) (a b : ctx.W) :
   Free.op (E := Circuit.Eff P ctx) (γ := .constraint)
     (.assertSpread n a b) nofun
 
-def hint {α} (n : Nat) (args : Vector ctx.W n)
-    (h : Vector (ZMod P) n → Hint P α) : Circuit P α :=
-  Free.op (E := Circuit.Eff P ctx) (γ := .constraint) (.hint n α args)
+/-- A hint: `m` fresh witnesses, computed by `h` from the values of `args`.
+The constraints see only the wires; witness generation runs `h` on the
+arguments' values and assigns its results to them, in order. Nothing
+constrains them: whatever is assumed of them must be asserted. -/
+def hint {n m : Nat} (args : Vector ctx.W n)
+    (h : Vector (ZMod P) n → Hint P (Vector (ZMod P) m)) : Circuit P (Vector ctx.W m) :=
+  Free.op (E := Circuit.Eff P ctx) (γ := .constraint) (.hint n m args)
     (fun _ inputs => h inputs)
-
-def writeWitness (a : ZMod P) : Hint P ctx.W :=
-  Free.op (E := Circuit.Eff P ctx) (γ := .hint) (.writeWitness a) nofun
 
 omit ctx in
 /-- A square root in the field: some `r` with `r * r = x` if there is one, and
