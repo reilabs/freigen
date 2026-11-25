@@ -181,7 +181,21 @@ Still needed:
 - A parser and a round-trip test, since the printer promises the format
   can be parsed back.
 
-## 9. Housekeeping
+## 9. Passes
 
-- Land the `speedup-binds` branch (cached `result` in `ExactCodensity`).
-  Only the `CompM` observation laws should need to be proved again.
+Join-point elimination (`Program.joinPoints`) is proved to preserve
+`CompM.Eutt`, and so certificates, for well-formed programs. Still missing:
+
+- **Running it.** Nothing applies the pass: lifted programs are printed
+  as the macro emits them. The macro could prove `Program.Wf` (`ast_wf`)
+  and state the certificate of the translation.
+- **Closures that stay.** A join point with an early-return path, or one
+  called more than once outside tail position, stays a closure. Single-use
+  closures could be inlined; join points with several arguments (from
+  `let mut`) need the macro to support them first (item 3).
+- **Hypotheses.** The pass needs `Language.Blocks`, which repeats
+  `Language.Print.blocks`, and the theorem needs `Language.PrimFnFree`
+  (primitives neither take nor return references).
+- **Shared infrastructure.** Further passes reuse `Eutt`, `Wf` and the
+  reference-relating simulation of `Ast/JoinPoints/Rel.lean`, which is
+  specific to this pass today.

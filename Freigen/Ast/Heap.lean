@@ -56,6 +56,16 @@ theorem lookup_mono {s s' : Heap L M} (hs : s ≤ s') {r : FnRef}
     simp only [lookup, hget]
   rw [this, hl]
 
+/-- A reference resolves at one type only. -/
+theorem lookup_types {s : Heap L M} {r : FnRef} {γ' : L.Ctx} {i' o' : L.Tp}
+    {g : M.V i → Expr L M.V γ o} {g' : M.V i' → Expr L M.V γ' o'}
+    (h : s.lookup r = some g) (h' : s.lookup r = some g') : γ = γ' ∧ i = i' ∧ o = o' := by
+  simp only [lookup] at h h'
+  rcases hx : s.env.get? r with _ | ⟨γ₀, i₀, o₀, b⟩ <;> simp only [hx] at h h'
+  · simp at h
+  · simp only [Option.bind_eq_bind, Option.bind_some] at h h'
+    split at h <;> split at h' <;> simp_all
+
 end Heap
 
 end Freigen.Ast
