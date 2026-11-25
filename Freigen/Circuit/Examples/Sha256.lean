@@ -49,20 +49,17 @@ private def assertEq (x y : W) : Circuit P (Cert $ fun ρ => ρ x = ρ y) := do
     exact h
 
 private def spread (n : Nat) (x : W) : Circuit P W := do
-  let y ← Circuit.hint 1 #v[x] fun inputs =>
-    Circuit.writeWitness (fieldSpread n inputs[0])
-  let _ ← Circuit.assertSpread n x y
-  pure y
+  let y ← Circuit.hint #v[x] fun inputs => pure #v[fieldSpread n inputs[0]]
+  let _ ← Circuit.assertSpread n x y[0]
+  pure y[0]
 
 private def unspread (n : Nat) (x : W) : Circuit P (W × W) := do
-  let ys ← Circuit.hint 1 #v[x] fun inputs => do
-    let high ← Circuit.writeWitness (fieldUnspread 1 n inputs[0])
-    let low ← Circuit.writeWitness (fieldUnspread 0 n inputs[0])
-    pure (high, low)
-  let highSpread ← spread n ys.1
-  let lowSpread ← spread n ys.2
+  let ys ← Circuit.hint #v[x] fun inputs =>
+    pure #v[fieldUnspread 1 n inputs[0], fieldUnspread 0 n inputs[0]]
+  let highSpread ← spread n ys[0]
+  let lowSpread ← spread n ys[1]
   _ ← assertEq x (lowSpread + (2 : F) • highSpread)
-  pure ys
+  pure (ys[0], ys[1])
 
 private structure Chunks4 where
   s0 : W
@@ -73,36 +70,32 @@ private structure Chunks4 where
 private def splitAndSpread4
     (a b c d : Nat) (_width : a + b + c + d = 32)
     (x : W) : Circuit P Chunks4 := do
-  let chunks ← Circuit.hint 1 #v[x] fun inputs => do
+  let chunks ← Circuit.hint #v[x] fun inputs => do
     let value := inputs[0].val
     let a0 : F := (value / pow2Nat (b + c + d) % pow2Nat a : F)
     let a1 : F := (value / pow2Nat (c + d) % pow2Nat b : F)
     let a2 : F := (value / pow2Nat d % pow2Nat c : F)
-    let w0 ← Circuit.writeWitness a0
-    let w1 ← Circuit.writeWitness a1
-    let w2 ← Circuit.writeWitness a2
-    pure (w0, w1, w2)
+    pure #v[a0, a1, a2]
   let a3 :=
     x -
-      (pow2 (b + c + d)) • chunks.1 -
-      (pow2 (c + d)) • chunks.2.1 -
-      (pow2 d) • chunks.2.2
-  let s0 ← spread a chunks.1
-  let s1 ← spread b chunks.2.1
-  let s2 ← spread c chunks.2.2
+      (pow2 (b + c + d)) • chunks[0] -
+      (pow2 (c + d)) • chunks[1] -
+      (pow2 d) • chunks[2]
+  let s0 ← spread a chunks[0]
+  let s1 ← spread b chunks[1]
+  let s2 ← spread c chunks[2]
   let s3 ← spread d a3
   pure ⟨s0, s1, s2, s3⟩
 
 private def unspread64 (x : W) : Circuit P (W × W) := do
-  let limbs ← Circuit.hint 1 #v[x] fun inputs => do
+  let limbs ← Circuit.hint #v[x] fun inputs => do
     let value := inputs[0].val
     let mask := pow2Nat 22 - 1
-    let a0 ← Circuit.writeWitness (((value / pow2Nat 42) &&& mask : Nat) : F)
-    let a1 ← Circuit.writeWitness (((value / pow2Nat 20) &&& mask : Nat) : F)
-    pure (a0, a1)
-  let a2 := x - (pow2 42) • limbs.1 - (pow2 20) • limbs.2
-  let a0 ← unspread 11 limbs.1
-  let a1 ← unspread 11 limbs.2
+    pure #v[(((value / pow2Nat 42) &&& mask : Nat) : F),
+      (((value / pow2Nat 20) &&& mask : Nat) : F)]
+  let a2 := x - (pow2 42) • limbs[0] - (pow2 20) • limbs[1]
+  let a0 ← unspread 11 limbs[0]
+  let a1 ← unspread 11 limbs[1]
   let a2 ← unspread 10 a2
   pure
     (a2.1 + (pow2 10) • a1.1 + (pow2 21) • a0.1,
@@ -111,12 +104,11 @@ private def unspread64 (x : W) : Circuit P (W × W) := do
 private def unsafeWrappingAdd {n : Nat}
     (xs : Vector W n) : Circuit P W := do
   let sum := xs.toList.foldl (· + ·) 0
-  let result ← Circuit.hint n xs fun inputs =>
-    Circuit.writeWitness
-      (((inputs.toList.foldl (· + ·) 0).val % pow2Nat 32 : Nat) : F)
-  let carry := (pow2 32)⁻¹ • (sum - result)
+  let result ← Circuit.hint xs fun inputs =>
+    pure #v[(((inputs.toList.foldl (· + ·) 0).val % pow2Nat 32 : Nat) : F)]
+  let carry := (pow2 32)⁻¹ • (sum - result[0])
   let _ ← Circuit.rangeCheck 8 carry
-  pure result
+  pure result[0]
 
 private def wrappingAdd {n : Nat}
     (xs : Vector W n) : Circuit P W := do

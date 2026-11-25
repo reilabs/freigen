@@ -16,41 +16,52 @@ open Ast Lift
 variable {P : Nat} [ctx : Context P]
 
 noncomputable def srcSqrt (x : ctx.W) : Circuit P ctx.W := do
-  let r ← Circuit.hint 1 #v[x] fun inputs => Circuit.writeWitness (fsqrt inputs[0])
-  let _ ← Circuit.assertR1C r r x
-  pure r
+  let r ← Circuit.hint #v[x] fun inputs => pure #v[fsqrt inputs[0]]
+  let _ ← Circuit.assertR1C r[0] r[0] x
+  pure r[0]
 
 abbrev wireAbi : Lift.AbiTp := .base .wire
 
 def sqrtAst {V : language.Tp → Type} : Program language Scope.constraint wireAbi wireAbi V :=
   .main fun x =>
     .builtin (.prim (.wires 1)) h![x] fun xs =>
-    .op (L := language) (γ := Scope.constraint) (ConstraintOp.hint 1 wireAbi) xs
+    .op (L := language) (γ := Scope.constraint) (ConstraintOp.hint 1 1) xs
       (fun _ ins =>
         .builtin (.prim (.fieldsGet 1 0 (by decide))) h![ins] fun v =>
         .builtin (.prim .fSqrt) h![v] fun s =>
-        .op (L := language) (γ := Scope.hint) HintOp.writeWitness s (fun b => Empty.elim b) .ret)
-      fun r =>
-    assertR1CAst r r x fun _ => .ret r
+        .builtin (.prim (.fields 1)) h![s] fun v => .ret v)
+      fun rs =>
+    .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r =>
+    assertR1CAst r r x fun _ =>
+    .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r' => .ret r'
 
 theorem sqrtCert : ProgramCert (lift P) (fun _ => Rep.self (P := P) wireAbi) sqrtAst (srcSqrt (P := P)) := by
   refine .of_progCert <| .main (fun x => ?_)
   refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
     (R := Eq) (b := .prim (.wires 1)) (args := h![x]) (r := #v[x]) rfl ?_
-  refine Rules.hint (n := 1) (s := Rep.self (P := P) wireAbi) (args := #v[x])
+  refine Rules.hint (n := 1) (m := 1) (args := #v[x])
     (body := fun ins =>
       .builtin (.prim (.fieldsGet 1 0 (by decide))) h![ins] fun v =>
       .builtin (.prim .fSqrt) h![v] fun s =>
-      .op (L := language) (γ := Scope.hint) HintOp.writeWitness s (fun b => Empty.elim b) .ret)
-    (src := fun (inputs : Vector (ZMod P) 1) => Circuit.writeWitness (fsqrt inputs[0]))
-    (k := fun r => assertR1CAst r r x fun _ => .ret r)
-    (tk := fun r => Circuit.assertR1C r r x >>= fun _ => pure r)
-    (fun (ins : Vector (ZMod P) 1) => ?_) fun r _ h => h ▸ Rules.assertR1C fun _ _ => .ret rfl
-  refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base .wire)
-    (R := Eq) (b := .prim (.fieldsGet 1 0 (by decide))) (args := h![ins]) (r := ins[0]) rfl ?_
-  refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base .wire)
-    (R := Eq) (b := .prim .fSqrt) (r := fsqrt ins[0]) rfl ?_
-  exact Rules.writeWitness_tail
+      .builtin (.prim (.fields 1)) h![s] fun v => .ret v)
+    (src := fun (ins : Vector (ZMod P) 1) => pure #v[fsqrt ins[0]])
+    (k := fun rs =>
+      .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r =>
+      assertR1CAst r r x fun _ =>
+      .builtin (.prim (.wiresGet 1 0 (by decide))) h![rs] fun r' => .ret r')
+    (tk := fun rs => Circuit.assertR1C rs[0] rs[0] x >>= fun _ => pure rs[0])
+    (fun (ins : Vector (ZMod P) 1) => ?_) fun (rs : Vector ctx.W 1) => ?_
+  · refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base (.fields 1))
+      (R := Eq) (b := .prim (.fieldsGet 1 0 (by decide))) (args := h![ins]) (r := ins[0]) rfl ?_
+    refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base (.fields 1))
+      (R := Eq) (b := .prim .fSqrt) (r := fsqrt ins[0]) rfl ?_
+    exact ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .base (.fields 1))
+      (R := Eq) (b := .prim (.fields 1)) (r := #v[fsqrt ins[0]]) rfl (.ret rfl)
+  · refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
+      (R := Eq) (b := .prim (.wiresGet 1 0 (by decide))) (args := h![rs]) (r := rs[0]) rfl ?_
+    refine Rules.assertR1C fun _ _ => ?_
+    exact ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
+      (R := Eq) (b := .prim (.wiresGet 1 0 (by decide))) (r := rs[0]) rfl (.ret rfl)
 
 /-- info: 'Freigen.Circuit.Examples.Sqrt.sqrtCert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sqrtCert
@@ -60,16 +71,18 @@ info: (program
   (main constraint (v0 wire) wire
     (let v1 (wires v0))
     (let v2
-      (op (hint 1 wire) v1
+      (op (hint 1 1) v1
         (block body (v3)
           (let v4 (fieldsGet 0 v3))
           (let v5 (fSqrt v4))
-          (let v6 (op writeWitness v5))
+          (let v6 (fields v5))
           (ret v6))))
-    (let v7 (pair v2 v0))
-    (let v8 (pair v2 v7))
-    (let v9 (op assertR1C v8))
-    (ret v2)))
+    (let v7 (wiresGet 0 v2))
+    (let v8 (pair v7 v0))
+    (let v9 (pair v7 v8))
+    (let v10 (op assertR1C v9))
+    (let v11 (wiresGet 0 v2))
+    (ret v11)))
 -/
 #guard_msgs in #eval IO.println (sqrtAst (V := fun _ => String)).pretty
 
@@ -91,14 +104,14 @@ example : @liftedSqrt.ast = @sqrtAst := rfl
 
 /-! ## More programs -/
 
-/-- A hint returning a pair, field and wire arithmetic, a `let` used twice, and
+/-- A hint returning two witnesses, field and wire arithmetic, a `let` used twice, and
 a range check whose result is ignored. -/
 def srcMore (x : ctx.W) : Circuit P ctx.W := do
-  let ys ← Circuit.hint 1 #v[x] fun ins => do
-    let a ← Circuit.writeWitness (ins[0] * ins[0] + ins[0])
-    let b ← Circuit.writeWitness (-ins[0])
-    pure (a, b)
-  let s := ys.1 - ys.2 + x
+  let ys ← Circuit.hint #v[x] fun ins => do
+    let a := ins[0] * ins[0] + ins[0]
+    let b := -ins[0]
+    pure #v[a, b]
+  let s := ys[0] - ys[1] + x
   let _ ← Circuit.rangeCheck 8 s
   pure (-s)
 
@@ -115,25 +128,23 @@ info: (program
   (main constraint (v0 wire) wire
     (let v1 (wires v0))
     (let v2
-      (op (hint 1 (prod wire wire)) v1
+      (op (hint 1 2) v1
         (block body (v3)
           (let v4 (fieldsGet 0 v3))
           (let v5 (fMul v4 v4))
           (let v6 (fieldsGet 0 v3))
           (let v7 (fAdd v5 v6))
-          (let v8 (op writeWitness v7))
-          (let v9 (fieldsGet 0 v3))
-          (let v10 (fNeg v9))
-          (let v11 (op writeWitness v10))
-          (let v12 (pair v8 v11))
-          (ret v12))))
-    (let v13 (fst v2))
-    (let v14 (snd v2))
-    (let v15 (wSub v13 v14))
-    (let v16 (wAdd v15 v0))
-    (let v17 (op (rangeCheck 8) v16))
-    (let v18 (wNeg v16))
-    (ret v18)))
+          (let v8 (fieldsGet 0 v3))
+          (let v9 (fNeg v8))
+          (let v10 (fields v7 v9))
+          (ret v10))))
+    (let v11 (wiresGet 0 v2))
+    (let v12 (wiresGet 1 v2))
+    (let v13 (wSub v11 v12))
+    (let v14 (wAdd v13 v0))
+    (let v15 (op (rangeCheck 8) v14))
+    (let v16 (wNeg v14))
+    (ret v16)))
 -/
 #guard_msgs in #eval IO.println (liftedMore.ast (V := fun _ => String)).pretty
 
@@ -144,7 +155,8 @@ them, and the AST computes with their representatives. -/
 
 /-- A boolean wire, returned with its certificate rephrased by `Cert.map`. -/
 def srcBool (x : ctx.W) : Circuit P (CertW (P := P) fun b ρ => ρ b = ρ b * ρ b) := do
-  let b ← Circuit.hint 1 #v[x] fun ins => Circuit.writeWitness (ins[0] * ins[0])
+  let bs ← Circuit.hint #v[x] fun ins => pure #v[ins[0] * ins[0]]
+  let b := bs[0]
   let c ← Circuit.assertR1C b b b
   let c' : Cert (fun ρ => ρ b = ρ b * ρ b) := Cert.map (fun _ h => h.symm) c
   pure ⟨b, c'⟩
@@ -166,53 +178,19 @@ info: (program
   (main constraint (v0 wire) wire
     (let v1 (wires v0))
     (let v2
-      (op (hint 1 wire) v1
+      (op (hint 1 1) v1
         (block body (v3)
           (let v4 (fieldsGet 0 v3))
           (let v5 (fMul v4 v4))
-          (let v6 (op writeWitness v5))
+          (let v6 (fields v5))
           (ret v6))))
-    (let v7 (pair v2 v2))
-    (let v8 (pair v2 v7))
-    (let v9 (op assertR1C v8))
-    (ret v2)))
+    (let v7 (wiresGet 0 v2))
+    (let v8 (pair v7 v7))
+    (let v9 (pair v7 v8))
+    (let v10 (op assertR1C v9))
+    (ret v7)))
 -/
 #guard_msgs in #eval IO.println (liftedBool.ast (V := fun _ => String)).pretty
-
-/-- A hint whose block returns a subtype in the source and a field element in
-the AST, erased to the element. The proof is about the value the
-primitives compute: `fieldsGet` and `fMul` certify their continuations at
-their results, so the proof carries over. -/
-def srcSquare (x : ctx.W) : Circuit P ctx.W := do
-  let s ← Circuit.hint 1 #v[x] fun ins =>
-    pure (⟨ins[0] * ins[0], ins[0], rfl⟩ : {v : ZMod P // ∃ r, v = r * r})
-  pure (s.val • x)
-
-lift_program liftedSquare := srcSquare via lift
-
-/--
-info: Freigen.Circuit.Examples.Sqrt.liftedSquare.cert (P : ℕ) [ctx : Context P] :
-  ProgramCert (lift P) (fun x => Rep.self (AbiTp.base Base.wire ⋯)) (fun {V} => liftedSquare.ast) srcSquare
--/
-#guard_msgs in #check liftedSquare.cert
-
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedSquare.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms liftedSquare.cert
-
-/--
-info: (program
-  (main constraint (v0 wire) wire
-    (let v1 (wires v0))
-    (let v2
-      (op (hint 1 field) v1
-        (block body (v3)
-          (let v4 (fieldsGet 0 v3))
-          (let v5 (fMul v4 v4))
-          (ret v5))))
-    (let v6 (wScale v2 v0))
-    (ret v6)))
--/
-#guard_msgs in #eval IO.println (liftedSquare.ast (V := fun _ => String)).pretty
 
 /-- A certificate about a computed wire, returned with it. -/
 def srcSumCert (x : ctx.W) : Circuit P (CertW (P := P) fun r => R1CSAssertion r r r) := do
@@ -449,15 +427,19 @@ lift_program liftedCertBound := srcCertBound via lift
 
 /-! ## Rejected sources -/
 
-/-- A hint whose result type has no `Tp`. -/
-def srcBadHint (x : ctx.W) : Circuit P ctx.W := do
-  let _ ← Circuit.hint (α := Nat) 1 #v[x] fun _ => pure 3
-  pure x
-
+-- A hint can only return field elements: anything else is a type error.
 /--
-error: lift: no representation of the source type
+error: Application type mismatch: The argument
+  3
+has type
   ℕ
+but is expected to have type
+  Vector (ZMod P) 1
+in the application
+  pure 3
 -/
-#guard_msgs in lift_program badHint := srcBadHint via lift
+#guard_msgs in
+example (x : ctx.W) : Circuit P (Vector ctx.W 1) :=
+  Circuit.hint #v[x] fun _ => pure (3 : Nat)
 
 end Freigen.Circuit.Examples.Sqrt
