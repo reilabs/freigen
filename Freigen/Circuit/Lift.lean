@@ -38,13 +38,14 @@ abbrev AbiTp := Ast.AbiTp Base fun _ => true
 abbrev Tp.field : Tp := .base .field
 abbrev Tp.wire : Tp := .base .wire
 
-/-- Circuit primitives: field arithmetic, and linear combinations of wires. -/
+/-- Circuit primitives: field arithmetic, and linear combinations of wires.
+`fInv` is the inverse in `ZMod P`, with `0⁻¹ = 0`. -/
 inductive Prim : List Tp → Tp → Type
 | fAdd : Prim [.field, .field] .field
 | fSub : Prim [.field, .field] .field
 | fMul : Prim [.field, .field] .field
 | fNeg : Prim [.field] .field
-| fSqrt : Prim [.field] .field
+| fInv : Prim [.field] .field
 | wAdd : Prim [.wire, .wire] .wire
 | wSub : Prim [.wire, .wire] .wire
 | wNeg : Prim [.wire] .wire
@@ -114,7 +115,7 @@ instance : Language.Print language where
     | .fSub => .list (.atom "fSub" :: args)
     | .fMul => .list (.atom "fMul" :: args)
     | .fNeg => .list (.atom "fNeg" :: args)
-    | .fSqrt => .list (.atom "fSqrt" :: args)
+    | .fInv => .list (.atom "fInv" :: args)
     | .wAdd => .list (.atom "wAdd" :: args)
     | .wSub => .list (.atom "wSub" :: args)
     | .wNeg => .list (.atom "wNeg" :: args)
@@ -149,14 +150,14 @@ abbrev Base.denote : Base → Type
 | .wire => ctx.W
 
 /-- The model over `ZMod P` and a circuit context. -/
-noncomputable def model : language.Model where
+def model : language.Model where
   denote := Base.denote P
   prim := fun p args => match p, args with
     | .fAdd, h![a, b] => some (a + b)
     | .fSub, h![a, b] => some (a - b)
     | .fMul, h![a, b] => some (a * b)
     | .fNeg, h![a] => some (-a)
-    | .fSqrt, h![a] => some (fsqrt a)
+    | .fInv, h![a] => some a⁻¹
     | .wAdd, h![a, b] => some (a + b)
     | .wSub, h![a, b] => some (a - b)
     | .wNeg, h![a] => some (-a)
@@ -201,7 +202,7 @@ inductive OpRep : (γ : Scope) → Circuit.Eff P ctx γ → Type 1
 /-- The `Circuit` lift, for every prime and circuit context. Arguments are
 objects, and so are a hint's inputs and results; certificates are represented
 by `()`. -/
-noncomputable def lift : Lift language (model P) where
+def lift : Lift language (model P) where
   SrcOp := Circuit.Eff P ctx
   -- Found at `Scope`, which `language.Ctx` is by unfolding.
   srcSpec := (inferInstance : Eff.Spec (Γ := Scope) (Circuit.Eff P ctx))
@@ -229,7 +230,7 @@ noncomputable def lift : Lift language (model P) where
   | .hint .. => .self _
 
 /-- The simulation spec AST programs are compared to DSL programs by. -/
-noncomputable abbrev simSpec : Free.SimSpec (language.denote (model P)) (Circuit.Eff P ctx) :=
+abbrev simSpec : Free.SimSpec (language.denote (model P)) (Circuit.Eff P ctx) :=
   (lift P).simSpec
 
 end Model
@@ -398,11 +399,11 @@ and must not mention the model's parameters. -/
     ExprCert (simSpec P) h (.builtin (.prim .fNeg) h![a] k) R (tk (-a)) :=
   ExprCert.builtin rfl hk
 
-@[lift_rule lift] theorem fSqrt {a : ZMod P}
+@[lift_rule lift] theorem fInv {a : ZMod P}
     {k : (model P).V (.base .field) → Expr language (model P).V γ o}
     {tk : (model P).V (.base .field) → Free (Circuit.Eff P ctx) γ α}
-    (hk : ExprCert (simSpec P) h (k (fsqrt a)) R (tk (fsqrt a))) :
-    ExprCert (simSpec P) h (.builtin (.prim .fSqrt) h![a] k) R (tk (fsqrt a)) :=
+    (hk : ExprCert (simSpec P) h (k (a⁻¹ : ZMod P)) R (tk (a⁻¹ : ZMod P))) :
+    ExprCert (simSpec P) h (.builtin (.prim .fInv) h![a] k) R (tk (a⁻¹ : ZMod P)) :=
   ExprCert.builtin rfl hk
 
 @[lift_rule lift] theorem wAdd {a b : ctx.W}
