@@ -13,6 +13,8 @@ inductive Tp (B : Type)
 | uInt32
 | bool
 | array (tp : Tp B)
+/-- Vectors of a fixed length. -/
+| vec (n : Nat) (tp : Tp B)
 | unit
 | prod (fst : Tp B) (snd : Tp B)
 | fn (inp : Tp B) (out : Tp B)
@@ -26,6 +28,7 @@ abbrev Tp.denote {B : Type} (D : B → Type) : Tp B → Type
 | .uInt32 => UInt32
 | .bool => Bool
 | .array tp => Array (Tp.denote D tp)
+| .vec n tp => Vector (Tp.denote D tp) n
 | .unit => Unit
 | .prod l r => Tp.denote D l × Tp.denote D r
 | .fn _ _ => FnRef
@@ -40,6 +43,7 @@ abbrev Tp.Lit {B : Type} (tp : Tp B) : Type := Tp.denote (fun _ => Empty) tp
 | .uInt32, v => v
 | .bool, v => v
 | .array tp, v => v.map (Tp.embed tp)
+| .vec _ tp, v => v.map (Tp.embed tp)
 | .unit, v => v
 | .prod a b, v => (Tp.embed a v.1, Tp.embed b v.2)
 | .fn _ _, v => v
@@ -52,6 +56,7 @@ inductive IsAbiTp {B : Type} (abi : B → Bool) : Tp B → Prop
 | bool : IsAbiTp abi .bool
 | unit : IsAbiTp abi .unit
 | array {tp} : IsAbiTp abi tp → IsAbiTp abi (Tp.array tp)
+| vec {n tp} : IsAbiTp abi tp → IsAbiTp abi (Tp.vec n tp)
 | prod {fst snd} : IsAbiTp abi fst → IsAbiTp abi snd → IsAbiTp abi (Tp.prod fst snd)
 
 abbrev AbiTp (B : Type) (abi : B → Bool) := {tp : Tp B // IsAbiTp abi tp}
@@ -64,6 +69,8 @@ abbrev AbiTp.bool : AbiTp B abi := ⟨.bool, .bool⟩
 abbrev AbiTp.unit : AbiTp B abi := ⟨.unit, .unit⟩
 abbrev AbiTp.array (tp : AbiTp B abi) : AbiTp B abi :=
   ⟨.array tp.val, .array tp.property⟩
+abbrev AbiTp.vec (n : Nat) (tp : AbiTp B abi) : AbiTp B abi :=
+  ⟨.vec n tp.val, .vec tp.property⟩
 abbrev AbiTp.prod (fst snd : AbiTp B abi) : AbiTp B abi :=
   ⟨.prod fst.val snd.val, .prod fst.property snd.property⟩
 end
@@ -151,6 +158,11 @@ inductive Builtin (L : Language) : List L.Tp → L.Tp → Type
 | arrSet {a} : Builtin L [.array a, .uInt32, a] (.array a)
 | arrLen {a} : Builtin L [.array a] .uInt32
 
+/-- A vector of its `n` arguments. -/
+| vecLit {a} (n : Nat) : Builtin L (List.replicate n a) (.vec n a)
+/-- The element at a static index, which cannot be out of bounds. -/
+| vecGet {a} (n i : Nat) (h : i < n) : Builtin L [.vec n a] a
+
 | prim {inp out} : L.Prim inp out → Builtin L inp out
 
 /-- Semantics of builtins in a model. `none` means the evaluator fails
@@ -180,6 +192,8 @@ def Builtin.denote {L : Language} (M : L.Model) {inp : List L.Tp} {out : L.Tp} :
 | .arrSet, h![xs, i, x] =>
     if h : i.toNat < xs.size then some (xs.set i.toNat x h) else none
 | .arrLen, h![xs] => some xs.size.toUInt32
+| .vecLit n, xs => some ⟨(HList.elems n xs).toArray, by simp [HList.length_elems]⟩
+| .vecGet _ i h, h![v] => some v[i]
 | .prim p, args => M.prim p args
 
 inductive Expr

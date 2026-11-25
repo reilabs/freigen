@@ -25,6 +25,17 @@ match tps, hs with
 | [], h![] => h![a]
 | _::_, HList.cons x xs => HList.cons x (HList.snoc xs a)
 
+/-- The elements of a homogeneous list of values. -/
+@[reducible]
+def elems {rep : α → Type _} {tp : α} : (n : Nat) → HList rep (List.replicate n tp) → List (rep tp)
+| 0, .nil => []
+| n + 1, .cons x xs => x :: elems n xs
+
+theorem length_elems {rep : α → Type _} {tp : α} :
+    (n : Nat) → (xs : HList rep (List.replicate n tp)) → (elems n xs).length = n
+| 0, .nil => rfl
+| n + 1, .cons _ xs => congrArg (· + 1) (length_elems n xs)
+
 open Lean PrettyPrinter
 
 @[app_unexpander HList.nil]

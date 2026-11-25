@@ -8,7 +8,7 @@ terms, so long programs stay flat.
 
 The printed form is meant to be parsed back, so it carries every type that
 cannot be inferred bottom-up from variables already in scope: literal types,
-the element type of `arrEmpty`, parameter types, and the context and output
+the element type of `arrEmpty` and of an empty `vecLit`, parameter types, and the context and output
 type of definitions and the entry point. The rest follows from these and the
 language: builtin results from their arguments, branch and loop results from
 their bodies and initial values, and operation and block types from the
@@ -30,6 +30,8 @@ ret      = "(" "ret" var ")" ;
 body     = ret | "(" "do" let { let } ret ")" ;
 rhs      = "(" "lit" tp val ")"
          | "(" "arrEmpty" tp ")"
+         | "(" "vecLit" tp ")"   (* an empty vector *)
+         | "(" "vecGet" digit { digit } var ")"
          | "(" builtin { var } ")"
          | prim
          | "(" "fun" param stmts ")"
@@ -40,12 +42,14 @@ rhs      = "(" "lit" tp val ")"
 block    = "(" "block" name "(" var ")" stmts ")" ;
 builtin  = "uAdd" | "uSub" | "uMul" | "uDiv" | "uMod" | "uEq" | "uLt" | "uLe"
          | "not" | "and" | "or" | "bEq" | "pair" | "fst" | "snd"
-         | "arrPush" | "arrGet" | "arrSet" | "arrLen" ;
+         | "arrPush" | "arrGet" | "arrSet" | "arrLen" | "vecLit" ;
 prim     = sexp ;  (* a primitive of the language, applied to its arguments *)
 tp       = base | "u32" | "bool" | "unit" | "(" "array" tp ")"
+         | "(" "vec" digit { digit } tp ")"
          | "(" "prod" tp tp ")" | "(" "fn" tp tp ")" ;
 val      = digit { digit } | "true" | "false" | "(" ")"
-         | "(" "array" { val } ")" | "(" "pair" val val ")" ;
+         | "(" "array" { val } ")" | "(" "vec" { val } ")"
+         | "(" "pair" val val ")" ;
 var      = ( "v" | "f" ) digit { digit } ;
 ctx      = atom ;  (* a context name of the language *)
 base     = sexp ;  (* a base type of the language *)
@@ -119,6 +123,7 @@ def Tp.sexp : L.Tp → Sexp
 | .bool => .atom "bool"
 | .unit => .atom "unit"
 | .array tp => .list [.atom "array", tp.sexp]
+| .vec n tp => .list [.atom "vec", .atom (toString n), tp.sexp]
 | .prod a b => .list [.atom "prod", a.sexp, b.sexp]
 | .fn a b => .list [.atom "fn", a.sexp, b.sexp]
 
@@ -129,6 +134,7 @@ def Tp.valSexp : (tp : L.Tp) → tp.Lit → Sexp
 | .bool, v => .atom (toString v)
 | .unit, _ => .list []
 | .array tp, xs => .list (.atom "array" :: xs.toList.map (Tp.valSexp tp))
+| .vec _ tp, xs => .list (.atom "vec" :: xs.toList.map (Tp.valSexp tp))
 | .prod a b, (x, y) => .list [.atom "pair", a.valSexp x, b.valSexp y]
 | .fn _ _, r => .atom ("fn#" ++ toString (show Nat from r))
 
@@ -139,13 +145,17 @@ def Builtin.name : Builtin L inp out → String
 | .pair => "pair" | .fst => "fst" | .snd => "snd"
 | .arrEmpty => "arrEmpty" | .arrPush => "arrPush" | .arrGet => "arrGet"
 | .arrSet => "arrSet" | .arrLen => "arrLen"
+| .vecLit _ => "vecLit" | .vecGet _ _ _ => "vecGet"
 | .prim _ => "prim"
 
-/-- A builtin applied to its arguments. `arrEmpty` has none to infer its
-element type from, so it carries it. Primitives print as the language says. -/
+/-- A builtin applied to its arguments. `arrEmpty` and an empty `vecLit` have
+none to infer their element type from, so they carry it; `vecGet` carries its
+index. Primitives print as the language says. -/
 def Builtin.sexp (b : Builtin L inp out) (args : List Sexp) : Sexp :=
   match out, b with
   | .array a, .arrEmpty => .list [.atom b.name, Tp.sexp a]
+  | .vec n a, .vecLit _ => if n = 0 then .list [.atom b.name, Tp.sexp a] else .list (.atom b.name :: args)
+  | _, .vecGet _ i _ => .list (.atom b.name :: .atom (toString i) :: args)
   | _, .prim p => Language.Print.primSexp p args
   | _, _ => .list (.atom b.name :: args)
 
