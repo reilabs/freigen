@@ -240,7 +240,7 @@ private theorem denote_eq (e : Expr L M.V γ o) :
   rfl
 
 /-- Evaluation under a pending continuation. -/
-private theorem run_cont {i : L.Tp} (e : Expr L M.V γ i)
+theorem run_cont {i : L.Tp} (e : Expr L M.V γ i)
     (K : Heap L M → M.V i → EvalState L M (γ, R)) :
     (cont s e K).run = e.denote s >>= fun p => (K p.1 p.2).run :=
   run_bind (cont s e fun s r => done (s, r)) fun p => K p.1 p.2
