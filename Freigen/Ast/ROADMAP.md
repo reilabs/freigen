@@ -8,7 +8,7 @@ must be made before work starts, where there is one.
 ## 0. Lifting `Circuit` programs: open points
 
 `lift_program … via lift` lifts simple circuits
-(`Circuit/Examples/Sqrt.lean`). Still missing or rough:
+(`Circuit/Examples/Div.lean`). Still missing or rough:
 
 - **Field literals.** There is no primitive for `(2 : ZMod P)`. `0` and `1`
   are not definitionally casts of naturals when `P` is a variable, so they
@@ -40,8 +40,6 @@ must be made before work starts, where there is one.
     `(P : ℕ) [ctx : Context P]`.
   - Hand-written certificates need many explicit arguments, because Lean cannot
     infer the source context, and elaborates rule arguments before the goal.
-- **`fsqrt`** is a circuit-specific primitive and classical for now. Once loops
-  exist, it is to be implemented by exponentiation in the AST.
 
 ## 1. Recursive definitions
 

@@ -101,14 +101,6 @@ def hint {n m : Nat} (args : Vector ctx.W n)
   Free.op (E := Circuit.Eff P ctx) (γ := .constraint) (.hint n m args)
     (fun _ inputs => h inputs)
 
-omit ctx in
-/-- A square root in the field: some `r` with `r * r = x` if there is one, and
-`0` otherwise. A specification, not an algorithm: once the AST has loops it is
-to be computed by exponentiation. -/
-noncomputable def fsqrt (x : ZMod P) : ZMod P :=
-  open Classical in
-  if h : ∃ r : ZMod P, r * r = x then Classical.choose h else 0
-
 -- def runWithHints (c : Circuit P α) : Option α :=
 
 end Freigen.Circuit

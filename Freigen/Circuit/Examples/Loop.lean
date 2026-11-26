@@ -1,4 +1,4 @@
-import Freigen.Circuit.Examples.Sqrt
+import Freigen.Circuit.Examples.Div
 
 /-!
 Counted loops in circuits, lifted by the macro: the state is a wire, and the

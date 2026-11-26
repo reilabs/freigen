@@ -1,106 +1,137 @@
 import Freigen.Circuit.Lift
 
 /-!
-A square root, computed in a hint and checked in constraints: certified by
-hand from the certificate rules only, and lifted by the macro, which produces
-the same AST. The AST does not depend on the prime or the circuit context; the
+A division, computed in a hint and checked in constraints: certified by hand
+from the certificate rules only, and lifted by the macro, which produces the
+same AST. The AST does not depend on the prime or the circuit context; the
 certificate holds for all of them.
 
 Then programs that compute with `Cert`s, which the AST erases.
 -/
 
-namespace Freigen.Circuit.Examples.Sqrt
+namespace Freigen.Circuit.Examples.Div
 
 open Ast Lift
 
 variable {P : Nat} [ctx : Context P]
 
-noncomputable def srcSqrt (x : ctx.W) : Circuit P ctx.W := do
-  let r ← Circuit.hint #v[x] fun inputs => pure #v[fsqrt inputs[0]]
-  let _ ← Circuit.assertR1C r[0] r[0] x
-  pure r[0]
+/-- `x / y`, as a witness `q` with `q * y = x`. -/
+def srcDiv (xy : ctx.W × ctx.W) : Circuit P ctx.W := do
+  let q ← Circuit.hint #v[xy.1, xy.2] fun ins => pure #v[ins[0] * ins[1]⁻¹]
+  let _ ← Circuit.assertR1C q[0] xy.2 xy.1
+  pure q[0]
 
 abbrev wireAbi : Lift.AbiTp := .base .wire
 
-def sqrtAst {V : language.Tp → Type} : Program language Scope.constraint wireAbi wireAbi V :=
-  .main fun x =>
-    .builtin (.vecLit 1) h![x] fun xs =>
-    .op (L := language) (γ := Scope.constraint) (ConstraintOp.hint 1 1) xs
-      (fun _ ins =>
-        .builtin (.vecGet 1 0 (by decide)) h![ins] fun v =>
-        .builtin (.prim .fSqrt) h![v] fun s =>
-        .builtin (.vecLit 1) h![s] fun v => .ret v)
-      fun rs =>
-    .builtin (.vecGet 1 0 (by decide)) h![rs] fun r =>
-    assertR1CAst r r x fun _ =>
-    .builtin (.vecGet 1 0 (by decide)) h![rs] fun r' => .ret r'
+abbrev pairAbi : Lift.AbiTp := .prod wireAbi wireAbi
 
-theorem sqrtCert : ProgramCert (lift P) (fun _ => Rep.self (P := P) wireAbi) sqrtAst (srcSqrt (P := P)) := by
-  refine .of_progCert <| .main (fun x => ?_)
+def divAst {V : language.Tp → Type} : Program language Scope.constraint pairAbi wireAbi V :=
+  .main fun xy =>
+    .builtin .fst h![xy] fun x =>
+    .builtin .snd h![xy] fun y =>
+    .builtin (.vecLit 2) h![x, y] fun xs =>
+    .op (L := language) (γ := Scope.constraint) (ConstraintOp.hint 2 1) xs
+      (fun _ ins =>
+        .builtin (.vecGet 2 0 (by decide)) h![ins] fun a =>
+        .builtin (.vecGet 2 1 (by decide)) h![ins] fun b =>
+        .builtin (.prim .fInv) h![b] fun b' =>
+        .builtin (.prim .fMul) h![a, b'] fun c =>
+        .builtin (.vecLit 1) h![c] fun v => .ret v)
+      fun qs =>
+    .builtin (.vecGet 1 0 (by decide)) h![qs] fun q =>
+    .builtin .snd h![xy] fun y =>
+    .builtin .fst h![xy] fun x =>
+    assertR1CAst q y x fun _ =>
+    .builtin (.vecGet 1 0 (by decide)) h![qs] fun q' => .ret q'
+
+theorem divCert : ProgramCert (lift P) (fun _ => Rep.self (P := P) wireAbi) divAst (srcDiv (P := P)) := by
+  refine .of_progCert <| .main (fun xy => ?_)
   refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
-    (R := Eq) (b := .vecLit 1) (args := h![x]) (r := #v[x]) rfl ?_
-  refine Rules.hint (n := 1) (m := 1) (args := #v[x])
+    (R := Eq) (b := .fst (a := Tp.wire) (b := Tp.wire)) (args := h![xy]) (r := xy.1) rfl ?_
+  refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
+    (R := Eq) (b := .snd (a := Tp.wire) (b := Tp.wire)) (args := h![xy]) (r := xy.2) rfl ?_
+  refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
+    (R := Eq) (b := .vecLit 2) (args := h![xy.1, xy.2]) (r := #v[xy.1, xy.2]) rfl ?_
+  refine Rules.hint (n := 2) (m := 1) (args := #v[xy.1, xy.2])
     (body := fun ins =>
-      .builtin (.vecGet 1 0 (by decide)) h![ins] fun v =>
-      .builtin (.prim .fSqrt) h![v] fun s =>
-      .builtin (.vecLit 1) h![s] fun v => .ret v)
-    (src := fun (ins : Vector (ZMod P) 1) => pure #v[fsqrt ins[0]])
-    (k := fun rs =>
-      .builtin (.vecGet 1 0 (by decide)) h![rs] fun r =>
-      assertR1CAst r r x fun _ =>
-      .builtin (.vecGet 1 0 (by decide)) h![rs] fun r' => .ret r')
-    (tk := fun rs => Circuit.assertR1C rs[0] rs[0] x >>= fun _ => pure rs[0])
-    (fun (ins : Vector (ZMod P) 1) => ?_) fun (rs : Vector ctx.W 1) => ?_
+      .builtin (.vecGet 2 0 (by decide)) h![ins] fun a =>
+      .builtin (.vecGet 2 1 (by decide)) h![ins] fun b =>
+      .builtin (.prim .fInv) h![b] fun b' =>
+      .builtin (.prim .fMul) h![a, b'] fun c =>
+      .builtin (.vecLit 1) h![c] fun v => .ret v)
+    (src := fun (ins : Vector (ZMod P) 2) => pure #v[ins[0] * ins[1]⁻¹])
+    (k := fun qs =>
+      .builtin (.vecGet 1 0 (by decide)) h![qs] fun q =>
+      .builtin .snd h![xy] fun y =>
+      .builtin .fst h![xy] fun x =>
+      assertR1CAst q y x fun _ =>
+      .builtin (.vecGet 1 0 (by decide)) h![qs] fun q' => .ret q')
+    (tk := fun qs => Circuit.assertR1C qs[0] xy.2 xy.1 >>= fun _ => pure qs[0])
+    (fun (ins : Vector (ZMod P) 2) => ?_) fun (qs : Vector ctx.W 1) => ?_
   · refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
-      (R := Eq) (b := .vecGet (a := Tp.field) 1 0 (by decide)) (r := ins[0]) rfl ?_
+      (R := Eq) (b := .vecGet (a := Tp.field) 2 0 (by decide)) (r := ins[0]) rfl ?_
     refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
-      (R := Eq) (b := .prim .fSqrt) (r := fsqrt ins[0]) rfl ?_
+      (R := Eq) (b := .vecGet (a := Tp.field) 2 1 (by decide)) (r := ins[1]) rfl ?_
+    refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
+      (R := Eq) (b := .prim .fInv) (r := (ins[1]⁻¹ : ZMod P)) rfl ?_
+    refine ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
+      (R := Eq) (b := .prim .fMul) (r := ins[0] * ins[1]⁻¹) rfl ?_
     exact ExprCert.builtin (spec := simSpec P) (γ := Scope.hint) (o := .vec 1 (.base .field))
-      (R := Eq) (b := .vecLit 1) (r := #v[fsqrt ins[0]]) rfl (.ret rfl)
+      (R := Eq) (b := .vecLit 1) (r := #v[ins[0] * ins[1]⁻¹]) rfl (.ret rfl)
   · refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
-      (R := Eq) (b := .vecGet (a := Tp.wire) 1 0 (by decide)) (r := rs[0]) rfl ?_
+      (R := Eq) (b := .vecGet (a := Tp.wire) 1 0 (by decide)) (r := qs[0]) rfl ?_
+    refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
+      (R := Eq) (b := .snd (a := Tp.wire) (b := Tp.wire)) (args := h![xy]) (r := xy.2) rfl ?_
+    refine ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
+      (R := Eq) (b := .fst (a := Tp.wire) (b := Tp.wire)) (args := h![xy]) (r := xy.1) rfl ?_
     refine Rules.assertR1C fun _ _ => ?_
     exact ExprCert.builtin (spec := simSpec P) (γ := Scope.constraint) (o := .base .wire)
-      (R := Eq) (b := .vecGet (a := Tp.wire) 1 0 (by decide)) (r := rs[0]) rfl (.ret rfl)
+      (R := Eq) (b := .vecGet (a := Tp.wire) 1 0 (by decide)) (r := qs[0]) rfl (.ret rfl)
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.sqrtCert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms sqrtCert
+/-- info: 'Freigen.Circuit.Examples.Div.divCert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms divCert
 
 /--
 info: (program
-  (main constraint (v0 wire) wire
-    (let v1 (vecLit v0))
-    (let v2
-      (op (hint 1 1) v1
-        (block body (v3)
-          (let v4 (vecGet 0 v3))
-          (let v5 (fSqrt v4))
-          (let v6 (vecLit v5))
-          (ret v6))))
-    (let v7 (vecGet 0 v2))
-    (let v8 (pair v7 v0))
-    (let v9 (pair v7 v8))
-    (let v10 (op assertR1C v9))
-    (let v11 (vecGet 0 v2))
-    (ret v11)))
+  (main constraint (v0 (prod wire wire)) wire
+    (let v1 (fst v0))
+    (let v2 (snd v0))
+    (let v3 (vecLit v1 v2))
+    (let v4
+      (op (hint 2 1) v3
+        (block body (v5)
+          (let v6 (vecGet 0 v5))
+          (let v7 (vecGet 1 v5))
+          (let v8 (fInv v7))
+          (let v9 (fMul v6 v8))
+          (let v10 (vecLit v9))
+          (ret v10))))
+    (let v11 (vecGet 0 v4))
+    (let v12 (snd v0))
+    (let v13 (fst v0))
+    (let v14 (pair v12 v13))
+    (let v15 (pair v11 v14))
+    (let v16 (op assertR1C v15))
+    (let v17 (vecGet 0 v4))
+    (ret v17)))
 -/
-#guard_msgs in #eval IO.println (sqrtAst (V := fun _ => String)).pretty
+#guard_msgs in #eval IO.println (divAst (V := fun _ => String)).pretty
 
 /-! ## Lifted by the macro -/
 
-lift_program liftedSqrt := srcSqrt via lift
+lift_program liftedDiv := srcDiv via lift
 
 /--
-info: Freigen.Circuit.Examples.Sqrt.liftedSqrt.cert (P : ℕ) [ctx : Context P] :
-  ProgramCert (lift P) (fun x => Rep.self (AbiTp.base Base.wire ⋯)) (fun {V} => liftedSqrt.ast) srcSqrt
+info: Freigen.Circuit.Examples.Div.liftedDiv.cert (P : ℕ) [ctx : Context P] :
+  ProgramCert (lift P) (fun xy => Rep.self (AbiTp.base Base.wire ⋯)) (fun {V} => liftedDiv.ast) srcDiv
 -/
-#guard_msgs in #check liftedSqrt.cert
+#guard_msgs in #check liftedDiv.cert
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedSqrt.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms liftedSqrt.cert
+/-- info: 'Freigen.Circuit.Examples.Div.liftedDiv.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms liftedDiv.cert
 
 /-- The macro's AST is the hand-written one. -/
-example : @liftedSqrt.ast = @sqrtAst := rfl
+example : @liftedDiv.ast = @divAst := rfl
 
 /-! ## More programs -/
 
@@ -118,7 +149,7 @@ def srcMore (x : ctx.W) : Circuit P ctx.W := do
 lift_program liftedMore := srcMore via lift
 
 /--
-info: Freigen.Circuit.Examples.Sqrt.liftedMore.cert (P : ℕ) [ctx : Context P] :
+info: Freigen.Circuit.Examples.Div.liftedMore.cert (P : ℕ) [ctx : Context P] :
   ProgramCert (lift P) (fun x => Rep.self (AbiTp.base Base.wire ⋯)) (fun {V} => liftedMore.ast) srcMore
 -/
 #guard_msgs in #check liftedMore.cert
@@ -156,7 +187,7 @@ def srcSix (x : ctx.W) : Circuit P ctx.W := do
 
 lift_program liftedSix := srcSix via lift
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedSix.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedSix.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedSix.cert
 
 /--
@@ -211,7 +242,7 @@ example (P : Nat) [Context P] :
       (srcBool (P := P)) :=
   liftedBool.cert P
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedBool.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedBool.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedBool.cert
 
 /--
@@ -241,7 +272,7 @@ def srcSumCert (x : ctx.W) : Circuit P (CertW (P := P) fun r => R1CSAssertion r 
 
 lift_program liftedSumCert := srcSumCert via lift
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedSumCert.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedSumCert.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedSumCert.cert
 
 /--
@@ -266,12 +297,12 @@ def srcRange (x : ctx.W) : Circuit P (WUInt P 8) := do
 lift_program liftedRange := srcRange via lift
 
 /--
-info: Freigen.Circuit.Examples.Sqrt.liftedRange.cert (P : ℕ) [ctx : Context P] :
+info: Freigen.Circuit.Examples.Div.liftedRange.cert (P : ℕ) [ctx : Context P] :
   ProgramCert (lift P) (fun x => Rep.certW (RangeAssertion 8)) (fun {V} => liftedRange.ast) srcRange
 -/
 #guard_msgs in #check liftedRange.cert
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedRange.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedRange.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedRange.cert
 
 /--
@@ -298,7 +329,7 @@ def srcHelpers (x : ctx.W) : Circuit P ctx.W := do
 
 lift_program liftedHelpers := srcHelpers via lift using [checkByte, double]
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedHelpers.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedHelpers.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedHelpers.cert
 
 /--
@@ -325,7 +356,7 @@ lift_program liftedDependent := srcDependent via lift
 erased to the wire. -/
 
 /--
-info: Freigen.Circuit.Examples.Sqrt.liftedDependent.cert (P : ℕ) [ctx : Context P] :
+info: Freigen.Circuit.Examples.Div.liftedDependent.cert (P : ℕ) [ctx : Context P] :
   ProgramCert (lift P) (fun x => Rep.certW fun r => R1CSAssertion x x r) (fun {V} => liftedDependent.ast) srcDependent
 -/
 #guard_msgs in #check liftedDependent.cert
@@ -339,12 +370,12 @@ def srcUseDependent (x : ctx.W) : Circuit P ctx.W := do
 lift_program liftedUseDependent := srcUseDependent via lift using [srcDependent]
 
 /--
-info: Freigen.Circuit.Examples.Sqrt.liftedUseDependent.cert (P : ℕ) [ctx : Context P] :
+info: Freigen.Circuit.Examples.Div.liftedUseDependent.cert (P : ℕ) [ctx : Context P] :
   ProgramCert (lift P) (fun x => Rep.self (AbiTp.base Base.wire ⋯)) (fun {V} => liftedUseDependent.ast) srcUseDependent
 -/
 #guard_msgs in #check liftedUseDependent.cert
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedUseDependent.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedUseDependent.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedUseDependent.cert
 
 /--
@@ -372,7 +403,7 @@ def srcSelect (p : ctx.W × Bool) : Circuit P ctx.W := do
 
 lift_program liftedSelect := srcSelect via lift
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedSelect.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedSelect.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedSelect.cert
 
 /--
@@ -413,7 +444,7 @@ def srcCertGet (p : Array ctx.W × UInt32) : Circuit P Unit :=
 
 lift_program liftedCertGet := srcCertGet via lift
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedCertGet.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedCertGet.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedCertGet.cert
 
 /--
@@ -463,7 +494,7 @@ def srcCertBound (p : Array ctx.W × UInt32) : Circuit P Unit :=
 
 lift_program liftedCertBound := srcCertBound via lift
 
-/-- info: 'Freigen.Circuit.Examples.Sqrt.liftedCertBound.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Freigen.Circuit.Examples.Div.liftedCertBound.cert' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms liftedCertBound.cert
 
 /-! ## Rejected sources -/
@@ -483,4 +514,4 @@ in the application
 example (x : ctx.W) : Circuit P (Vector ctx.W 1) :=
   Circuit.hint #v[x] fun _ => pure (3 : Nat)
 
-end Freigen.Circuit.Examples.Sqrt
+end Freigen.Circuit.Examples.Div
