@@ -241,18 +241,16 @@ theorem LiftR.monotone (F : I ⟹ₚ O) {X Y} {R S : IxRel X Y} (h : R ≤ S) :
 def bisimOp (F : Endo I) (R : IxRel (M F) (M F)) : IxRel (M F) (M F) :=
   fun i x y => LiftR F R i (x.observe) (y.observe)
 
-theorem bisimOp.monotone {R S : IxRel (M F) (M F)} (h : R ≤ S) : bisimOp F R ≤ bisimOp F S :=
-  fun i _ _ hxy => LiftR.monotone F h i _ _ hxy
+open Lean.Order in
+@[partial_fixpoint_monotone]
+theorem LiftR.coind_monotone {X Y : I → Type w} {γ} [PartialOrder γ] (F : I ⟹ₚ O)
+    (f : γ → IxRel X Y)
+    (hf : @Lean.Order.monotone γ _ ((i : I) → X i → Y i → ReverseImplicationOrder) _ f) (o x y) :
+    @Lean.Order.monotone γ _ ReverseImplicationOrder _ (fun z => LiftR F (f z) o x y) :=
+  fun _ _ h => LiftR.monotone F (fun i a b => hf _ _ h i a b) o x y
 
-def Bisim (F : Endo I) : IxRel (M F) (M F) :=
-  fun i x y => ∃ R, R ≤ bisimOp F R ∧ R i x y
-
-theorem Bisim.le_gfp {R : IxRel (M F) (M F)} (h : R ≤ bisimOp F R) : R ≤ Bisim F :=
-  fun _ _ _ hr => ⟨R, h, hr⟩
-
-theorem Bisim.unfold : Bisim F ≤ bisimOp F (Bisim F) := by
-  rintro i x y ⟨R, hR, hr⟩
-  exact bisimOp.monotone (Bisim.le_gfp hR) _ _ _ (hR _ _ _ hr)
+coinductive Bisim (F : Endo I) : (i : I) → M F i → M F i → Prop where
+| step {i x y} : LiftR F (Bisim F) i x.observe y.observe → Bisim F i x y
 
 def ApproxEq {F : Endo I} (n : Nat) : IxRel (M F) (M F) :=
   fun _ x y => x.approx n = y.approx n
@@ -290,7 +288,8 @@ theorem Bisim.le_ApproxEq : Bisim F ≤ ApproxEq n := by
     rfl
   | succ n ih =>
     intro i x y hxy
-    exact bisimOp_R_of_R_prev ih i x y (Bisim.unfold i x y hxy)
+    cases hxy with
+    | step h => exact bisimOp_R_of_R_prev ih i x y h
 
 theorem bisim_le_eq {F : Endo I} : Bisim F ≤ (fun _ x y => x = y) := by
   intro i x y hxy
@@ -301,7 +300,7 @@ theorem bisim_le_eq {F : Endo I} : Bisim F ≤ (fun _ x y => x = y) := by
 theorem Bisim.coind { R : IxRel (M F) (M F) }
     (stable : R ≤ bisimOp F R) : R ≤ (fun _ x y => x = y) := by
   intro i x y hxy
-  exact bisim_le_eq i x y (Bisim.le_gfp stable i x y hxy)
+  exact bisim_le_eq i x y (Bisim.coinduct F R stable i x y hxy)
 
 theorem observe_corec {X i} {f : (i : I) → X i → F X i} {x : X i}:
     observe (corec f x) = map (fun _ y => corec f y) i (f i x) := by

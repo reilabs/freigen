@@ -35,27 +35,35 @@ theorem Step.mono {α β} {RR : α → β → Prop} {R S : Nondet α → Nondet 
     · apply Step.silentL <;> solve_by_elim
     · apply Step.silentR <;> solve_by_elim
 
+open Lean.Order in
+@[partial_fixpoint_monotone]
+theorem Step.coind_monotone {α β γ} [PartialOrder γ] {RR : α → β → Prop}
+    (f : γ → Nondet α → Nondet β → Prop)
+    (hf : @monotone γ _ (Nondet α → Nondet β → ReverseImplicationOrder) _ f) (x y) :
+    @monotone γ _ ReverseImplicationOrder _ (fun z => Step RR (f z) x y) :=
+  fun _ _ h => Step.mono (fun x y => hf _ _ h x y)
+
 end SamePrints
 
-def SamePrints {α β} (RR : α → β → Prop) : Nondet α → Nondet β → Prop :=
-  fun x y => ∃ R, (∀ x y, R x y → SamePrints.Step RR R x y) ∧ R x y
+coinductive SamePrints {α β} (RR : α → β → Prop) : Nondet α → Nondet β → Prop where
+| step {x y} : SamePrints.Step RR (SamePrints RR) x y → SamePrints RR x y
 
 namespace SamePrints
 
 protected theorem out {x : Nondet α} {y : Nondet β} {RR : α → β → Prop}
     (h : SamePrints RR x y) :
     Step RR (SamePrints RR) x y := by
-  rcases h with ⟨R, hR, hr⟩
-  exact Step.mono (fun _ _ hr => ⟨R, hR, hr⟩) (hR _ _ hr)
+  cases h with
+  | step h => exact h
 
 protected theorem roll {α β} {x : Nondet α} {y : Nondet β} {RR : α → β → Prop}
     (h : Step RR (SamePrints RR) x y) :
-    SamePrints RR x y := by
-  exact ⟨Step RR (SamePrints RR), fun _ _ h => Step.mono (fun _ _ => SamePrints.out) h, h⟩
+    SamePrints RR x y :=
+  SamePrints.step RR h
 
 private theorem coind_raw {α β} (a b) {RR : α → β → Prop} (R : Nondet α → Nondet β → Prop)
     (h_stable : ∀x y, R x y → Step RR R x y)
-    (h : R a b) : SamePrints RR a b := ⟨R, h_stable, h⟩
+    (h : R a b) : SamePrints RR a b := SamePrints.coinduct RR R h_stable a b h
 
 protected theorem coind_up_to_fix {α β} (a b) {RR : α → β → Prop} (R : Nondet α → Nondet β → Prop)
     (h_stable : ∀x y, R x y → Step RR (fun x y => SamePrints RR x y ∨ R x y) x y)
