@@ -1430,7 +1430,7 @@ partial def trProgram (p : ProgCtx) : List Name → M Lean.Expr
       (rename := defNames val))
     let hk ←
       withLocalDeclD `h' (mkApp2 (mkConst ``Heap) l.L l.model) fun h' =>
-      withLocalDeclD (.mkSimple c.lastComponentAsString) (l.val fnTp) fun ref => do
+      withLocalDeclD (.mkSimple (match c with | .str _ s => s | .num _ n => toString n | .anonymous => "")) (l.val fnTp) fun ref => do
       withLocalDeclD `hle (← mkAppM ``LE.le #[ctx.heap, h']) fun hle => do
       let certTy ← mkAppOptM ``FnCert #[l.L, l.model, ctx.Γ', ctx.F, none, ctx.sim,
         δ, γs, inp, out, τ, σ, h', ref, Ri, Ro, src]

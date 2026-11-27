@@ -520,8 +520,9 @@ theorem Free.unusedL_op_bind {Γ} {γ : Γ} {F E : Γ → Type u} [sF: Eff.Spec 
     rcases hE with ⟨e, rfl⟩
     simp only [UnusedL, extendL]
     simp only [UnusedL] at hB hK ⊢
-    choose B hB using hB
-    choose K hK using hK
+    have hB := fun t => Classical.axiomOfChoice (hB t)
+    obtain ⟨B, hB⟩ := Classical.axiomOfChoice hB
+    obtain ⟨K, hK⟩ := Classical.axiomOfChoice hK
     exists op e B >>= K
     simp only [interp_bind, interp_op, op_bind_inj, heq_eq_eq, op_inj, exists_const]
     apply And.intro <;> ext <;> apply_assumption

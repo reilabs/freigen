@@ -1,5 +1,4 @@
-import Mathlib.Logic.Equiv.Defs
-import Mathlib.Order.FixedPoints
+import Freigen.Iso
 
 namespace Freigen
 
@@ -211,6 +210,8 @@ def observe {i} : M F i ≃ F (M F) i where
 
 abbrev IxRel (X Y : I → Type w) := (i : I) → X i → Y i → Prop
 
+instance {X Y : I → Type w} : LE (IxRel X Y) := ⟨fun R S => ∀ i x y, R i x y → S i x y⟩
+
 def IxRel.diag {X : I → Type _} : IxRel X X := fun _ x y => x = y
 def IxRel.union {X Y : I → Type _} (R S : IxRel X Y) : IxRel X Y :=
   fun _ x y => R _ x y ∨ S _ x y
@@ -227,10 +228,9 @@ inductive LiftR {X Y} (F : I ⟹ₚ O) (R : IxRel X Y) : IxRel (F X) (F Y) where
     (children: ∀ a, R (F.Elem o p a) (xs a) (ys a)):
   LiftR F R o ⟨p, xs⟩ ⟨p, ys⟩
 
-def liftR (F : I ⟹ₚ O) {X Y}: IxRel X Y →o IxRel (F X) (F Y) where
-  toFun R := LiftR F R
-  monotone' := by
-    intro R S h o x y hxy
+theorem LiftR.monotone (F : I ⟹ₚ O) {X Y} {R S : IxRel X Y} (h : R ≤ S) :
+    LiftR F R ≤ LiftR F S := by
+    intro o x y hxy
     cases hxy with
     | mk o p xs ys children =>
       apply LiftR.mk o p xs ys
@@ -238,16 +238,19 @@ def liftR (F : I ⟹ₚ O) {X Y}: IxRel X Y →o IxRel (F X) (F Y) where
       apply h
       apply children
 
-def bisimOp (F : Endo I):
-    IxRel (M F) (M F) →o IxRel (M F) (M F) where
-  toFun R := fun i x y =>
-    LiftR F R i (x.observe) (y.observe)
-  monotone' := by
-    intro R S h i x y hxy
-    apply (liftR F).monotone h
-    assumption
+def bisimOp (F : Endo I) (R : IxRel (M F) (M F)) : IxRel (M F) (M F) :=
+  fun i x y => LiftR F R i (x.observe) (y.observe)
 
-def Bisim (F : Endo I) : IxRel (M F) (M F) := (bisimOp F).gfp
+open Lean.Order in
+@[partial_fixpoint_monotone]
+theorem LiftR.coind_monotone {X Y : I → Type w} {γ} [PartialOrder γ] (F : I ⟹ₚ O)
+    (f : γ → IxRel X Y)
+    (hf : @Lean.Order.monotone γ _ ((i : I) → X i → Y i → ReverseImplicationOrder) _ f) (o x y) :
+    @Lean.Order.monotone γ _ ReverseImplicationOrder _ (fun z => LiftR F (f z) o x y) :=
+  fun _ _ h => LiftR.monotone F (fun i a b => hf _ _ h i a b) o x y
+
+coinductive Bisim (F : Endo I) : (i : I) → M F i → M F i → Prop where
+| step {i x y} : LiftR F (Bisim F) i x.observe y.observe → Bisim F i x y
 
 def ApproxEq {F : Endo I} (n : Nat) : IxRel (M F) (M F) :=
   fun _ x y => x.approx n = y.approx n
@@ -262,7 +265,7 @@ theorem bisimOp_R_of_R_prev {R : IxRel (M F) (M F)} {n : Nat}
   | mk i p xs ys children =>
     have ex := congrArg (fun z => (observe (F := F)).symm z) hx
     have ey := congrArg (fun z => (observe (F := F)).symm z) hy
-    simp only [Equiv.symm_apply_apply] at ex ey
+    simp only [Iso.symm_apply_apply] at ex ey
     rw [ex, ey]
     change (prepend ⟨p, xs⟩).approx (n + 1) =
       (prepend ⟨p, ys⟩).approx (n + 1)
@@ -284,9 +287,9 @@ theorem Bisim.le_ApproxEq : Bisim F ≤ ApproxEq n := by
     cases y.approx 0
     rfl
   | succ n ih =>
-    have : Bisim F = bisimOp F (Bisim F) := (OrderHom.isFixedPt_gfp (bisimOp F)).symm
-    rw [this]
-    apply bisimOp_R_of_R_prev ih
+    intro i x y hxy
+    cases hxy with
+    | step h => exact bisimOp_R_of_R_prev ih i x y h
 
 theorem bisim_le_eq {F : Endo I} : Bisim F ≤ (fun _ x y => x = y) := by
   intro i x y hxy
@@ -296,9 +299,8 @@ theorem bisim_le_eq {F : Endo I} : Bisim F ≤ (fun _ x y => x = y) := by
 
 theorem Bisim.coind { R : IxRel (M F) (M F) }
     (stable : R ≤ bisimOp F R) : R ≤ (fun _ x y => x = y) := by
-  refine le_trans ?_ bisim_le_eq
-  apply OrderHom.le_gfp
-  exact stable
+  intro i x y hxy
+  exact bisim_le_eq i x y (Bisim.coinduct F R stable i x y hxy)
 
 theorem observe_corec {X i} {f : (i : I) → X i → F X i} {x : X i}:
     observe (corec f x) = map (fun _ y => corec f y) i (f i x) := by

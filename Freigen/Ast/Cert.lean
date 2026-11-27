@@ -58,7 +58,7 @@ theorem toNat_lt_size {α : Type} {i : UInt32} {xs : Array α} (h : i < xs.size.
     i.toNat < xs.size := by
   have := UInt32.lt_iff_toNat_lt.mp h
   simp only [Nat.toUInt32] at this
-  exact lt_of_lt_of_le this (Nat.mod_le _ _)
+  exact Nat.lt_of_lt_of_le this (Nat.mod_le _ _)
 
 /-! ## Correctness -/
 
@@ -103,12 +103,12 @@ theorem ContCert.mono {β β' : Type} {R : M.V o → α → Prop} {S : β' → �
     {K : Heap L M × M.V o → EvalM L M γ β}
     {tk : α → Free F γ' β'} (hK : ContCert spec h R S K tk) {h' : Heap L M}
     (hle : h ≤ h') : ContCert spec h' R S K tk :=
-  fun h'' hle' => hK h'' (le_trans hle hle')
+  fun h'' hle' => hK h'' (Heap.le_trans hle hle')
 
 theorem ExprCert.mono {e : Expr L M.V γ o} {R : M.V o → α → Prop} {t : Free F γ' α}
     (he : ExprCert spec h e R t) {h' : Heap L M} (hle : h ≤ h') :
     ExprCert spec h' e R t :=
-  fun h'' hle' => he h'' (le_trans hle hle')
+  fun h'' hle' => he h'' (Heap.le_trans hle hle')
 
 theorem FnCert.mono {inp out : L.Tp} {β : α → Type} {f : M.V (.fn inp out)}
     {Ri : M.V inp → α → Prop} {Ro : (y : α) → M.V out → β y → Prop}
@@ -132,7 +132,7 @@ variable {R : M.V o → α → Prop}
 drops the final heap. -/
 theorem corr {e : Expr L M.V γ o} {t : Free F γ' α} {f : α → M.V o}
     (he : ExprCert spec h e (fun v a => v = f a) t) : Corr spec f (Prod.snd <$> e.denote h) t := by
-  have := he h le_rfl f (fun p => pure p.2) pure fun _ _ v a hR => .pure_of_eq hR
+  have := he h (Heap.le_refl _) f (fun p => pure p.2) pure fun _ _ v a hR => .pure_of_eq hR
   simp only [bind_pure_comp, bind_pure] at this
   exact this
 
@@ -145,13 +145,13 @@ private theorem cont {i : L.Tp} {α' : Type} {Ri : M.V i → α' → Prop}
     {K : Heap L M × M.V o → EvalM L M γ β}
     {tK : α → Free F γ' β'} (hK : ContCert spec h' R S K tK) :
     ContCert spec h' Ri S (fun p => (k p.2).denote p.1 >>= K) (fun a => tk a >>= tK) :=
-  fun h'' hle' v a hR => hk v a hR h'' (le_trans hle hle') S K tK (hK.mono hle')
+  fun h'' hle' v a hR => hk v a hR h'' (Heap.le_trans hle hle') S K tK (hK.mono hle')
 
 theorem ret {v : M.V o} {a : α} (hR : R v a) :
     ExprCert spec h (.ret v : Expr L M.V γ o) R (pure a : Free F γ' α) := by
   intro h' _ β β' S K tK hK
   rw [Expr.denote_ret, bind_assoc, pure_bind]
-  simpa using Corr.tick (hK h' le_rfl v a hR)
+  simpa using Corr.tick (hK h' (Heap.le_refl _) v a hR)
 
 /-- A literal: the continuation is certified at its value. -/
 theorem lit {tp : L.AbiTp} {v : tp.val.Lit} {k : M.V tp.val → Expr L M.V γ o}
@@ -295,9 +295,9 @@ theorem lam {inp out : L.Tp} {αi : Type} {αo : αi → Type} {Ri : M.V inp →
   intro h' hle β β' S K tK hK
   rw [Expr.denote_lam, bind_assoc]
   have hal := Heap.le_alloc h' fun _ x => b x
-  have hle' := le_trans hle hal
+  have hle' := Heap.le_trans hle hal
   exact .tick (hk _ _ hle' ⟨_, Heap.lookup_alloc .., fun x y hxy => (hb x y hxy).mono hle'⟩ _
-    le_rfl S K tK (hK.mono hal))
+    (Heap.le_refl _) S K tK (hK.mono hal))
 
 /-- Calls: the callee's function certificate rules out the failing cases. -/
 theorem app {inp out : L.Tp} {αi : Type} {αo : αi → Type} {Ri : M.V inp → αi → Prop}

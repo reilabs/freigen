@@ -247,20 +247,16 @@ structure Heap (L : Language) (M : L.Model) where
           M.V i → Expr L M.V γ o)
   env_supp : ∀ id, id < next ↔ env.contains id
 
-instance {L : Language} {M : L.Model} : PartialOrder (Heap L M) where
+instance {L : Language} {M : L.Model} : LE (Heap L M) where
   le s₁ s₂ := s₁.next ≤ s₂.next ∧ ∀ id, id < s₁.next → s₁.env.get? id = s₂.env.get? id
-  le_refl := by simp
-  le_trans := by grind
-  le_antisymm := by
-    rintro a b ⟨_, _⟩ ⟨_, _⟩
-    rcases a with ⟨na, sa, _⟩
-    rcases b with ⟨nb, sb, _⟩
-    simp only at *
-    have : na = nb := by grind
-    cases this
-    have : sa = sb := by grind
-    cases this
-    rfl
+
+theorem Heap.le_refl {L : Language} {M : L.Model} (s : Heap L M) : s ≤ s :=
+  ⟨Nat.le_refl _, fun _ _ => rfl⟩
+
+theorem Heap.le_trans {L : Language} {M : L.Model} {s₁ s₂ s₃ : Heap L M}
+    (h₁ : s₁ ≤ s₂) (h₂ : s₂ ≤ s₃) : s₁ ≤ s₃ := by
+  simp only [LE.le] at *
+  grind
 
 def Heap.empty (L : Language) (M : L.Model) : Heap L M where
   next := 0

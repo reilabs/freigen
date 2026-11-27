@@ -1,8 +1,5 @@
 import Freigen.IxPoly.Defs
 
-import Mathlib.Logic.Equiv.Defs
-import Mathlib.Logic.Equiv.Sum
-
 namespace Freigen.IxPoly
 
 variable {I : Type ui} {O : Type uo}
@@ -102,17 +99,17 @@ def zero_action {x : I → Type w} {i : O}:
 
 def addZero_action {F : I ⟹ₚ O} {x : I → Type w} {i : O}:
     (F + 0) x i ≃ F x i := by
-  apply Equiv.trans add_action
-  apply Equiv.trans
-  · apply Equiv.sumCongr (Equiv.refl _) zero_action
-  apply Equiv.sumEmpty
+  apply Iso.trans add_action
+  apply Iso.trans
+  · apply Iso.sumCongr (Iso.refl _) zero_action
+  apply Iso.sumEmpty
 
 def one_action {x : I → Type w} {i : O}:
     (1 : I ⟹ₚ O) x i ≃ Unit where
   toFun := fun ⟨p, g⟩ => ()
   invFun := fun _ => ⟨(0 : Fin 1), fun a => PEmpty.elim a⟩
   left_inv := fun ⟨p, g⟩ => by
-    simp only; congr 1;
+    congr 1
     · rcases p with ⟨v, lt⟩
       have : v = 0 := Nat.lt_one_iff.mp lt
       simp_all

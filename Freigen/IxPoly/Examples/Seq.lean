@@ -11,18 +11,18 @@ namespace Freigen.IxPoly
 def ListP (A : Type) : Unit ⟹ₚ Unit := 1 + (C (fun _ => A) * X id)
 
 def ListP_action {A Y} : (ListP A) Y () ≃ Unit ⊕ (A × Y ()) := by
-  apply Equiv.trans add_action
-  apply Equiv.sumCongr one_action
-  apply Equiv.trans mul_action
-  apply Equiv.prodCongr C_action X_action
+  apply Iso.trans add_action
+  apply Iso.sumCongr one_action
+  apply Iso.trans mul_action
+  apply Iso.prodCongr C_action X_action
 
 def WList (A : Type) : Type := W (ListP A) ()
 
 def StreamP (A : Type) : Unit ⟹ₚ Unit := C (fun _ => A) * X id
 
 def StreamP_action {A Y} : (StreamP A) Y () ≃ A × Y () := by
-  apply Equiv.trans mul_action
-  apply Equiv.prodCongr C_action X_action
+  apply Iso.trans mul_action
+  apply Iso.prodCongr C_action X_action
 
 def Stream (A : Type) : Type := (StreamP A).M ()
 
@@ -68,7 +68,7 @@ def Stream.bisim {A a b} (R : Stream A → Stream A → Prop)
   (h : R a b) : a = b := by
   apply M.Bisim.coind (R := fun _ x y => R x y)
   · rintro ⟨⟩ ta tb ht
-    simp only [M.bisimOp, OrderHom.coe_mk]
+    simp only [M.bisimOp]
     rw [StreamP_liftR_iff]
     exact h_stable _ _ ht
   · exact h
