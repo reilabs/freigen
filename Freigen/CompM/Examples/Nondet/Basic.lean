@@ -97,7 +97,7 @@ would in Rust, then talk about what it does.
 abbrev Register := Fin 10
 
 inductive Op : Type
-| const (n : ℤ) (r : Register) -- r <- n
+| const (n : Int) (r : Register) -- r <- n
 | rand (r : Register) -- r <- rand
 | sub (r1 r2 r3 : Register) -- r3 <- r1 - r2
 | print (r : Register) -- print r
@@ -107,17 +107,17 @@ inductive Op : Type
 abbrev Program := Array Op
 
 structure State where
-  regs : Register → ℤ
+  regs : Register → Int
   pc : Nat
 
 def State.init : State where
   regs := fun _ => 0
   pc := 0
 
-def State.getReg (s : State) (r : Register) : ℤ := s.regs r
-def State.setReg (s : State) (r : Register) (v : ℤ) : State :=
+def State.getReg (s : State) (r : Register) : Int := s.regs r
+def State.setReg (s : State) (r : Register) (v : Int) : State :=
   { s with regs := fun r' => if r' = r then v else s.regs r' }
-def State.addPC (s : State) (n : ℤ) : State := { s with pc := (Int.ofNat s.pc + n).toNat }
+def State.addPC (s : State) (n : Int) : State := { s with pc := (Int.ofNat s.pc + n).toNat }
 
 def Op.denote (op : Op) (s : State) : Nondet $ Option State := do
   match op with

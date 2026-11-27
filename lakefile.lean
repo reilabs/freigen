@@ -4,16 +4,15 @@ open Lake DSL
 
 package freigen
 
-require "leanprover-community" / "mathlib"
-
 @[default_target]
 lean_lib Freigen where
-  -- Include every `Freigen.*` module, even when the umbrella does not import it.
-  globs := #[.andSubmodules `Freigen]
+  -- Include every core module, even when the umbrella does not import it.
+  roots := #[]
+  globs := #[.one `Freigen, .one `Freigen.Basic, .one `Freigen.Iso, .one `Freigen.Wheels,
+    .one `Freigen.Eff, .one `Freigen.ExactCodensity, .submodules `Freigen.IxPoly,
+    .submodules `Freigen.ITree, .submodules `Freigen.Free, .submodules `Freigen.CompM,
+    .submodules `Freigen.Ast]
 
 @[default_target]
 lean_exe freigen where
   root := `Main
-
-lean_exe sha256_fast_witgen_bench where
-  root := `BenchSha256FastWitgen

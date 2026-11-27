@@ -36,10 +36,10 @@ private def actionEquiv
   invFun := IxPoly.map (fun i => (e i).symm) o
   left_inv x := by
     rw [IxPoly.map_map]
-    simpa only [Equiv.symm_apply_apply] using IxPoly.map_id o x
+    simpa only [Iso.symm_apply_apply] using IxPoly.map_id o x
   right_inv y := by
     rw [IxPoly.map_map]
-    simpa only [Equiv.apply_symm_apply] using IxPoly.map_id o y
+    simpa only [Iso.apply_symm_apply] using IxPoly.map_id o y
 
 def observe {γ : Γ} {α : Type v} :
     CompM E γ α ≃
@@ -90,7 +90,7 @@ theorem observe_corec
       (ITree.observe
         (treeEquiv (treeEquiv.symm (ITree.corec f a)))) =
     IxPoly.map (fun _ y => treeEquiv.symm (ITree.corec f y)) i (f i a)
-  rw [Equiv.apply_symm_apply, ITree.observe_corec]
+  rw [Iso.apply_symm_apply, ITree.observe_corec]
   rw [IxPoly.map_map]
 
 theorem eq_of_observe_eq
@@ -280,7 +280,7 @@ theorem observe_op_bind {α : Type v} (e : E γ)
   simp only [IxPoly.map, Eff.Step.op]
   congr 1
   funext x
-  cases x <;> apply Equiv.symm_apply_apply
+  cases x <;> apply Iso.symm_apply_apply
 
 theorem roll_ret {α : Type v} (x : α) :
     roll (Eff.Step.ret x) = (pure x : CompM E γ α) :=
@@ -396,7 +396,7 @@ theorem observe_tick_bind {α : Type} (k : Unit → CompM E γ α) :
   congr 1
   funext x
   rcases x with _ | ⟨t, _⟩
-  · apply Equiv.symm_apply_apply
+  · apply Iso.symm_apply_apply
   · exact nomatch Eff.Step.Has.lowerBlockTag t
 
 /-- A silent step is an operation of the `Tau` effect. Its blocks are

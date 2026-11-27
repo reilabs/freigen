@@ -1,4 +1,4 @@
-import Mathlib.Logic.Equiv.Defs
+import Freigen.Iso
 
 namespace Freigen
 

@@ -130,7 +130,7 @@ private theorem ite_const {out : L.Tp} {α' : Type} {Ri : M.V out → α' → Pr
   rw [Expr.denote_ite]
   simp only [bind_assoc]
   refine .tick (hs h' hle _ _ _ fun h'' hle' v a hR => ?_)
-  exact hk v a hR h'' (_root_.le_trans hle hle') S K tK (hK.mono hle')
+  exact hk v a hR h'' (Heap.le_trans hle hle') S K tK (hK.mono hle')
 
 /-- A loop, by one unfolding: the body is certified on the current state, and
 on each of its results, the loop's next step (another iteration, or the
@@ -145,7 +145,7 @@ theorem loop_unfold {c : L.Tp} {β : Type} {body : M.V c → Expr L M.V γ (.pro
   simp only [bind_assoc]
   refine .tick ?_
   refine hb h' hle g _ _ fun h'' hle' v b hR => ?_
-  have := hk v b hR h'' (_root_.le_trans hle hle') g K tK (hK.mono hle')
+  have := hk v b hR h'' (Heap.le_trans hle hle') g K tK (hK.mono hle')
   cases hv : v.2 <;> simp only [hv, cond_true, cond_false] at this ⊢ <;> exact this
 
 /-- What one iteration from counter `i` returns: the next counter and

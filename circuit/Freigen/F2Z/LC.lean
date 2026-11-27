@@ -1,4 +1,5 @@
 import Freigen.Wheels
+import Freigen.F2Z.TreeMap
 import Mathlib.Algebra.Module.Basic
 import Mathlib.Algebra.Module.LinearMap.Defs
 import Mathlib.Algebra.BigOperators.Ring.Finset

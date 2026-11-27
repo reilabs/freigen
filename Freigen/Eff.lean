@@ -248,15 +248,17 @@ protected def casesOn
   rcases x with ⟨tag, fields⟩
   cases tag with
   | ret a =>
-    convert ret a
-    simp only [Step.ret]
-    congr 2
-    ext a; cases a
+    have h : Step.ret (E := E) (Y := Y) a = ⟨_, fields⟩ := by
+      simp only [Step.ret]
+      congr 1
+      funext a; cases a
+    exact h ▸ ret a
   | op e =>
-    convert op e (fun t i => fields (.inr ⟨t, i⟩)) (fun o => fields (.inl o))
-    simp only [Step.op]
-    congr 2
-    ext a; cases a <;> rfl
+    have h : Step.op (E := E) (Y := Y) e (fun t i => fields (.inr ⟨t, i⟩)) (fun o => fields (.inl o)) = ⟨_, fields⟩ := by
+      simp only [Step.op]
+      congr 1
+      funext a; cases a <;> rfl
+    exact h ▸ op e _ _
 
 @[simp]
 theorem map_ret
